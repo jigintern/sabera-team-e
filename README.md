@@ -40,7 +40,7 @@ cd samples/kmp
 | `samples/kmp/app/` | team-e の実装ベース（Kotlin + Compose） |
 | `samples/kmp/snippets/` | ドキュメント用のコード例。アプリではない |
 | `samples/flutter/` | Flutter からの利用サンプル。team-e では使わない |
-| `docs/` | SDK のドキュメントサイト（GitHub Pages に自動デプロイ） |
+| `docs/` | SDK のドキュメントサイト（公開はせず手元で読む） |
 
 ## SDK について
 

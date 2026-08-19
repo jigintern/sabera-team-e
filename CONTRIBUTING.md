@@ -111,7 +111,9 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 | 決まった技術的前提・制約 | [AGENTS.md](AGENTS.md) |
 | SDK の使い方・API リファレンス | `docs/`（SDK 側の話なので team-e の仕様は混ぜない） |
 
-`docs/` の書き方の作法 → [docs/authoring.md](docs/authoring.md)。要点：
+`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。読むときは手元で Jekyll を立てる。
+
+書き方の作法 → [docs/authoring.md](docs/authoring.md)。要点：
 
 - 公開 API 名は**バッククォートで囲むだけ**で該当ページにリンクされる。`[...](...)` は書かない
 - コード例は Markdown に直接書かない。出処は `samples/kmp/snippets/` の Kotlin

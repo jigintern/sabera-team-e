@@ -28,7 +28,7 @@
 | `samples/kmp/app/` | ここを書き換えて育てる |
 | `samples/kmp/snippets/` | ドキュメント用コード例。**アプリではない**（壊すと CI が落ちる） |
 | `samples/flutter/` | Flutter 版サンプル。team-e では使わない（参照用に残す） |
-| `docs/` | Jekyll (just-the-docs) 製ドキュメントサイト。GitHub Pages に自動デプロイ |
+| `docs/` | Jekyll (just-the-docs) 製ドキュメントサイト。公開はせず手元で読む |
 | `docs/api/` | SDK API リファレンス。雛形は `scripts/gen-api-docs.py` が生成 |
 | `scripts/` | ドキュメント生成・同期スクリプト（Python 3） |
 | `Package.swift` | iOS 向け SPM 定義（KMMBridge 生成。**手で編集しない**） |
@@ -176,7 +176,6 @@ CI（`.github/workflows/docs.yml`）が回すもの：
 
 - `python3 scripts/sync-snippets.py --check` — Kotlin のコード例と `docs/` の差分（全 PR と main への push）
 - `bundle exec jekyll build` — サイトがビルドできるか（PR のみ）
-- GitHub Pages へのデプロイ（main のみ）
 
 **コード例のコンパイルと ktlint は CI から外している**：
 
@@ -202,7 +201,8 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 その他：
 
 - `docs/**` の Markdown では公開 API 名をバッククォートで囲むだけで自動リンクされる（`docs/_plugins/api_autolink.rb`）。`[...](...)` は書かない
-- `main` への push で GitHub Pages に自動デプロイされる
+- **GitHub Pages への公開はしていない。** SDK ドキュメントは上流が公開しており、team-e が二重に出す必要がないため
+- 読むときは `cd docs && bundle exec jekyll serve`
 
 ## 未決定事項
 
