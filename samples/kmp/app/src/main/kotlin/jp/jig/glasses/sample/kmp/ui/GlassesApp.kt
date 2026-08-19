@@ -11,6 +11,8 @@ import app.jigglass.glass.GlassManager
 private enum class ConnectedScreen {
     COMMAND,
     IMAGE,
+    NAVI,
+    IMU,
 }
 
 @Composable
@@ -29,9 +31,21 @@ fun GlassesApp(manager: GlassManager) {
             manager = manager,
             client = currentClient,
             onOpenImageScreen = { screen = ConnectedScreen.IMAGE },
+            onOpenNaviScreen = { screen = ConnectedScreen.NAVI },
+            onOpenImuScreen = { screen = ConnectedScreen.IMU },
         )
 
         ConnectedScreen.IMAGE -> ImageScreen(
+            client = currentClient,
+            onBack = { screen = ConnectedScreen.COMMAND },
+        )
+
+        ConnectedScreen.NAVI -> NaviScreen(
+            client = currentClient,
+            onBack = { screen = ConnectedScreen.COMMAND },
+        )
+
+        ConnectedScreen.IMU -> ImuScreen(
             client = currentClient,
             onBack = { screen = ConnectedScreen.COMMAND },
         )

@@ -36,7 +36,8 @@
 ## 上流 SDK との同期状況
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（このリポジトリの元）
-- **`57998a2`（SDK 0.0.12）時点まで取り込み済み**
+- 上流の公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>（`docs/` をビルドしたもの。0.1.0 に追従済み）
+- **`ae374d2`（SDK 0.1.0）時点まで取り込み済み**
 - team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
 - `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
 
@@ -120,6 +121,7 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 ## グラスに何を出せるか
 
 **team-e の仕様を左右する最重要事項。** 0.0.11 で画像送信が入り、**星図をグラスに出す道が開いた**。
+0.1.0 で **6DoF（グラスの姿勢）** が解放された。
 
 ### 画像を出す（0.0.11 で追加、0.0.12 で簡素化）
 
@@ -138,12 +140,31 @@ fun sendImage(width: Int, height: Int, grayscale: ByteArray)
 
 → 星座線と星の点を描くには足りるが、**196x196 / 8階調に収まる図案**を前提に設計する必要がある。
 
+### ナビページ経由で画像を出す（0.0.13 で追加）
+
+```kotlin
+fun enterNavigationPage()
+fun sendNaviStatus(status: CommandManager.NaviStatus)
+fun sendNavi(maneuverIcon, instructionText, distanceText, estimatedArrivalText, timeAndDistanceText,
+             bitmapWidth: Int? = null, bitmapHeight: Int? = null, grayscale: ByteArray? = null)
+fun sendNaviLargeImage(width: Int, height: Int, grayscale: ByteArray)
+```
+
+- 渡し方は `sendImage` と同じ（1画素1バイトのグレースケール。量子化と圧縮は SDK 側）
+- `sendNavi` の地図は **255 まで**、`sendNaviLargeImage` は上流サンプルが **240x240** を送っている
+- **画像表示ページより大きい画像を出せる**が、ナビ画面の枠・進行方向アイコン・案内テキストが一緒に出る。
+  星図だけを見せる用途には向かない
+- `sendNaviStatus(START)` にしないと `sendNavi` の内容は表示されない
+- **誰も実機で試していない。実際の上限も見え方も未確認**
+
 ### テキストを出す
 
 - `enterEmptyScreenPage()` + `sendEmptyScreenContent(content: String)` — **汎用テキストページ（0.0.11 追加）**
   - 200バイト超は分割して送られる
   - 用途が限定されないので、解説文の表示先の第一候補
-- 用途別ページもある — Teleprompter / AI / AI Chat / Translate / Meeting / Notification
+- 用途別ページもある — Teleprompter / AI Chat / Translate / Navigation
+- **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファームが対応していないため）。
+  `sendAIContent` / `sendMeeting` は残っているが、ページを開く手段が無いので実質使えない
 - Teleprompter は行送り・進捗・時刻の API が揃っている（`sendTeleprompterLine` など）
 
 ### 入力を取る
@@ -152,16 +173,35 @@ fun sendImage(width: Int, height: Int, grayscale: ByteArray)
 - グラスのマイク — `openGlassMic()` / `closeGlassMic()` / `GlassClient.micChannel`
 - 電源イベント、リモコンイベントのリスナー
 
-### 取れないもの（0.0.12 時点）
+### グラスの姿勢を取る（0.1.0 で追加）
+
+```kotlin
+fun startImuData()
+fun stopImuData()
+val imuData: SharedFlow<CommandManager.ImuData>
+val imuDataStarted: StateFlow<Boolean>
+```
+
+- 1 サンプル = 加速度[mg] / 角速度[dps] / **ピッチ[度]** / **ヨー[度]** / AR 起動からの経過時間[ms]
+- **ヨーは磁力計が無いのでドリフトする**（±180 で折り返す）。**絶対方位はスマホのコンパスから取るしかない**
+- ピッチは取付補正済みで**上向きが負**
+- 並べ替えや間隔の計算は受信時刻ではなく `timestampMs` を使う
+- 送信キューが詰まるとグラス側がサンプルを捨てる。**指定した周期どおりには届かない**
+- **FEATURE_VERSION 2.0.0 以上のファームが対象。** それ未満では `startImuData()` を呼んでも何も起きない
+- 切断するとグラス側で止まる。再接続後に続けるなら呼び直す
+- `enterImuDebugPage()` は**ページを開くだけ**で、値はこの API から取る
+
+### 取れないもの（0.1.0 時点）
 
 - **カメラ映像** — グラスから画像は取れない
 - **音声出力** — `openGlassMic` / `micChannel` は入力のみ。**音を鳴らす API は無い**
-- **グラスの姿勢・方位** — `enterImuDebugPage()` は**ページを開くだけ**で値は取れない
-- ただし**六軸センサ（加速度＋ジャイロ）を取る API が実装中**（チーム情報）。解放されれば姿勢が取れる
+- **絶対方位** — 6DoF のヨーはドリフトするので方位には使えない
 
 ### 設計への含意
 
 - 星座の特定 = **スマホのセンサー（方位・傾き・位置・時刻）から計算**
+- グラスの 6DoF が使えるようになったので、**ピッチはグラスから取れる**。ただし**方位はスマホのコンパスが要る**
+  - 首を回すとグラスだけが動くので、スマホとグラスで姿勢が食い違う。どちらを正とするかは未決定
 - グラスへの出力 = **196x196 の星図画像**＋**テキスト解説**の組み合わせ
 - 画像送信が使えない事態（サイズ制約、エンコード負荷、ファーム差異）に備え、**テキストだけでも成立する経路を残す**
 - → **星座特定・解説生成とグラス出力を分離する。** 出力層だけ差し替えられる形にしておく
@@ -170,6 +210,7 @@ fun sendImage(width: Int, height: Int, grayscale: ByteArray)
 
 - 画像送信は**まだ team-e の誰も実機で試していない**。動作を断定しない
 - `sendImage` に渡すのはグレースケール。**RLE エンコーダを自前で書かない**（0.0.12 で SDK 側に入った）
+- 6DoF も 0.1.0 で入ったばかりで**実機未確認**。手元のファームの FEATURE_VERSION も確かめていない
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
 
@@ -202,14 +243,17 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 その他：
 
 - `docs/**` の Markdown では公開 API 名をバッククォートで囲むだけで自動リンクされる（`docs/_plugins/api_autolink.rb`）。`[...](...)` は書かない
-- **GitHub Pages への公開はしていない。** SDK ドキュメントは上流が公開しており、team-e が二重に出す必要がないため
-- 読むときは `cd docs && bundle exec jekyll serve`
+- **GitHub Pages への公開はしていない。** SDK ドキュメントは上流が
+  <https://jig-sabera.github.io/sabera-sdk/> で公開しており、team-e が二重に出す必要がないため
+- 読むだけなら上流の公開サイトが早い。`docs/` を直して見た目を確かめたいときだけ `cd docs && bundle exec jekyll serve`
 
 ## 未決定事項
 
 決まったらこのファイルを更新する。エージェントは勝手に埋めない。
 
 - 196x196 / 3bit グレースケールで星図をどう描くか（星の等級表現、星座線、文字の可読性）
+- 星図の出し先 — 画像表示ページ（196x196、余計な表示なし）かナビページ（240x240 だがナビの枠が付く）か
+- グラスの 6DoF とスマホのセンサーをどう組み合わせるか（ピッチはグラス、方位はスマホ、で足りるか）
 - 音声解説をどこから鳴らすか（SDK に出力 API が無い）
 - 星図の計算方法（自前実装 / ライブラリ / サーバー API）と星座データの出処
 - 「AI にお願いする」の入力経路 — グラスのマイク（`openGlassMic`）かスマホ側か

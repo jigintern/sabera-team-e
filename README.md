@@ -16,8 +16,11 @@
 - SDK 0.0.11 で **画像送信 API**（`enterImageDisplayPage` / `sendImage`）が追加され、**星図をグラスに出す道が開いた**
   - **0.0.12 で簡素化**され、1 画素 1 バイトのグレースケールを渡すだけでよくなった（量子化と圧縮は SDK 側）
   - ただしサイズ上限 **196x196**、グラス側は **3bit（8 階調）**という制約は変わらない
-- **グラスの六軸センサ（加速度＋ジャイロ）を取る API が実装中**（チーム情報）
-- 上流 SDK は **0.0.12 まで取り込み済み**
+- **SDK 0.1.0 で 6DoF が解放された** — `startImuData` / `imuData` でグラスのピッチ・ヨー・加速度・角速度が取れる
+  - ただし**磁力計が無いのでヨーはドリフトする**。絶対方位はスマホのコンパスから取る
+- **0.0.13 でナビページが増えた** — `sendNaviLargeImage` はもう少し大きい画像（上流サンプルは 240x240）を送れる
+- **0.0.14 は破壊的** — ファームが対応していない `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された
+- 上流 SDK は **0.1.0 まで取り込み済み**
 - 詳細 → [AGENTS.md](AGENTS.md#グラスに何を出せるか)
 
 ## はじめかた
@@ -47,7 +50,10 @@ cd samples/kmp
 - このアプリは **Sabera App SDK**（`jp.jig.sabera.app.sdk:sabera-app-core`）の上に作る
 - 上流リポジトリ → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)
 
-ドキュメント（0.0.12 時点）：
+上流が公開しているドキュメントサイト → **<https://jig-sabera.github.io/sabera-sdk/>**
+（このリポジトリの `docs/` をビルドしたもの。0.1.0 に追従済み）
+
+手元のファイル（0.1.0 時点）：
 
 - [Getting Started](docs/getting-started.md) — セットアップと接続の流れ
 - [API リファレンス](docs/api/) — 公開 API の一覧
