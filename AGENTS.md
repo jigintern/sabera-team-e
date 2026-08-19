@@ -36,8 +36,8 @@
 ## 上流 SDK との同期状況
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（このリポジトリの元）
-- 上流の公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>（`docs/` をビルドしたもの。0.1.0 に追従済み）
-- **`ae374d2`（SDK 0.1.0）時点まで取り込み済み**
+- 上流の公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>（`docs/` をビルドしたもの）
+- **`0f8f2d3`（SDK 0.2.1）時点まで取り込み済み**
 - team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
 - `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
 
@@ -47,12 +47,29 @@
 git remote add upstream https://github.com/jig-SABERA/sabera-sdk   # 初回のみ
 git remote set-url --push upstream no_push                          # 誤 push 防止
 git fetch upstream
-git checkout upstream/main -- docs samples scripts .github Package.swift NOTICE LICENSE
-git checkout HEAD -- .gitignore   # team-e 側の docs/_site 除外を戻す
+git checkout upstream/main -- docs samples scripts
+
+# 上流が消したファイルは checkout では消えない。残ったものを洗い出す
+comm -23 <(git ls-files docs samples scripts | sort) \
+         <(git ls-tree -r --name-only upstream/main -- docs samples scripts | sort)
+# ↑ team-e 所有のファイル（docs/team-e/ など）が混ざっていないか見てから git rm
+
+# 上流は docs/_site を追跡しているが team-e では追跡しない
+git rm -r --cached docs/_site && rm -rf docs/_site
 ```
 
-- **`README.md` / `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` は checkout の対象に入れない**
-- `.github/workflows/docs.yml` は team-e 側で変更している（後述）。上書きしたら CI 方針を入れ直す
+**checkout の対象に入れてはいけないもの**（上書きすると team-e の変更が消える）：
+
+| パス | 理由 |
+|---|---|
+| `README.md` / `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` | team-e 独自ファイル |
+| `.github/workflows/docs.yml` | team-e 側で CI 方針を変えている（後述） |
+| `NOTICE` | team-e が星表データ（d3-celestial / XHIP）の帰属を足している |
+| `.gitignore` | `docs/_site/` と `tools/.cache/` の除外は team-e 側の追加 |
+
+- `Package.swift` / `LICENSE` は上流が変えたときだけ個別に取り込む
+- **`git checkout <tree> -- <path>` は上流で削除されたファイルを消さない。** 0.0.14 で撤去された
+  `enter-ai-page.md` などが手元に居残った実例があるので、上の `comm` は毎回走らせる
 
 ## 開発コマンド
 
@@ -115,13 +132,15 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 - `gestureEvents` は `SharedFlow`。購読開始前のジェスチャーは受け取れない
 - `setDevicePersistence` を省くとインメモリになり、プロセスをまたぐと接続先を忘れる
 - コンテンツはページを開いてから送る。開いていないと表示されない
+  - **例外 = 分割レイアウトと自由配置キャンバス（0.1.1 / 0.2.0）。** 送るだけで画面が切り替わる
 
 詳細は `docs/getting-started.md` と `docs/api/`。
 
 ## グラスに何を出せるか
 
 **team-e の仕様を左右する最重要事項。** 0.0.11 で画像送信が入り、**星図をグラスに出す道が開いた**。
-0.1.0 で **6DoF（グラスの姿勢）** が解放された。
+0.1.0 で **6DoF（グラスの姿勢）** が解放され、0.1.1 / 0.2.0 で **分割レイアウト**と
+**576×360 の自由配置キャンバス**（テキストのみ）が入った。
 
 ### 画像を出す（0.0.11 で追加、0.0.12 で簡素化）
 
@@ -170,6 +189,41 @@ fun sendNaviLargeImage(width: Int, height: Int, grayscale: ByteArray)
   `sendAIContent` / `sendMeeting` は残っているが、ページを開く手段が無いので実質使えない
 - Teleprompter は行送り・進捗・時刻の API が揃っている（`sendTeleprompterLine` など）
 
+### 分割レイアウトにテキストを出す（0.1.1 で追加）
+
+```kotlin
+fun sendLayout(mode: CommandManager.LayoutMode, texts: Map<Int, String> = emptyMap())
+fun sendLayoutTexts(texts: Map<Int, String>)
+fun closeLayout()
+```
+
+- `FULL` / `TOP_BOTTOM` / `LEFT_RIGHT` / `QUAD` の 4 分割。領域番号は分割ごとに意味が変わる
+  （`TOP_BOTTOM` なら 0=上・1=下、`QUAD` なら 0=左上・1=右上・2=左下・3=右下）
+- **`sendLayout` を送るだけで画面が切り替わる。** ページを先に開く必要はない
+- `sendLayout` はレイアウトを作り直すので**全領域のテキストが消える**。差し替えだけなら `sendLayoutTexts`
+- **分割して送れないので、テキストの合計は 190 バイト程度まで**
+- `FEATURE_VERSION 2.0.0` 以上のファームが対象
+
+### 自由配置キャンバスにテキストを出す（0.2.0 で追加）
+
+```kotlin
+fun sendCanvas(elements: List<CommandManager.CanvasElement>)
+fun sendCanvasElements(elements: List<CommandManager.CanvasElement>)
+fun clearCanvas()
+fun closeCanvas()
+```
+
+- `CanvasElement(id, x, y, width, height, text)` — **置けるのはテキストだけ。画像は置けない**
+- **キャンバスは 576×360、左上が原点。** 画像表示ページ（196x196）よりずっと広い
+- id は **0..7 の 8 個まで**。はみ出した矩形は端で切られ、外に出た要素は描かれない
+- `sendCanvas` は全消去してから並べ直す。`sendCanvasElements` は**差分更新**
+  （既存 id は座標ごと差し替え、テキストを空にするとその id が消える）
+- **テキストの合計は 190 バイト程度まで。** 収まらないときは `sendCanvasElements` で 1 要素ずつ積む
+- `FEATURE_VERSION` は **2.1.0** 以上（レイアウトより新しいファームが要る）
+
+→ **星座名のラベルを任意座標に置ける道が開いた。** ただしテキストのみなので、
+星図そのものは 196x196 の画像ページから出すしかなく、**同時には出せない**。
+
 ### 入力を取る
 
 - **6DoF センサー（0.1.0 で追加）**
@@ -190,30 +244,13 @@ val imuDataStarted: StateFlow<Boolean>
   - **ヨーは AR 起動基準の相対値。** 磁力計は入っていないので、絶対方位にはキャリブレーションが要る
   - ファームは `FEATURE_VERSION 2.0.0` 以上が対象。それ未満では何も起きない
   - 切断するとグラス側で止まるので、再接続後も続けるなら呼び直す
+  - `enterImuDebugPage()` は**ページを開くだけ**で、値はこの API から取る
   - サンプル実装 — `samples/kmp/app/.../ui/ImuScreen.kt`
 - ジェスチャー — `gestureEvents`（`SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`）
 - グラスのマイク — `openGlassMic()` / `closeGlassMic()` / `GlassClient.micChannel`
 - 電源イベント、リモコンイベントのリスナー
 
-### グラスの姿勢を取る（0.1.0 で追加）
-
-```kotlin
-fun startImuData()
-fun stopImuData()
-val imuData: SharedFlow<CommandManager.ImuData>
-val imuDataStarted: StateFlow<Boolean>
-```
-
-- 1 サンプル = 加速度[mg] / 角速度[dps] / **ピッチ[度]** / **ヨー[度]** / AR 起動からの経過時間[ms]
-- **ヨーは磁力計が無いのでドリフトする**（±180 で折り返す）。**絶対方位はスマホのコンパスから取るしかない**
-- ピッチは取付補正済みで**上向きが負**
-- 並べ替えや間隔の計算は受信時刻ではなく `timestampMs` を使う
-- 送信キューが詰まるとグラス側がサンプルを捨てる。**指定した周期どおりには届かない**
-- **FEATURE_VERSION 2.0.0 以上のファームが対象。** それ未満では `startImuData()` を呼んでも何も起きない
-- 切断するとグラス側で止まる。再接続後に続けるなら呼び直す
-- `enterImuDebugPage()` は**ページを開くだけ**で、値はこの API から取る
-
-### 取れないもの（0.1.0 時点）
+### 取れないもの（0.2.1 時点）
 
 - **カメラ映像** — グラスから画像は取れない
 - **音声出力** — `openGlassMic` / `micChannel` は入力のみ。**音を鳴らす API は無い**
@@ -227,6 +264,8 @@ val imuDataStarted: StateFlow<Boolean>
   - **スマホのコンパスでは代替できない。** スマホの磁気が示すのはスマホの方位で、頭とスマホの相対姿勢は未知
   - 詳しくは [docs/team-e/coordinate-system.md](docs/team-e/coordinate-system.md)
 - グラスへの出力 = **196x196 の星図画像**＋**テキスト解説**の組み合わせ
+  - テキストの置き場は 0.2.0 で増えた — 全画面 / 分割レイアウト / **576×360 の自由配置キャンバス**
+  - キャンバスなら**星座名を視野内の座標に合わせて置ける**。画像を出さない「ラベルだけ」の経路が成立する
 - 画像送信が使えない事態（サイズ制約、エンコード負荷、ファーム差異）に備え、**テキストだけでも成立する経路を残す**
 - → **星座特定・解説生成とグラス出力を分離する。** 出力層だけ差し替えられる形にしておく
 
@@ -235,6 +274,9 @@ val imuDataStarted: StateFlow<Boolean>
 - 画像送信は**まだ team-e の誰も実機で試していない**。動作を断定しない
 - `sendImage` に渡すのはグレースケール。**RLE エンコーダを自前で書かない**（0.0.12 で SDK 側に入った）
 - 6DoF も 0.1.0 で入ったばかりで**実機未確認**。手元のファームの FEATURE_VERSION も確かめていない
+- 分割レイアウトとキャンバスも**実機未確認**。キャンバスは `FEATURE_VERSION 2.1.0` 以上が要るので、
+  6DoF が動くファームでも動かない可能性がある
+- キャンバスに**画像は置けない**。`CanvasElement` はテキストだけなので、星図を置く前提で設計しない
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
 
@@ -282,7 +324,8 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 - 星図の計算方法（自前実装 / ライブラリ / サーバー API）と星座データの出処
 - 「AI にお願いする」の入力経路 — グラスのマイク（`openGlassMic`）かスマホ側か
 - 解説文の生成に使う LLM と呼び出し場所（端末直かバックエンド経由か）
-- 解説テキストの表示先 — `enterEmptyScreenPage` / AI Chat / Teleprompter
+- 解説テキストの表示先 — `enterEmptyScreenPage` / AI Chat / Teleprompter / 分割レイアウト / キャンバス
+- 星座名ラベルをキャンバス（576×360、テキストのみ、8 要素・190 バイトまで）で出すか
 - 画像とテキストの出し分け（同時には出せない。ページ遷移が要る）
 - スマホ側 UI の役割（星図プレビューを出すか、コントローラに徹するか）
 - 位置・方位のパーミッション設計（現状の Manifest は BLE 系と `ACCESS_FINE_LOCATION` のみ）
