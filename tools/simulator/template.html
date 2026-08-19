@@ -87,7 +87,7 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
 <div class="wrap">
 <header>
   <h1>天球インスペクタ</h1>
-  <p class="sub">SABERA をかけている人に何が見えるかを、実機の前にブラウザで確かめる。空と地上の景色を背景に、グラスが出す 196×196 の緑単色をそのまま重ねている。<strong>波導ディスプレイは黒が透明</strong>なので、暗い画素の向こうには景色が透ける。</p>
+  <p class="sub">SABERA をかけている人に何が見えるかを、実機の前にブラウザで確かめる。空と地上の景色を背景に、グラスが出す 196×196 の緑単色をそのまま重ねている。表示パネル自体は <strong>576×360</strong> で、<strong>196×196 はその一部でしかない</strong>（点線がパネル、実線が画像）。<strong>波導ディスプレイは黒が透明</strong>なので、暗い画素の向こうには景色が透ける。</p>
   <div class="stats">
     <span>恒星 <b id="s-stars">—</b></span>
     <span>星座 <b id="s-cons">—</b></span>
@@ -106,7 +106,8 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
       <div class="readout">
         <span>方位 <b id="h-az">—</b></span>
         <span>高度 <b id="h-alt">—</b></span>
-        <span>表示面 <b id="h-disp">—</b></span>
+        <span>パネル <b id="h-disp">—</b></span>
+        <span>画像の画角 <b id="h-img">—</b></span>
         <span>肉眼で見える星 <b id="h-naked">—</b> 個</span>
         <span>地方恒星時 <b id="h-lst">—</b></span>
       </div>
@@ -116,8 +117,15 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
       <div class="panel">
         <h4>グラス</h4>
         <div class="field">
-          <label for="disp">表示面の画角<span id="v-disp"></span></label>
-          <input type="range" id="disp" min="8" max="40" value="20" step="1">
+          <label for="disp">パネルの画角（横）<span id="v-disp"></span></label>
+          <input type="range" id="disp" min="10" max="70" value="34" step="1">
+        </div>
+        <div class="field">
+          <label for="fit">196×196 の出かた</label>
+          <select id="fit">
+            <option value="one">等倍（576 のうち 196 px）</option>
+            <option value="fill">パネルの高さいっぱいに拡大</option>
+          </select>
         </div>
         <div class="field">
           <label for="fov">星図に詰める画角<span id="v-fov"></span></label>
@@ -202,7 +210,8 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
 <section>
   <p class="eyebrow">忠実でないところ</p>
   <div class="notes">
-    <div class="note"><h3>表示面の画角が未確認</h3><p>196×196 が視野の何度を占めるかは SDK チームに未確認。初期値 20° は仮置きで、実機で測ったら合わせる。</p></div>
+    <div class="note"><h3>パネルの画角が未確認</h3><p>表示パネルが 576×360 画素であることは SDK 0.2.0 のキャンバスから分かったが、<strong>それが視野の何度を占めるかは未確認</strong>。初期値 34° は仮置き。</p></div>
+    <div class="note"><h3>196×196 の出かたが未確認</h3><p>パネルのどこに、等倍で出るのか拡大されるのかが分からない。<strong>点線がパネル、実線が画像</strong>。切り替えて両方見られるようにしてある。</p></div>
     <div class="note"><h3>緑の色味は仮</h3><p><code>rgb(56,255,116)</code> は一般的な緑マイクロディスプレイを想定した値。実機を見て決める。</p></div>
     <div class="note"><h3>量子化の中身は不明</h3><p>SDK 側がディザをかけるかどうか分からないので、単純な 8 段丸めにしている。</p></div>
     <div class="note"><h3>景色は作りもの</h3><p>建物と稜線は方位から決まる手続き生成。実在の地形ではないが、遮蔽の起きかたを見るには足りる。</p></div>
@@ -315,7 +324,7 @@ function drawGround(ctx,b,k,w,h,env){
 }
 
 /* ---- 状態 -------------------------------------------------------- */
-const S={az:180,alt:35,fov:20,dispFov:20,eyeFov:75,mag:5,place:0,env:'suburb',
+const S={az:180,alt:35,fov:20,dispFov:34,fit:'one',eyeFov:75,mag:5,place:0,env:'suburb',
          when:new Date(),precess:true,lines:true,names:false,frame:true,sky:true};
 let precessed=null, precessKey='';
 function ensurePrecessed(D){
@@ -330,7 +339,10 @@ function context(){
   return {p, D, lst:((gmstHours(D)*15+p.lon)%360+360)%360};
 }
 
-/* ---- グラスが出す 196x196 ---------------------------------------- */
+/* ---- グラスが出す 196x196 ----------------------------------------
+   表示パネルそのものは 576x360（SDK 0.2.0 のキャンバスの座標系から判明）。
+   196x196 がそのどこに、等倍で出るのか拡大されるのかは実機未確認。       */
+const PANEL_W=576, PANEL_H=360, GLASS_PX=196;
 const buf=document.createElement('canvas'); buf.width=buf.height=196;
 const bctx=buf.getContext('2d',{willReadFrequently:true});
 const GLASS_GREEN=[56,255,116];
@@ -448,19 +460,29 @@ function drawEye(){
 
   drawGround(ectx,b,k,w,h,S.env);
 
-  // 表示面。波導は黒が透明なので加算で重ねる
-  const side=w*(2*Math.tan(S.dispFov*RAD/4))/(2*Math.tan(S.eyeFov*RAD/4));
+  // 表示パネルは 576x360。画像表示ページの 196x196 はその一部でしかない
+  const scale=v=>w*(2*Math.tan(v*RAD/4))/(2*Math.tan(S.eyeFov*RAD/4));
+  const panelW=scale(S.dispFov), panelH=panelW*PANEL_H/PANEL_W;
+  const side=S.fit==='fill' ? panelH : panelW*GLASS_PX/PANEL_W;
+  const px=(w-panelW)/2, py=(h-panelH)/2;
   const x=(w-side)/2, y=(h-side)/2;
+
+  // 波導は黒が透明なので加算で重ねる
   ectx.save();
   ectx.globalCompositeOperation='lighter';
   ectx.imageSmoothingEnabled=false;
   ectx.drawImage(buf,x,y,side,side);
   ectx.restore();
   if(S.frame){
-    ectx.strokeStyle='rgba(56,255,116,.34)'; ectx.lineWidth=1;
+    ectx.strokeStyle='rgba(56,255,116,.18)'; ectx.lineWidth=1;
+    ectx.setLineDash([4,4]); ectx.strokeRect(px+.5,py+.5,panelW-1,panelH-1);
+    ectx.setLineDash([]);
+    ectx.strokeStyle='rgba(56,255,116,.34)';
     ectx.strokeRect(x+.5,y+.5,side-1,side-1);
   }
-  return {naked, side};
+  // 画像が占める実効画角。逆投影で戻す
+  const imgFov=4*Math.atan(side*(2*Math.tan(S.eyeFov*RAD/4))/w/2)/RAD;
+  return {naked, side, imgFov};
 }
 
 /* ---- まとめ ------------------------------------------------------ */
@@ -470,23 +492,24 @@ const glassBig=document.getElementById('glassBig').getContext('2d');
 function render(){
   const inView=drawGlass();
   for(const c of [glass,glassBig]){ c.clearRect(0,0,196,196); c.drawImage(buf,0,0); }
-  const {naked}=drawEye();
+  const {naked,imgFov}=drawEye();
   const {lst}=context();
 
   document.getElementById('h-az').textContent=S.az.toFixed(0)+'°';
   document.getElementById('h-alt').textContent=S.alt.toFixed(0)+'°';
-  document.getElementById('h-disp').textContent=S.dispFov+'°';
+  document.getElementById('h-disp').textContent=S.dispFov+'° / 576×360';
+  document.getElementById('h-img').textContent=imgFov.toFixed(1)+'°';
   document.getElementById('h-naked').textContent=naked;
   const lh=lst/15;
   document.getElementById('h-lst').textContent=
     String(Math.floor(lh)).padStart(2,'0')+'h'+String(Math.floor(lh%1*60)).padStart(2,'0')+'m';
 
-  // 星図の画角と表示面の画角がずれると、重ねても実際の空と一致しない
-  const flag=document.getElementById('flag'), diff=S.fov-S.dispFov;
-  if(Math.abs(diff)>=1){
+  // 星図に詰めた画角と、画像が実際に占める画角がずれると、重ねても空と一致しない
+  const flag=document.getElementById('flag');
+  if(Math.abs(S.fov-imgFov)>=1){
     flag.classList.add('on');
-    flag.innerHTML = `星図に詰めた画角 <b>${S.fov}°</b> と表示面の画角 <b>${S.dispFov}°</b> が違うので、`+
-      `緑の星図は実際の空と <b>${(S.fov/S.dispFov).toFixed(2)} 倍</b>ずれて見える。`+
+    flag.innerHTML = `星図に詰めた画角 <b>${S.fov}°</b> に対し、196×196 が実際に占めるのは `+
+      `<b>${imgFov.toFixed(1)}°</b>。緑の星図は実際の空と <b>${(S.fov/imgFov).toFixed(2)} 倍</b>ずれて見える。`+
       `視界に重ねるなら、この 2 つを一致させる必要がある。`;
   } else flag.classList.remove('on');
 
@@ -520,6 +543,7 @@ function bindRange(id,key,fmt){
   el.addEventListener('input',sync); sync();
 }
 bindRange('disp','dispFov',v=>v+'°');
+document.getElementById('fit').addEventListener('change',e=>{S.fit=e.target.value; render()});
 bindRange('fov','fov',v=>v+'°');
 bindRange('mag','mag',v=>parseFloat(v).toFixed(1)+' 等');
 bindRange('eyefov','eyeFov',v=>v+'°');
