@@ -36,10 +36,22 @@
 ## 上流 SDK との同期状況
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（このリポジトリの元）
-- **このリポジトリのコードとドキュメントは SDK 0.0.10 時点のコピー**
-- **上流は 0.0.11 に上がっており、画像送信 API が追加されている**（後述）
-- `docs/api/` にも `samples/kmp/` の依存にも 0.0.11 の内容は入っていない
-- → **上流を取り込む作業が未実施。** SDK の話をするときは上流を確認する
+- **`a2e5713`（SDK 0.0.11）時点まで取り込み済み**
+- team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
+- `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
+
+上流を取り込み直すとき：
+
+```bash
+git remote add upstream https://github.com/jig-SABERA/sabera-sdk   # 初回のみ
+git remote set-url --push upstream no_push                          # 誤 push 防止
+git fetch upstream
+git checkout upstream/main -- docs samples scripts .github Package.swift NOTICE LICENSE
+git checkout HEAD -- .gitignore   # team-e 側の docs/_site 除外を戻す
+```
+
+- **`README.md` / `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` は checkout の対象に入れない**
+- `.github/workflows/docs.yml` は team-e 側で変更している（後述）。上書きしたら CI 方針を入れ直す
 
 ## 開発コマンド
 
@@ -155,23 +167,31 @@ fun sendImage(width: Int, height: Int, encodedBitmap: ByteArray)
 ### エージェントへの指示
 
 - 画像送信は**まだ team-e の誰も実機で試していない**。動作を断定しない
-- `sendImage` のエンコード（3bit グレースケール + RLE）は自前実装が要る。仕様の詳細は上流の
-  `docs/api/command-manager/send-image.md` を参照する
-- 0.0.11 の API はこのリポジトリの `docs/api/` にまだ無い。**上流を見る**
+- `sendImage` のエンコード（3bit グレースケール + RLE）は自前実装が要る。仕様は
+  `docs/api/command-manager/send-image.md`
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
 
-CI（`.github/workflows/docs.yml`）は **すべての PR と main への push** で実行：
+CI（`.github/workflows/docs.yml`）が回すもの：
 
-1. `:snippets:compileDebugKotlin` — コード例が SDK の実 API と合っているか
-2. `:snippets:ktlintCheck`
-3. `python3 scripts/sync-snippets.py --check` — Kotlin のコード例と `docs/` の差分
+- `python3 scripts/sync-snippets.py --check` — Kotlin のコード例と `docs/` の差分（全 PR と main への push）
+- `bundle exec jekyll build` — サイトがビルドできるか（PR のみ）
+- GitHub Pages へのデプロイ（main のみ）
+
+**コード例のコンパイルと ktlint は CI から外している**：
+
+- SDK が private な GitHub Packages にあり、取得に `read:packages` の PAT が要るため
+- team-e は全員ローカルに PAT を持っているので、検証は手元で行う
+
+```bash
+cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
+```
 
 よくある落とし方：
 
-- `samples/kmp/snippets/**` を直して `sync-snippets.py` を実行し忘れる → 3 で落ちる
-- `docs/api/**` のコードブロックを手で書き換える → 出処は Kotlin 側なので 3 で落ちる
-- `:snippets` をアプリコードの置き場と勘違いして壊す → 1 で落ちる
+- `samples/kmp/snippets/**` を直して `sync-snippets.py` を実行し忘れる → CI が落ちる
+- `docs/api/**` のコードブロックを手で書き換える → 出処は Kotlin 側なので CI が落ちる
+- `:snippets` をアプリコードの置き場と勘違いして壊す → CI では気づけない。**手元で Gradle を回す**
 
 編集してはいけない生成物：
 
@@ -188,7 +208,6 @@ CI（`.github/workflows/docs.yml`）は **すべての PR と main への push**
 
 決まったらこのファイルを更新する。エージェントは勝手に埋めない。
 
-- 上流 SDK 0.0.11 をいつ・どう取り込むか
 - 196x196 / 3bit グレースケールで星図をどう描くか（星の等級表現、星座線、文字の可読性）
 - RLE エンコーダを自前で書くか、上流にサンプルが出るのを待つか
 - 星図の計算方法（自前実装 / ライブラリ / サーバー API）と星座データの出処

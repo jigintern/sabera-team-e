@@ -9,32 +9,23 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: docs-${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # コード例のコンパイルと ktlint は CI から外している。SDK が private な GitHub Packages に
+  # あり、取得に read:packages の PAT が要るため。team-e は全員ローカルに PAT を持っているので、
+  # 検証は各自の手元で行う（CONTRIBUTING.md を参照）。
+  #
+  #     cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
+  #
+  # 貼り付け済みのコード例と docs/ の食い違いは認証なしで見られるので、ここに残す。
   snippets:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: gradle
-
-      # SDK は jig-SABERA/sabera-sdk-packages にある。GITHUB_TOKEN は自リポジトリの
-      # パッケージしか読めないため、read:packages を持つ PAT を Secrets から渡す
-      - name: コード例をコンパイルする
-        working-directory: samples/kmp
-        env:
-          ORG_GRADLE_PROJECT_GitHubPackagesUsername: ${{ github.actor }}
-          ORG_GRADLE_PROJECT_GitHubPackagesPassword: ${{ secrets.SDK_PACKAGES_TOKEN }}
-        run: ./gradlew --no-daemon :snippets:compileDebugKotlin :snippets:ktlintCheck
 
       - name: docs のコード例が最新か確かめる
         run: python3 scripts/sync-snippets.py --check

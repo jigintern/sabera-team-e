@@ -10,6 +10,7 @@
 - SDK 0.0.11 で **画像送信 API** が追加され、星図をグラスに出す道が開いた
   - ただし **196x196 / 3bit グレースケール**という制約付き
   - 詳細は [AGENTS.md](AGENTS.md#グラスに何を出せるか)
+- 上流 SDK は 0.0.11 まで取り込み済み
 
 ## 環境をつくる
 
@@ -69,6 +70,11 @@ git push -u origin feat/star-catalog
 ```
 
 - CI（`.github/workflows/docs.yml`）はすべての PR と main への push で回る。**落ちたまま放置しない**
+- **コード例のコンパイルと ktlint は CI から外してある**（SDK 取得に PAT が要るため）。手元で回す
+
+```bash
+cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
+```
 
 ### コミットメッセージ
 
@@ -129,9 +135,10 @@ cd docs && bundle install && bundle exec jekyll serve   # http://127.0.0.1:4000/
 - **CI の「docs のコード例が最新か確かめる」が落ちる**
   - `samples/kmp/snippets/` を直したあと `python3 scripts/sync-snippets.py` を忘れている
   - 実行して差分をコミットする
-- **CI の「コード例をコンパイルする」が落ちる**
+- **`:snippets` のコンパイルが手元で落ちる**
   - `samples/kmp/snippets/` が SDK の実 API と食い違っている
   - `:snippets` はドキュメント専用。アプリの都合で書き換えない
+  - CI では検出できないので、触ったら必ず手元で回す
 - **グラスの画面に何も出ない**
   - 送信先のページを先に開く必要がある（例: `enterEmptyScreenPage()` → `sendEmptyScreenContent()`）
   - 画像なら 196x196 を超えていないか。超えるとファーム側で弾かれて無表示になる

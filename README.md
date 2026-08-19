@@ -17,7 +17,7 @@
   - ただし **196x196 / 3bit グレースケール（8階調）/ RLE 圧縮**という制約付き
   - エンコードは呼び出し側で実装する必要がある
 - **グラスの姿勢・方位を取る API は無い**ので、方位はスマホ側センサーに依存する
-- このリポジトリの中身は **SDK 0.0.10 時点のコピー**。**0.0.11 の取り込みは未実施**
+- 上流 SDK は **0.0.11 まで取り込み済み**
 - 詳細 → [AGENTS.md](AGENTS.md#グラスに何を出せるか)
 
 ## はじめかた
@@ -45,9 +45,9 @@ cd samples/kmp
 ## SDK について
 
 - このアプリは **Sabera App SDK**（`jp.jig.sabera.app.sdk:sabera-app-core`）の上に作る
-- 上流リポジトリ → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（**最新 API はこちらを見る**）
+- 上流リポジトリ → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)
 
-このリポジトリ内のドキュメント（0.0.10 時点）：
+ドキュメント（0.0.11 時点）：
 
 - [Getting Started](docs/getting-started.md) — セットアップと接続の流れ
 - [API リファレンス](docs/api/) — 公開 API の一覧
