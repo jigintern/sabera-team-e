@@ -169,6 +169,25 @@ fun sendNaviLargeImage(width: Int, height: Int, grayscale: ByteArray)
 
 ### 入力を取る
 
+- **6DoF センサー（0.1.0 で追加）**
+
+```kotlin
+fun startImuData()
+fun stopImuData()
+val imuData: SharedFlow<CommandManager.ImuData>
+val imuDataStarted: StateFlow<Boolean>
+```
+
+  - **`startImuData()` を呼ぶまで `imuData` には何も流れない**
+  - 1 サンプルの中身 — `accelX/Y/ZMilliG`（加速度 [mg]）、`gyroX/Y/ZDps`（角速度 [dps]）、
+    `pitchDegrees`、`yawDegrees`、`timestampMs`
+  - **`timestampMs` は AR 起動からの経過時間。並べ替えと間隔の計算は受信時刻ではなくこれを使う**
+  - **送信キューが詰まるとグラス側がサンプルを捨てる。** 指定周期どおりには届かない
+  - **ロールは融合値として提供されない。** 必要なら 3 軸加速度から自前で出す
+  - **ヨーは AR 起動基準の相対値。** 磁力計は入っていないので、絶対方位にはキャリブレーションが要る
+  - ファームは `FEATURE_VERSION 2.0.0` 以上が対象。それ未満では何も起きない
+  - 切断するとグラス側で止まるので、再接続後も続けるなら呼び直す
+  - サンプル実装 — `samples/kmp/app/.../ui/ImuScreen.kt`
 - ジェスチャー — `gestureEvents`（`SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`）
 - グラスのマイク — `openGlassMic()` / `closeGlassMic()` / `GlassClient.micChannel`
 - 電源イベント、リモコンイベントのリスナー
@@ -195,13 +214,15 @@ val imuDataStarted: StateFlow<Boolean>
 
 - **カメラ映像** — グラスから画像は取れない
 - **音声出力** — `openGlassMic` / `micChannel` は入力のみ。**音を鳴らす API は無い**
-- **絶対方位** — 6DoF のヨーはドリフトするので方位には使えない
+- **絶対方位** — 6DoF に磁力計は無く、ヨーは起動基準の相対値でドリフトする
 
 ### 設計への含意
 
 - 星座の特定 = **スマホのセンサー（方位・傾き・位置・時刻）から計算**
-- グラスの 6DoF が使えるようになったので、**ピッチはグラスから取れる**。ただし**方位はスマホのコンパスが要る**
-  - 首を回すとグラスだけが動くので、スマホとグラスで姿勢が食い違う。どちらを正とするかは未決定
+- グラスの 6DoF が使えるようになったので、**ピッチとロール（＝仰角と傾き）はグラスから絶対値で取れる**（加速度計が重力を測るため）
+  - **方位（ヨー）だけは絶対基準が無い。** ここを天体アライメントで埋める
+  - **スマホのコンパスでは代替できない。** スマホの磁気が示すのはスマホの方位で、頭とスマホの相対姿勢は未知
+  - 詳しくは [docs/team-e/coordinate-system.md](docs/team-e/coordinate-system.md)
 - グラスへの出力 = **196x196 の星図画像**＋**テキスト解説**の組み合わせ
 - 画像送信が使えない事態（サイズ制約、エンコード負荷、ファーム差異）に備え、**テキストだけでも成立する経路を残す**
 - → **星座特定・解説生成とグラス出力を分離する。** 出力層だけ差し替えられる形にしておく
