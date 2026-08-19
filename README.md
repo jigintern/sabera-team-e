@@ -20,7 +20,11 @@
   - ただし**磁力計が無いのでヨーはドリフトする**。絶対方位はスマホのコンパスから取る
 - **0.0.13 でナビページが増えた** — `sendNaviLargeImage` はもう少し大きい画像（上流サンプルは 240x240）を送れる
 - **0.0.14 は破壊的** — ファームが対応していない `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された
-- 上流 SDK は **0.1.0 まで取り込み済み**
+- **0.1.1 / 0.2.0 でテキストの置き場が広がった** — 分割レイアウト（`sendLayout`）と
+  **576×360 の自由配置キャンバス**（`sendCanvas`）。送るだけで画面が切り替わる
+  - キャンバスは**テキストのみで画像は置けない**が、**星座名を任意座標に置ける**
+  - 8 要素まで・テキスト合計 190 バイトまで・`FEATURE_VERSION 2.1.0` 以上
+- 上流 SDK は **0.2.1 まで取り込み済み**
 - 詳細 → [AGENTS.md](AGENTS.md#グラスに何を出せるか)
 
 ## はじめかた
@@ -51,9 +55,9 @@ cd samples/kmp
 - 上流リポジトリ → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)
 
 上流が公開しているドキュメントサイト → **<https://jig-sabera.github.io/sabera-sdk/>**
-（このリポジトリの `docs/` をビルドしたもの。0.1.0 に追従済み）
+（このリポジトリの `docs/` をビルドしたもの）
 
-手元のファイル（0.1.0 時点）：
+手元のファイル（0.2.1 時点）：
 
 - [Getting Started](docs/getting-started.md) — セットアップと接続の流れ
 - [API リファレンス](docs/api/) — 公開 API の一覧
