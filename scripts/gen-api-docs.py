@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """docs/api 配下の API リファレンス雛形を生成する。
 
-シグネチャは SDK 0.2.1 の公開 API に合わせたもの。
+シグネチャは SDK 0.4.0 の公開 API に合わせたもの。
 SDK のバージョンを上げてメソッドが増減したら SPEC を更新して再実行する。
 
 既存ファイルは上書きしない（人間が書いた本文を守るため）。--force で上書き。
@@ -143,6 +143,19 @@ SPEC = [
               returns="StateFlow<Boolean>",
               summary="6DoF が流れている間 true。開始・停止の応答で切り替わる。",
               related=["startImuData"]),
+            m("micAudio", "val micAudio: SharedFlow<ByteArray>",
+              returns="SharedFlow<ByteArray>",
+              summary="グラスのマイク音声。PCM16 のリトルエンディアン、16kHz モノラル。"
+                      "startMicStreaming を呼ぶまで何も流れない。デバイスの世代で音声の形式が"
+                      "変わる（Ogg Opus か record stream）が、判別とデコードは SDK 側で行うため"
+                      "利用側は PCM だけ受け取ればよい。グラスの録音は小さいため、SDK が3倍に"
+                      "持ち上げてから流す。購読が遅れると古いデータから捨てるので、"
+                      "録音として貯めるなら受け取り側でバッファする。",
+              related=["startMicStreaming", "stopMicStreaming", "micStreaming"]),
+            m("micStreaming", "val micStreaming: StateFlow<Boolean>",
+              returns="StateFlow<Boolean>",
+              summary="マイクが流れている間 true。",
+              related=["startMicStreaming"]),
             m("enterHomePage", "fun enterHomePage()"),
             m("enterTeleprompterPage", "fun enterTeleprompterPage()", related=["sendTeleprompterContent"]),
             m("sendTeleprompterContent",
@@ -205,6 +218,14 @@ SPEC = [
                       "マイクのチャンネルは接続中のデバイスに合わせて SDK 側で決まる。",
               related=["closeGlassMic"]),
             m("closeGlassMic", "fun closeGlassMic()", related=["openGlassMic"]),
+            m("startMicStreaming", "fun startMicStreaming()",
+              summary="マイクを開いて、届いた音声をデコードしながら micAudio に流す。"
+                      "すでに流れているときは開き直す。生の Opus を自分で扱いたい場合は"
+                      "openGlassMic と GlassClient.addAudioDataEventListener を使う。",
+              related=["micAudio", "stopMicStreaming"]),
+            m("stopMicStreaming", "fun stopMicStreaming()",
+              summary="マイクを閉じて micAudio を止める。デコーダも解放する。",
+              related=["micAudio", "startMicStreaming"]),
             m("sendMessage", "fun sendMessage(sender: String, body: String, timestamp: Long, appName: String)",
               [("sender", "String"), ("body", "String"), ("timestamp", "Long"), ("appName", "String")],
               related=["syncNotificationCount"]),
@@ -278,9 +299,26 @@ SPEC = [
               summary="今ある要素を残したまま、渡した要素だけ置き直す。既にある id に送ると座標と"
                       "サイズごと差し替わる。キャンバスが閉じているときは新しく開く。",
               related=["sendCanvas", "clearCanvas", "closeCanvas"]),
+            m("sendCanvasImage",
+              "fun sendCanvasImage(x: Int, y: Int, width: Int, height: Int, grayscale: ByteArray)",
+              [("x", "Int", "画像の左上のx座標。x + width は 576 まで"),
+               ("y", "Int", "画像の左上のy座標。y + height は 360 まで"),
+               ("width", "Int", "画像の幅"),
+               ("height", "Int", "画像の高さ"),
+               ("grayscale", "ByteArray",
+                "1画素1バイトのグレースケール。長さは width * height 以上")],
+              summary="キャンバスに画像を置く。送るだけで画面が切り替わるので、先にページを開く必要はない。"
+                      "今ある要素は残したまま、画像だけ差し替わる。渡すのはリサイズ済みのグレースケールで、"
+                      "左上から行優先の並び。輝度は 0-255 のまま渡してよく、3bit(0-7)への量子化と"
+                      "RLE圧縮はSDK内で行う。置けるのは1枚だけで、位置をずらして送っても最後の1枚しか残らない。"
+                      "テキスト要素とは共存でき、テキストは画像の手前に描かれる。"
+                      "ナビの全体ルート画像とバッファを共有しているため、"
+                      "ナビ表示中は使えない。数百バイトずつに分けて送るので、大きい画像ほど表示まで時間がかかる。"
+                      "FEATURE_VERSION 2.2.0 以上のファームが対象。",
+              related=["sendCanvas", "sendCanvasElements", "clearCanvas"]),
             m("clearCanvas", "fun clearCanvas()",
-              summary="キャンバスは開いたまま、全ての要素を消す。",
-              related=["sendCanvas", "closeCanvas"]),
+              summary="キャンバスは開いたまま、全ての要素を消す。画像も一緒に消える。",
+              related=["sendCanvas", "sendCanvasImage", "closeCanvas"]),
             m("closeCanvas", "fun closeCanvas()",
               summary="自由配置キャンバスを閉じてホームなどに戻す。表示していた要素は破棄される。"
                       "リモコンの戻る操作やホームへの遷移でも閉じる。",
@@ -630,7 +668,10 @@ def api_index():
         "",
         f"# {API_TITLE}",
         "",
-        "Sabera App SDK (Kotlin) の公開 API。バージョン 0.0.12 時点。",
+        "Sabera App SDK (Kotlin) の公開 API。バージョン 0.4.0 時点。",
+        "",
+        "メソッドごとに使えるようになったバージョンは"
+        "[メソッドの追加履歴](../api-history.html)にまとめてある。",
         "",
         "| 型 | 説明 |",
         "|---|---|",
