@@ -258,7 +258,60 @@ val imuDataStarted: StateFlow<Boolean>
   - 上流の本文は未執筆だが、**コード例にインターフェースが出ている**ので取れるものは確定している
   - **戻る操作でキャンバスと分割レイアウトは閉じる**（`closeCanvas` / `closeLayout` の説明）。
     出しっぱなしにする画面は、勝手に閉じられる前提で組む
-- 電源イベントのリスナー
+- 電源イベントのリスナー（`addGlassPowerEventListener`。上流の本文は未執筆）
+- **逃げ道 — `GlassClient.sendCommand(ByteArray)` / `sendCommandList` / `sendText`**
+  - `CommandManager` に無い操作が要るときの生の経路。**上流の本文は未執筆で、電文の仕様も非公開**
+  - **使う前に SDK チームに聞く。** 自力で電文を組み立てない
+- **`GlassClient.cancelPendingPackets()` — 送信待ちのパケットを捨てる**
+  - 上流の本文は未執筆だが、名前のとおりなら**古い星図フレームを積ませずに捨てられる**
+  - 首を振ったときに前のフレームが順番待ちで残る問題への手当てになる
+  - `要確認` 実際の挙動
+
+### グラスの設定を書き換える（`sendSetting`）
+
+```kotlin
+fun sendSetting(name: String, value: Int)      // Boolean / String / ByteArray の overload もある
+fun requestSettingSync()                        // 全設定値の送信を要求。応答は parseResponse
+```
+
+**上流ドキュメントに設定キーの一覧が無い。** 以下は `sabera-app-core:0.2.1` の AAR を
+`javap` で読んで拾った `CommandManager.SettingKey` の 17 個（値は定数名と同じ。
+`NOTIFICATION_CONTENT_MASK` だけ実値が `NOTIF_CONTENT_MASK`）。
+
+| キー | 推測される用途 | team-e への効き |
+|---|---|---|
+| `BRIGHTNESS_LEVEL` / `BRIGHTNESS_AUTO` | 表示の明るさ・自動調整 | **暗順応。明るいまま出すと肉眼の空が見えなくなる** |
+| `SCREEN_OFF_TIME` | 消灯までの時間 | **見上げ続ける用途なので、途中で消えると成立しない** |
+| `FEATURE_VERSION` | ファームの機能バージョン | **キャンバス（2.1.0）が使えるかを実行時に判定できる** |
+| `FONT_SIZE` | 文字の大きさ | キャンバス・レイアウトに入る文字数が変わる |
+| `DISPLAY_HEIGHT_LEVEL` / `DISPLAY_DISTANCE_LEVEL` | 表示位置・見かけの距離 | 表示面が視界のどこに出るか |
+| `MESSAGE_DISPLAY_MODE` / `MESSAGE_DISPLAY_TIME` / `NOTIF_CONTENT_MASK` | 通知の出し方 | **観測中に通知が割り込むと星図が消える** |
+| `AR_SYSTEM_MODE` / `AR_NAME` / `AR_TYPE` / `AR_VERSION` | AR 側の識別情報 | 未調査 |
+| `INSCRIPTION_MODE` | 刻印表示（`clearInscriptionText` と対） | 未調査 |
+| `RCP_MAC` / `RST` | リモコンの MAC / リセット | 未調査 |
+
+- **値の範囲・単位・書き換え可否はすべて未確認。** キー名が読めただけで、意味は推測
+- **読み出しの経路が不明。** `requestSettingSync()` の応答は `parseResponse(ByteArray)` で受けるが、
+  上流の本文が未執筆で、パース後の値がどこに出るのか公開 API から辿れない
+- `要確認` **SDK チームに聞く価値が高い。** 特に明るさ・消灯時間・`FEATURE_VERSION` の読み方
+
+### 見上げたときのウェイクアップ（`sendWakeupTiltThreshold`）
+
+```kotlin
+fun sendWakeupTiltThreshold(degrees: Int)   // 0..65535
+fun enterGlassAngleAdjustmentPage()          // 調整ページを開く
+```
+
+- ヘッドアップ（見上げ）でグラスが起きる**傾きのしきい値**
+- **星を見る = ずっと見上げている**ので、この設定と正面衝突する可能性がある
+- 逆に、**見上げた瞬間に起きる**のは体験として噛み合う。しきい値の調整でどちらにも振れる
+- `要確認` 実機で見上げっぱなしのときに何が起きるか
+
+### グラスの状態を問い合わせる（`requestSystemStatus`）
+
+- **バッテリー残量・装着状態・充電状態**の通知を要求する
+- **装着状態が取れるのは大きい。** かけていないのに星図を送り続ける無駄を避けられる
+- 応答は `parseResponse` 経由なので、**上と同じ理由で読み出し経路が不明**
 
 ### グラスに方位を渡す口はある（`sendNaviCourse`）
 
@@ -310,6 +363,8 @@ fun sendNaviCourse(courseDegrees: Double)
 - キャンバスに**画像は置けない**。`CanvasElement` はテキストだけなので、星図を置く前提で設計しない
 - `sendNaviCourse` を**方位問題の解決として扱わない**。値を作る工程は残る（上記）
 - **画素数と画角を混同しない。** パネルが 576×360 と分かっても、視野の何度を占めるかは別に確かめる
+- **`SettingKey` の一覧は AAR から読み取ったもの**で、上流ドキュメントには無い。
+  **値の意味と範囲は未確認なので、動作を断定しない**
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
 
@@ -365,6 +420,8 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 - API キーなど秘密情報の持ち方（`.gitignore` は `.env` を除外済み）
 - `sendNaviCourse` でファームにヨー補正を任せられるか（`imuData` に返るかが未確認）
 - リモコンの `onPrev` / `onNext` / `onEsc` を操作に使うか（グラス単体で完結させる方針との兼ね合い）
+- **観測中のグラス設定**（明るさ・消灯時間・通知の抑止）をアプリが書き換えるか、ユーザーに任せるか
+- **`FEATURE_VERSION` を読んで機能を出し分けるか**（読み出し経路が未確認）
 
 ## 規約
 
