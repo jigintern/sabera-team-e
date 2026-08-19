@@ -10,7 +10,7 @@ has_children: true
 
 | ドキュメント | 中身 |
 |---|---|
-| [座標変換パイプライン](coordinate-system.md) | 星表の座標からグラスの 196×196 画素までの変換 |
+| [座標変換パイプライン](coordinate-system.md) | 星表の座標からグラスの 576×360 画素までの変換 |
 | [画面遷移とジェスチャー](app-flow.md) | 何を触ると何が起きるか、そのとき何が出ているか |
 
 技術的な前提と SDK の制約は [AGENTS.md](https://github.com/jigintern/sabera-team-e/blob/main/AGENTS.md)。
