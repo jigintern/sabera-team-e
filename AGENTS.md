@@ -36,7 +36,7 @@
 ## 上流 SDK との同期状況
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（このリポジトリの元）
-- **`a2e5713`（SDK 0.0.11）時点まで取り込み済み**
+- **`57998a2`（SDK 0.0.12）時点まで取り込み済み**
 - team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
 - `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
 
@@ -121,18 +121,19 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 
 **team-e の仕様を左右する最重要事項。** 0.0.11 で画像送信が入り、**星図をグラスに出す道が開いた**。
 
-### 画像を出す（0.0.11 で追加）
+### 画像を出す（0.0.11 で追加、0.0.12 で簡素化）
 
 ```kotlin
 fun enterImageDisplayPage()
-fun sendImage(width: Int, height: Int, encodedBitmap: ByteArray)
+fun sendImage(width: Int, height: Int, grayscale: ByteArray)
 ```
 
 - `enterImageDisplayPage()` で開いてから `sendImage()` を呼ぶ
 - 画像表示ページ = **技適マークの表示に使っている画面**
 - **最大 196x196。超えるとファーム側で弾かれ、何も表示されない**
-- 形式 = **3bit グレースケール（8階調）を RLE 圧縮した `ByteArray`**
-- **エンコードは呼び出し側の責任。** SDK はやってくれない
+- 渡すのは **1 画素 1 バイトのグレースケール**（0-255、左上から行優先）
+- **3bit への量子化と RLE 圧縮は SDK が行う**（0.0.12 から。0.0.11 では呼び出し側の責任だった）
+- 上流サンプルの `GlassImage.kt` に `toGlassGrayscale()` / `testPatternImage()` がある
 - カラー不可、フルスクリーンの AR オーバーレイでもない。**小さなモノクロ画像1枚**
 
 → 星座線と星の点を描くには足りるが、**196x196 / 8階調に収まる図案**を前提に設計する必要がある。
@@ -151,11 +152,12 @@ fun sendImage(width: Int, height: Int, encodedBitmap: ByteArray)
 - グラスのマイク — `openGlassMic()` / `closeGlassMic()` / `GlassClient.micChannel`
 - 電源イベント、リモコンイベントのリスナー
 
-### 取れないもの（0.0.11 時点）
+### 取れないもの（0.0.12 時点）
 
 - **カメラ映像** — グラスから画像は取れない
-- **グラスの姿勢・方位** — `enterImuDebugPage()` は**ページを開くだけ**で値は取れない。`sendWakeupTiltThreshold(degrees)` も起動閾値の設定のみ
-- → **方位・傾きはスマホ側センサーに依存するしかない**。この前提は 0.0.11 でも変わっていない
+- **音声出力** — `openGlassMic` / `micChannel` は入力のみ。**音を鳴らす API は無い**
+- **グラスの姿勢・方位** — `enterImuDebugPage()` は**ページを開くだけ**で値は取れない
+- ただし**六軸センサ（加速度＋ジャイロ）を取る API が実装中**（チーム情報）。解放されれば姿勢が取れる
 
 ### 設計への含意
 
@@ -167,8 +169,7 @@ fun sendImage(width: Int, height: Int, encodedBitmap: ByteArray)
 ### エージェントへの指示
 
 - 画像送信は**まだ team-e の誰も実機で試していない**。動作を断定しない
-- `sendImage` のエンコード（3bit グレースケール + RLE）は自前実装が要る。仕様は
-  `docs/api/command-manager/send-image.md`
+- `sendImage` に渡すのはグレースケール。**RLE エンコーダを自前で書かない**（0.0.12 で SDK 側に入った）
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
 
@@ -209,7 +210,7 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 決まったらこのファイルを更新する。エージェントは勝手に埋めない。
 
 - 196x196 / 3bit グレースケールで星図をどう描くか（星の等級表現、星座線、文字の可読性）
-- RLE エンコーダを自前で書くか、上流にサンプルが出るのを待つか
+- 音声解説をどこから鳴らすか（SDK に出力 API が無い）
 - 星図の計算方法（自前実装 / ライブラリ / サーバー API）と星座データの出処
 - 「AI にお願いする」の入力経路 — グラスのマイク（`openGlassMic`）かスマホ側か
 - 解説文の生成に使う LLM と呼び出し場所（端末直かバックエンド経由か）
