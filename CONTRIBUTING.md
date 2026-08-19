@@ -10,7 +10,10 @@
 - SDK 0.0.12 で **画像送信**（`enterImageDisplayPage` / `sendImage`）が使える
   - グレースケールを渡すだけでよい。**196x196 / 3bit（8 階調）**という制約は残る
   - 詳細は [AGENTS.md](AGENTS.md#グラスに何を出せるか)
-- 上流 SDK は 0.0.12 まで取り込み済み
+- SDK 0.1.0 で **グラスの 6DoF**（`startImuData` / `imuData`）が取れるようになった
+  - ピッチは使えるが、**ヨーはドリフトする**ので方位はスマホのコンパス頼り
+- **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファーム非対応）
+- 上流 SDK は 0.1.0 まで取り込み済み
 
 ## 環境をつくる
 
@@ -111,7 +114,9 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 | 決まった技術的前提・制約 | [AGENTS.md](AGENTS.md) |
 | SDK の使い方・API リファレンス | `docs/`（SDK 側の話なので team-e の仕様は混ぜない） |
 
-`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。読むときは手元で Jekyll を立てる。
+`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。
+読むだけなら上流の公開サイト **<https://jig-sabera.github.io/sabera-sdk/>** が早い。
+`docs/` を直して見た目を確かめたいときだけ手元で Jekyll を立てる。
 
 書き方の作法 → [docs/authoring.md](docs/authoring.md)。要点：
 

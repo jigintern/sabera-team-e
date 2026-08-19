@@ -36,6 +36,3 @@ fun sendMeeting(meetingType: Byte, text: String, percent: Int)
 <!-- WIP -->
 <!-- /snippet -->
 
-## 関連
-
-- [enterMeetingPage](enter-meeting-page.html)

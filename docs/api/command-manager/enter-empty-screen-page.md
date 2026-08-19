@@ -2,7 +2,7 @@
 title: enterEmptyScreenPage
 parent: CommandManager
 grandparent: API リファレンス
-nav_order: 30
+nav_order: 29
 ---
 
 # CommandManager.enterEmptyScreenPage
