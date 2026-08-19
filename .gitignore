@@ -46,3 +46,6 @@ app.*.map.json
 docs/.sass-cache/
 docs/_site/
 .env
+
+# 星表の取得キャッシュ
+tools/.cache/
