@@ -359,7 +359,7 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 - 解説文の生成に使う LLM と呼び出し場所（端末直かバックエンド経由か）
 - 解説テキストの表示先 — `enterEmptyScreenPage` / AI Chat / Teleprompter / 分割レイアウト / キャンバス
 - 星座名ラベルをキャンバス（576×360、テキストのみ、8 要素・190 バイトまで）で出すか
-- 画像とテキストの出し分け（同時には出せない。ページ遷移が要る）
+- 画像とテキストの出し分け（**同時には出せない**。キャンバスとレイアウトは送るだけで切り替わるので、画像が消える）
 - スマホ側 UI の役割（星図プレビューを出すか、コントローラに徹するか）
 - 位置・方位のパーミッション設計（現状の Manifest は BLE 系と `ACCESS_FINE_LOCATION` のみ）
 - API キーなど秘密情報の持ち方（`.gitignore` は `.env` を除外済み）
