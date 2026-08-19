@@ -1,0 +1,509 @@
+<title>天球インスペクタ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@400;600&display=swap">
+<style>
+:root{
+  --ink:#151A2B; --paper:#EDEFF4; --card:#F7F8FB; --rule:#C6CBD9;
+  --slate:#59607A; --amber:#B06E14; --amber-soft:#EBDCC2;
+  --sky:#060A07; --star:#38FF74;
+  --ok:#2E6B52; --warn:#8A5A12;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ink:#E6E8F0; --paper:#0E1119; --card:#161A26; --rule:#2C3242;
+    --slate:#9BA2B8; --amber:#E0A44A; --amber-soft:#3A2E18;
+    --sky:#040705; --star:#38FF74;
+    --ok:#6DBE9A; --warn:#D9A24A;
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#E6E8F0; --paper:#0E1119; --card:#161A26; --rule:#2C3242;
+  --slate:#9BA2B8; --amber:#E0A44A; --amber-soft:#3A2E18;
+  --sky:#040705; --star:#38FF74;
+  --ok:#6DBE9A; --warn:#D9A24A;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px; margin:0 auto; padding:32px 24px 72px; display:flex; flex-direction:column; gap:28px}
+
+header{display:flex; flex-direction:column; gap:10px; border-bottom:1px solid var(--rule); padding-bottom:20px}
+h1{font-family:Spectral,Georgia,serif; font-weight:600; font-size:clamp(28px,4vw,40px); margin:0; letter-spacing:-.01em; text-wrap:balance}
+.sub{color:var(--slate); max-width:64ch; margin:0}
+.stats{display:flex; flex-wrap:wrap; gap:8px 20px; font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:12.5px; color:var(--slate); font-variant-numeric:tabular-nums}
+.stats b{color:var(--ink); font-weight:500}
+
+.eyebrow{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--slate); font-weight:600; margin:0 0 10px}
+
+.console{display:grid; grid-template-columns:minmax(0,1fr) 268px; gap:20px}
+@media(max-width:880px){.console{grid-template-columns:minmax(0,1fr)}}
+
+.viewport{position:relative; background:var(--sky); border:1px solid var(--rule); border-radius:3px; overflow:hidden; aspect-ratio:1/1}
+.viewport canvas{display:block; width:100%; height:100%; cursor:grab; touch-action:none; image-rendering:pixelated}
+.viewport canvas:active{cursor:grabbing}
+.readout{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; color:var(--slate); font-variant-numeric:tabular-nums}
+.readout b{color:var(--ink); font-weight:500}
+
+.rail{display:flex; flex-direction:column; gap:16px}
+.panel{background:var(--card); border:1px solid var(--rule); border-radius:3px; padding:14px}
+.field{display:flex; flex-direction:column; gap:5px; margin-bottom:13px}
+.field:last-child{margin-bottom:0}
+.field label{font-size:12px; color:var(--slate); display:flex; justify-content:space-between; gap:8px; align-items:baseline}
+.field label span{font-family:"IBM Plex Mono",monospace; color:var(--ink); font-variant-numeric:tabular-nums; font-size:12px}
+input[type=range]{width:100%; accent-color:var(--amber); margin:0}
+select,input[type=datetime-local]{
+  width:100%; font:inherit; font-size:13px; padding:5px 7px; color:var(--ink);
+  background:var(--paper); border:1px solid var(--rule); border-radius:2px;
+}
+.checks{display:flex; flex-direction:column; gap:7px}
+.checks label{display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer}
+input[type=checkbox]{accent-color:var(--amber); width:15px; height:15px; margin:0}
+:focus-visible{outline:2px solid var(--amber); outline-offset:2px}
+button{font:inherit; font-size:13px; padding:6px 10px; border:1px solid var(--rule); background:var(--paper); color:var(--ink); border-radius:2px; cursor:pointer}
+button:hover{border-color:var(--amber); color:var(--amber)}
+
+.specimen{display:grid; grid-template-columns:196px minmax(0,1fr); gap:26px; align-items:start}
+@media(max-width:640px){.specimen{grid-template-columns:minmax(0,1fr)}}
+.chip{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px; padding:2px 6px; border:1px solid var(--rule); border-radius:2px; color:var(--slate); background:var(--card)}
+.glass{image-rendering:pixelated; display:block; border:1px solid var(--rule); background:#000}
+.caption{font-size:12.5px; color:var(--slate); margin:8px 0 0; max-width:52ch}
+.ramp{display:flex; margin-top:12px; border:1px solid var(--rule); width:fit-content}
+.ramp i{width:26px; height:18px; display:block}
+
+.tablewrap{overflow-x:auto; border:1px solid var(--rule); border-radius:3px; background:var(--card)}
+table{border-collapse:collapse; width:100%; font-family:"IBM Plex Mono",monospace; font-size:12.5px; font-variant-numeric:tabular-nums}
+th,td{text-align:right; padding:6px 12px; white-space:nowrap; border-bottom:1px solid var(--rule)}
+th{position:sticky; top:0; background:var(--card); color:var(--slate); font-weight:500; text-align:right; font-size:11px; letter-spacing:.06em; text-transform:uppercase}
+th:first-child,td:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--amber-soft)}
+.scroller{max-height:340px; overflow-y:auto}
+.named{color:var(--amber); font-weight:500}
+
+.notes{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:18px}
+.note{border-left:2px solid var(--amber); padding-left:14px}
+.note h3{font-family:Spectral,Georgia,serif; font-size:16px; margin:0 0 6px; font-weight:600}
+.note p{margin:0; font-size:13.5px; color:var(--slate)}
+code{font-family:"IBM Plex Mono",monospace; font-size:.92em; background:var(--card); border:1px solid var(--rule); padding:1px 4px; border-radius:2px}
+footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; color:var(--slate)}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>天球インスペクタ</h1>
+  <p class="sub">同梱した星表を、team-e が決めた変換パイプラインでそのまま描いたもの。ステレオ投影・地平線水平固定。<strong>描画はすべて 196×196 で行い、緑の 8 階調へ量子化してから拡大している</strong>ので、画面に出ているものは SABERA で見えるものと同じ。</p>
+  <div class="stats">
+    <span>恒星 <b id="s-stars">—</b></span>
+    <span>星座 <b id="s-cons">—</b></span>
+    <span>固有名 <b id="s-named">—</b></span>
+    <span>元期 <b>J2000.0</b></span>
+    <span>出処 <b>d3-celestial (BSD-3-Clause)</b></span>
+  </div>
+</header>
+
+<section>
+  <p class="eyebrow">グラスに映るもの（拡大）</p>
+  <div class="console">
+    <div class="viewport">
+      <canvas id="sky"></canvas>
+    </div>
+    <div>
+      <div class="readout">
+        <span>方位 <b id="h-az">—</b></span>
+        <span>高度 <b id="h-alt">—</b></span>
+        <span>視野 <b id="h-fov">—</b></span>
+        <span>視野内 <b id="h-count">—</b> 個</span>
+        <span>地方恒星時 <b id="h-lst">—</b></span>
+      </div>
+    </div>
+    <div class="rail">
+      <div class="panel">
+        <div class="field">
+          <label for="fov">画角 FOV<span id="v-fov"></span></label>
+          <input type="range" id="fov" min="15" max="80" value="40" step="1">
+        </div>
+        <div class="field">
+          <label for="mag">限界等級<span id="v-mag"></span></label>
+          <input type="range" id="mag" min="2" max="5" value="5" step="0.5">
+        </div>
+        <div class="field">
+          <label for="alt">視線の高度<span id="v-alt"></span></label>
+          <input type="range" id="alt" min="-10" max="88" value="40" step="1">
+        </div>
+      </div>
+      <div class="panel">
+        <div class="field">
+          <label for="place">観測地</label>
+          <select id="place"></select>
+        </div>
+        <div class="field">
+          <label for="when">日時（現地）</label>
+          <input type="datetime-local" id="when">
+        </div>
+        <div class="field">
+          <label for="jump">星座へ移動</label>
+          <select id="jump"></select>
+        </div>
+      </div>
+      <div class="panel checks">
+        <label><input type="checkbox" id="c-lines" checked> 星座線を描く</label>
+        <label><input type="checkbox" id="c-names"> 星座名を焼き込む</label>
+        <label><input type="checkbox" id="c-precess" checked> 歳差を入れる</label>
+        <label><input type="checkbox" id="c-horizon" checked> 地平線を描く</label>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">実寸</p>
+  <div class="specimen">
+    <div>
+      <canvas id="glass" class="glass" width="196" height="196" style="width:196px;height:196px"></canvas>
+      <span class="chip">196 × 196 / 等倍</span>
+    </div>
+    <div>
+      <p class="caption"><strong>上の大きな表示は、この 196×196 をそのまま引き伸ばしたもの。</strong>別に描き直してはいないので、画素の粗さも階調の潰れもグラスで見えるとおりに出る。<strong>SDK に渡すのはグレースケールだが表示面は緑単色</strong>なので、3bit へ量子化したあと緑へ写している。</p>
+      <div class="ramp" id="ramp"></div>
+      <p class="caption">階調は 0〜7 の 8 段しかない。星の等級を明るさだけで表すと潰れるため、点の大きさと組み合わせている。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <p class="eyebrow">視野内の星</p>
+  <div class="tablewrap"><div class="scroller">
+    <table>
+      <thead><tr><th>固有名</th><th>HIP</th><th>赤経°</th><th>赤緯°</th><th>等級</th><th>方位°</th><th>高度°</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div></div>
+</section>
+
+<section>
+  <p class="eyebrow">データを読むときの注意</p>
+  <div class="notes">
+    <div class="note"><h3>赤経は 0〜360 に直してある</h3><p>元データは赤経を −180〜180 の経度に折り返して持っている。生成時に戻してあるので、<code>raDegrees</code> はそのまま使える。</p></div>
+    <div class="note"><h3>元期は J2000.0</h3><p>2026 年に使うなら歳差で約 0.36° ずれる。上のチェックを外すと、その差がそのまま画面に出る。</p></div>
+    <div class="note"><h3>へび座はひとつにまとめた</h3><p>元データでは頭部と尾部が別々の <code>Ser</code> として入っている。生成時に同じ略号へ統合した。</p></div>
+    <div class="note"><h3>星座線は座標を直接持つ</h3><p>線の頂点は星の ID ではなく赤経・赤緯そのもの。星表との対応づけは要らない。</p></div>
+  </div>
+</section>
+
+<footer>
+  星表は <a href="https://github.com/ofrohn/d3-celestial" style="color:var(--amber)">d3-celestial</a>（BSD-3-Clause, Copyright &copy; 2015 Olaf Frohn）から生成。大元は XHIP: An Extended Hipparcos Compilation (Anderson &amp; Francis 2012)。
+</footer>
+</div>
+
+<script id="stars-data" type="application/json">__STARS__</script>
+<script id="cons-data" type="application/json">__CONS__</script>
+<script id="bright-data" type="application/json">__BRIGHT__</script>
+<script>
+const STARS = JSON.parse(document.getElementById('stars-data').textContent);
+const CONS  = JSON.parse(document.getElementById('cons-data').textContent);
+const BRIGHT= JSON.parse(document.getElementById('bright-data').textContent);
+const NAME_BY_HIP = new Map(BRIGHT.stars.map(s => [s.hip, s.nameJa]));
+
+const RAD = Math.PI/180, DEG = 180/Math.PI;
+const PLACES = [
+  {name:'鯖江（jig.jp）', lat:35.9422, lon:136.1844},
+  {name:'東京', lat:35.6812, lon:139.7671},
+  {name:'那覇', lat:26.2124, lon:127.6809},
+  {name:'札幌', lat:43.0618, lon:141.3545},
+  {name:'シドニー', lat:-33.8688, lon:151.2093},
+];
+
+/* ---- 天文計算 -------------------------------------------------- */
+// D = JD - 2451545.0 。大きな数の引き算を避けるため直接求める
+const dayNum = ms => ms/86400000 - 10957.5;
+const gmstHours = D => ((18.697375 + 24.065709824279*D) % 24 + 24) % 24;
+
+// Meeus 21.4。J2000 の赤経赤緯を元期 D の値へ
+function precess(ra, dec, D){
+  const T = D/36525, T2=T*T, T3=T2*T;
+  const z1=(2306.2181*T + 0.30188*T2 + 0.017998*T3)/3600*RAD;
+  const z2=(2306.2181*T + 1.09468*T2 + 0.018203*T3)/3600*RAD;
+  const th=(2004.3109*T - 0.42665*T2 - 0.041833*T3)/3600*RAD;
+  const a=ra*RAD, d=dec*RAD;
+  const A=Math.cos(d)*Math.sin(a+z1);
+  const B=Math.cos(th)*Math.cos(d)*Math.cos(a+z1) - Math.sin(th)*Math.sin(d);
+  const C=Math.sin(th)*Math.cos(d)*Math.cos(a+z1) + Math.cos(th)*Math.sin(d);
+  return [((Math.atan2(A,B)+z2)*DEG % 360 + 360) % 360, Math.asin(Math.max(-1,Math.min(1,C)))*DEG];
+}
+
+// 赤道座標 → 地平座標（方位は北 0°・東回り）→ ENU 単位ベクトル
+function toENU(ra, dec, lstDeg, lat){
+  const H=(lstDeg-ra)*RAD, d=dec*RAD, p=lat*RAD;
+  const sh=Math.sin(p)*Math.sin(d)+Math.cos(p)*Math.cos(d)*Math.cos(H);
+  const alt=Math.asin(Math.max(-1,Math.min(1,sh)));
+  const az=Math.atan2(-Math.cos(d)*Math.sin(H), Math.sin(d)*Math.cos(p)-Math.cos(d)*Math.sin(p)*Math.cos(H));
+  const ca=Math.cos(alt);
+  return [ca*Math.sin(az), ca*Math.cos(az), Math.sin(alt), az*DEG, alt*DEG];
+}
+
+// 視線基準。up は天頂を視線に直交する面へ落としたもの＝地平線が水平に出る
+function basis(azDeg, altDeg){
+  const a=azDeg*RAD, h=altDeg*RAD, ch=Math.cos(h);
+  const f=[ch*Math.sin(a), ch*Math.cos(a), Math.sin(h)];
+  let u=[-f[2]*f[0], -f[2]*f[1], 1-f[2]*f[2]];
+  const n=Math.hypot(u[0],u[1],u[2]);
+  u = n<1e-9 ? [0,1,0] : [u[0]/n,u[1]/n,u[2]/n];
+  const r=[f[1]*u[2]-f[2]*u[1], f[2]*u[0]-f[0]*u[2], f[0]*u[1]-f[1]*u[0]];
+  return {f,u,r};
+}
+
+// ステレオ投影 r = 2 tan(θ/2)
+function project(v, b, k, size){
+  const cos = v[0]*b.f[0]+v[1]*b.f[1]+v[2]*b.f[2];
+  if(cos <= -0.2) return null;
+  const x = v[0]*b.r[0]+v[1]*b.r[1]+v[2]*b.r[2];
+  const y = v[0]*b.u[0]+v[1]*b.u[1]+v[2]*b.u[2];
+  const len = Math.hypot(x,y);
+  if(len < 1e-12) return [size/2, size/2];
+  const rr = 2*Math.tan(Math.acos(Math.max(-1,Math.min(1,cos)))/2);
+  return [size/2 + k*rr*x/len, size/2 - k*rr*y/len];
+}
+
+/* ---- 状態 ------------------------------------------------------- */
+const S = {az:180, alt:40, fov:40, mag:5, place:0, when:new Date(), precess:true,
+           lines:true, names:true, horizon:true};
+let precessed = null, precessKey = '';
+
+function ensurePrecessed(D){
+  const key = S.precess ? Math.round(D/30) : 'j2000';
+  if(key === precessKey) return;
+  precessKey = key;
+  precessed = STARS.stars.map(s => S.precess ? precess(s[1], s[2], D) : [s[1], s[2]]);
+}
+
+/* ---- 描画 ------------------------------------------------------- */
+function drawInto(ctx, size, opt){
+  const p = PLACES[S.place];
+  const D = dayNum(S.when.getTime());
+  ensurePrecessed(D);
+  const lst = (gmstHours(D)*15 + p.lon + 360*10) % 360;
+  const b = basis(S.az, S.alt);
+  const k = (size/2) / (2*Math.tan(S.fov*RAD/4));
+
+  ctx.fillStyle = opt.bg; ctx.fillRect(0,0,size,size);
+
+  if(S.horizon){
+    ctx.strokeStyle = opt.horizon; ctx.lineWidth = 1;
+    ctx.beginPath();
+    let started=false;
+    for(let a=0;a<=360;a+=1){
+      const ar=a*RAD, v=[Math.sin(ar),Math.cos(ar),0];
+      const q=project(v,b,k,size);
+      if(!q){started=false;continue}
+      if(!started){ctx.moveTo(q[0],q[1]);started=true} else ctx.lineTo(q[0],q[1]);
+    }
+    ctx.stroke();
+  }
+
+  if(S.lines){
+    ctx.strokeStyle = opt.line; ctx.lineWidth = 1;
+    for(const c of CONS.constellations){
+      for(const seg of c.lines){
+        for(let i=0;i<seg.length-1;i++){
+          const A=seg[i], B=seg[i+1];
+          const a1=S.precess?precess(A[0],A[1],D):A, b1=S.precess?precess(B[0],B[1],D):B;
+          const va=toENU(a1[0],a1[1],lst,p.lat), vb=toENU(b1[0],b1[1],lst,p.lat);
+          // 大円上を細かく刻む。ステレオ投影では直線にならないため
+          const dot=Math.max(-1,Math.min(1,va[0]*vb[0]+va[1]*vb[1]+va[2]*vb[2]));
+          const ang=Math.acos(dot);
+          const n=Math.max(2, Math.ceil(ang*DEG/3));
+          ctx.beginPath(); let started=false;
+          for(let t=0;t<=n;t++){
+            const f=t/n, s=Math.sin(ang);
+            let v;
+            if(s<1e-9) v=[va[0],va[1],va[2]];
+            else{
+              const w1=Math.sin((1-f)*ang)/s, w2=Math.sin(f*ang)/s;
+              v=[va[0]*w1+vb[0]*w2, va[1]*w1+vb[1]*w2, va[2]*w1+vb[2]*w2];
+            }
+            const q=project(v,b,k,size);
+            if(!q){started=false;continue}
+            if(!started){ctx.moveTo(q[0],q[1]);started=true} else ctx.lineTo(q[0],q[1]);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  const visible = [];
+  for(let i=0;i<STARS.stars.length;i++){
+    const s = STARS.stars[i];
+    if(s[3] > S.mag) continue;
+    const pc = precessed[i];
+    const e = toENU(pc[0], pc[1], lst, p.lat);
+    const q = project(e, b, k, size);
+    if(!q || q[0]<-8 || q[1]<-8 || q[0]>size+8 || q[1]>size+8) continue;
+    // 8 階調しかないので、明るさと点の大きさを組み合わせる
+    const t = Math.max(0, Math.min(1, (S.mag - s[3])/(S.mag + 1.5)));
+    const rad = 0.7 + 2.1*t*t;
+    const lum = 0.42 + 0.58*t;
+    ctx.fillStyle = opt.star(lum);
+    ctx.beginPath(); ctx.arc(q[0], q[1], rad, 0, 6.2832); ctx.fill();
+    visible.push({s, az:e[3], alt:e[4]});
+  }
+
+  if(opt.labels){
+    ctx.fillStyle = opt.label;
+    ctx.font = '500 9px "IBM Plex Sans", sans-serif';
+    ctx.textAlign='center';
+    for(const c of CONS.constellations){
+      let sx=0, sy=0, sz=0, n=0;
+      for(const seg of c.lines) for(const pt of seg){
+        const e=toENU(pt[0],pt[1],lst,p.lat); sx+=e[0]; sy+=e[1]; sz+=e[2]; n++;
+      }
+      const m=Math.hypot(sx,sy,sz); if(!n||m<1e-9) continue;
+      const q=project([sx/m,sy/m,sz/m], b, k, size);
+      if(!q||q[0]<20||q[1]<12||q[0]>size-20||q[1]>size-6) continue;
+      ctx.fillText(c.nameJa, q[0], q[1]);
+    }
+  }
+  return {visible, lst};
+}
+
+const sky = document.getElementById('sky');
+const sctx = sky.getContext('2d');
+const glass = document.getElementById('glass').getContext('2d');
+// 実際にグラスへ送るのと同じ 196x196。表示はすべてこれを引き伸ばしたもの
+const buf = document.createElement('canvas'); buf.width = buf.height = 196;
+const bctx = buf.getContext('2d', {willReadFrequently:true});
+
+// グラスは緑の単色表示。輝度を 3bit（8 階調）へ落としてから発光色へ写す
+const GLASS_GREEN = [56, 255, 116];
+function quantize(ctx){
+  const img = ctx.getImageData(0,0,196,196), d = img.data;
+  for(let i=0;i<d.length;i+=4){
+    const level = Math.round(d[i]/255*7);     // 0〜7 の 8 階調
+    const f = level/7;
+    d[i]   = Math.round(GLASS_GREEN[0]*f);
+    d[i+1] = Math.round(GLASS_GREEN[1]*f);
+    d[i+2] = Math.round(GLASS_GREEN[2]*f);
+  }
+  ctx.putImageData(img,0,0);
+}
+
+function render(){
+  // 描くのは一度だけ。グレースケールで 196x196 に描いてから緑の 8 階調へ落とす
+  const r = drawInto(bctx, 196, {
+    bg:'#000', horizon:'#242424', line:'#3C3C3C', label:'#B4B4B4',
+    star: l => `rgba(255,255,255,${l})`, labels:S.names,
+  });
+  quantize(bctx);
+
+  // 実寸と拡大は、同じバッファを引き伸ばして出すだけ
+  glass.clearRect(0,0,196,196);
+  glass.drawImage(buf, 0, 0);
+
+  const box = sky.parentElement.getBoundingClientRect();
+  const size = Math.max(196, Math.round(box.width));
+  if(sky.width !== size){ sky.width = size; sky.height = size; }
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0,0,size,size);
+  sctx.drawImage(buf, 0, 0, size, size);
+
+  document.getElementById('h-az').textContent = S.az.toFixed(0)+'°';
+  document.getElementById('h-alt').textContent = S.alt.toFixed(0)+'°';
+  document.getElementById('h-fov').textContent = S.fov+'°';
+  document.getElementById('h-count').textContent = r.visible.length;
+  const lh = r.lst/15;
+  document.getElementById('h-lst').textContent =
+    String(Math.floor(lh)).padStart(2,'0')+'h'+String(Math.floor(lh%1*60)).padStart(2,'0')+'m';
+
+  const rows = r.visible
+    .map(v => ({hip:v.s[0], ra:v.s[1], dec:v.s[2], mag:v.s[3], az:v.az, alt:v.alt}))
+    .sort((a,b)=>a.mag-b.mag).slice(0,120);
+
+  document.getElementById('rows').innerHTML = rows.map(x=>{
+    const nm = NAME_BY_HIP.get(x.hip);
+    return `<tr><td class="${nm?'named':''}">${nm||'—'}</td><td>${x.hip}</td><td>${x.ra.toFixed(3)}</td>`+
+           `<td>${x.dec.toFixed(3)}</td><td>${x.mag.toFixed(2)}</td>`+
+           `<td>${((x.az%360+360)%360).toFixed(1)}</td><td>${x.alt.toFixed(1)}</td></tr>`;
+  }).join('');
+}
+
+/* ---- 操作 ------------------------------------------------------- */
+let drag=null;
+sky.addEventListener('pointerdown', e=>{drag={x:e.clientX,y:e.clientY}; sky.setPointerCapture(e.pointerId)});
+sky.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  const box=sky.getBoundingClientRect();
+  const perPx=S.fov/box.width;
+  S.az = (S.az - (e.clientX-drag.x)*perPx + 360)%360;
+  S.alt = Math.max(-10, Math.min(88, S.alt + (e.clientY-drag.y)*perPx));
+  document.getElementById('alt').value = Math.round(S.alt);
+  document.getElementById('v-alt').textContent = S.alt.toFixed(0)+'°';
+  drag={x:e.clientX,y:e.clientY};
+  render();
+});
+sky.addEventListener('pointerup', ()=>drag=null);
+sky.addEventListener('pointercancel', ()=>drag=null);
+
+function bindRange(id, key, fmt){
+  const el=document.getElementById(id), out=document.getElementById('v-'+id);
+  const sync=()=>{S[key]=parseFloat(el.value); out.textContent=fmt(el.value); render()};
+  el.addEventListener('input', sync); sync();
+}
+bindRange('fov','fov', v=>v+'°');
+bindRange('mag','mag', v=>parseFloat(v).toFixed(1)+' 等');
+bindRange('alt','alt', v=>v+'°');
+
+const placeSel=document.getElementById('place');
+placeSel.innerHTML = PLACES.map((p,i)=>`<option value="${i}">${p.name}</option>`).join('');
+placeSel.addEventListener('change', e=>{S.place=+e.target.value; render()});
+
+const whenEl=document.getElementById('when');
+const pad=n=>String(n).padStart(2,'0');
+const toLocal=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+whenEl.value = toLocal(S.when);
+whenEl.addEventListener('change', e=>{
+  const d=new Date(e.target.value); if(!isNaN(d)) {S.when=d; precessKey=''; render()}
+});
+
+const jump=document.getElementById('jump');
+jump.innerHTML = '<option value="">—</option>' + CONS.constellations
+  .map((c,i)=>`<option value="${i}">${c.nameJa}（${c.abbr}）</option>`).join('');
+jump.addEventListener('change', e=>{
+  if(e.target.value==='') return;
+  const c=CONS.constellations[+e.target.value];
+  const p=PLACES[S.place], D=dayNum(S.when.getTime());
+  const lst=(gmstHours(D)*15 + p.lon + 3600)%360;
+  let sx=0,sy=0,sz=0,n=0;
+  for(const seg of c.lines) for(const pt of seg){
+    const e2=toENU(pt[0],pt[1],lst,p.lat); sx+=e2[0];sy+=e2[1];sz+=e2[2];n++;
+  }
+  const m=Math.hypot(sx,sy,sz); if(!m) return;
+  const az=(Math.atan2(sx/m, sy/m)*DEG+360)%360, alt=Math.asin(Math.max(-1,Math.min(1,sz/m)))*DEG;
+  S.az=az; S.alt=Math.max(-10,Math.min(88,alt));
+  document.getElementById('alt').value=Math.round(S.alt);
+  document.getElementById('v-alt').textContent=S.alt.toFixed(0)+'°';
+  render();
+});
+
+for(const [id,key] of [['c-lines','lines'],['c-names','names'],['c-precess','precess'],['c-horizon','horizon']]){
+  document.getElementById(id).addEventListener('change', e=>{
+    S[key]=e.target.checked; if(key==='precess') precessKey=''; render();
+  });
+}
+
+document.getElementById('s-stars').textContent = STARS.count.toLocaleString();
+document.getElementById('s-cons').textContent = CONS.count;
+document.getElementById('s-named').textContent = BRIGHT.count;
+document.getElementById('ramp').innerHTML = Array.from({length:8},(_,i)=>{
+  const f=i/7, c=GLASS_GREEN.map(v=>Math.round(v*f)).join(',');
+  return `<i style="background:rgb(${c})" title="階調 ${i}/7"></i>`;
+}).join('');
+
+window.addEventListener('resize', render);
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change', render);
+render();
+</script>
