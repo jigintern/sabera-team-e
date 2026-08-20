@@ -23,6 +23,18 @@ data class Label(val text: String, val x: Int, val y: Int)
 
 class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: List<Label>)
 
+/** いま空に出ている星座と、その方角。方位合わせをせずに試すために使う */
+data class Aimed(val nameJa: String, val azDeg: Double, val altDeg: Double) {
+    /** 「南南西 高度 45°」のような表示 */
+    val where: String
+        get() {
+            val points = listOf("北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+                "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西")
+            val i = ((azDeg + 11.25) / 22.5).toInt() % 16
+            return "${points[i]} 高度 ${altDeg.toInt()}°"
+        }
+}
+
 /**
  * 星図を 1 画素 1 バイトのグレースケールに描く。
  * 3bit への量子化と RLE 圧縮は SDK 側がやるので、ここでは 0-255 のまま置く。
@@ -78,6 +90,42 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
 
         return StarMap(width, height, gray, labels(d, lst, site, basis, k, width, height, maxLabels))
+    }
+
+    /**
+     * いま空に出ている星座を、高度の高い順に返す。
+     * キャリブレーションもグラスの姿勢も要らずに「その星座を見た絵」を出すために使う。
+     */
+    fun visibleConstellations(site: Site, epochMillis: Long, minAltDeg: Double = 10.0): List<Aimed> {
+        val d = daysFromJ2000(epochMillis)
+        val lst = localSiderealDeg(d, site.lonDeg)
+        val found = ArrayList<Aimed>()
+        for (c in catalog.constellations) {
+            var sx = 0.0
+            var sy = 0.0
+            var sz = 0.0
+            var n = 0
+            for (seg in c.lines) {
+                for (pt in seg) {
+                    val p = precess(pt[0], pt[1], d)
+                    val aa = toAltAz(p[0], p[1], lst, site.latDeg)
+                    val v = enu(aa[0], aa[1])
+                    sx += v.x
+                    sy += v.y
+                    sz += v.z
+                    n++
+                }
+            }
+            if (n == 0) continue
+            val v = Vec3(sx, sy, sz)
+            if (hypot(hypot(v.x, v.y), v.z) < 1e-9) continue
+            val u = v.normalized()
+            val alt = Math.toDegrees(kotlin.math.asin(u.z.coerceIn(-1.0, 1.0)))
+            if (alt < minAltDeg) continue
+            val az = (Math.toDegrees(kotlin.math.atan2(u.x, u.y)) + 360.0) % 360.0
+            found += Aimed(c.nameJa, az, alt)
+        }
+        return found.sortedByDescending { it.altDeg }
     }
 
     private fun ensurePrecessed(d: Double) {
