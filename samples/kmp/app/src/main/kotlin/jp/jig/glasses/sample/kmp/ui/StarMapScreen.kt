@@ -142,9 +142,9 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         }
     }
 
-    // SDK は sendCommand / sendCommands をそのつど別コルーチンで書き出す。共通のキューが
-    // 無いので、2つの送信が重なるとパケットが混ざってグラス側で組み立てられない。
-    // アプリ側で1本ずつに直列化し、転送が終わるまで次を入れない
+    // パケットの混ざりは SDK 0.6.0 の直列化で解消したが、送信は呼び出しから見ると
+    // 積むだけで終わる。追従で描き直すたび投げると転送しきれないフレームが溜まるので、
+    // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
 
     fun look(): Look {
@@ -158,7 +158,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 
     suspend fun drawAndSend() {
         val r = renderer ?: return
-        // 送信中なら捨てる。積むとパケットが混ざって、どれも表示されない
+        // 送信中なら捨てる。積んでも出るころには視線が変わっている
         if (!sendGate.tryLock()) return
         // 描画で落ちても黙って消えないよう、送信まで含めて丸ごと拾う
         runCatching {
@@ -181,23 +181,22 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
 
             val sendStarted = System.currentTimeMillis()
-            // 星座名を先に送り切る。画像とテキストは同じコマンド 0x1B で、
-            // SDK は両者を別コルーチンで書くため、あとから送ると画像の分割送信に割り込んで
-            // ファーム側の組み立てが壊れる（実機のログで確認）
+            // 0.6.0 から SDK が分割送信を直列化するので、テキストと画像の順序は問わない。
+            // 名前を先にしているのは、画像の転送待ちのぶんラベルが早く出るため
             val names = map.labels.map { it.text }
             if (names != shownNames) {
                 for (batch in map.toElementBatches(shownNames.size)) {
                     commandManager.sendCanvasElements(batch)
-                    delay(60)
                 }
                 shownNames = names
             }
             commandManager.sendCanvasImage(
-                (PANEL_WIDTH - map.width) / 2,
-                (PANEL_HEIGHT - map.height) / 2,
-                map.width,
-                map.height,
-                map.gray,
+                id = STAR_MAP_IMAGE_ID,
+                x = (PANEL_WIDTH - map.width) / 2,
+                y = (PANEL_HEIGHT - map.height) / 2,
+                width = map.width,
+                height = map.height,
+                grayscale = map.gray,
             )
             transferMs = map.transferMillis()
             sendMs = System.currentTimeMillis() - sendStarted
@@ -266,8 +265,14 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                         val w = imageSize.width
                         val h = imageSize.height
                         val gray = solidBlock(w, h)
+                        // 星図と同じ id に送って差し替える。経路だけを切り分けたいので位置も揃える
                         commandManager.sendCanvasImage(
-                            (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, gray,
+                            id = STAR_MAP_IMAGE_ID,
+                            x = (PANEL_WIDTH - w) / 2,
+                            y = (PANEL_HEIGHT - h) / 2,
+                            width = w,
+                            height = h,
+                            grayscale = gray,
                         )
                         val wait = StarMap(w, h, gray, emptyList()).transferMillis()
                         status = "テスト画像を送った（約 $wait ms）。出ないなら経路の問題"
@@ -457,6 +462,9 @@ private const val REDRAW_DEG = 2.0
 
 /** 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕 */
 private const val SETTLE_MS = 600L
+
+/** 星図は 1 枚だけ置く。0.6.0 で 8 枚まで置けるが、id を固定すると送るたび同じ枠が差し替わる */
+private const val STAR_MAP_IMAGE_ID = 0
 
 /** キャンバスのテキスト要素は id 0..7 の 8 個まで */
 private const val CANVAS_TEXT_SLOTS = 8
