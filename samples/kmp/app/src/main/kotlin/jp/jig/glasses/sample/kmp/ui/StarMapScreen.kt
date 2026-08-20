@@ -2,6 +2,7 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -38,8 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
@@ -135,6 +138,13 @@ fun StarMapScreen(client: GlassClient) {
     var transferMs by remember { mutableStateOf(1000L) }
     var sending by remember { mutableStateOf(false) }
     var shownLabels by remember { mutableStateOf(0) }
+
+    // 方位合わせ中は星図を出さず、グラスに十字だけを出す
+    var calibrating by remember { mutableStateOf(false) }
+    var markerShown by remember { mutableStateOf(false) }
+    var phoneHeading by remember { mutableStateOf<Double?>(null) }
+    var phonePitch by remember { mutableStateOf<Double?>(null) }
+    var compassAccuracy by remember { mutableStateOf("") }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -243,8 +253,8 @@ fun StarMapScreen(client: GlassClient) {
      * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
      */
     var settled by remember { mutableStateOf(true) }
-    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels) {
-        if (renderer == null) return@LaunchedEffect
+    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating) {
+        if (renderer == null || calibrating) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
@@ -262,6 +272,38 @@ fun StarMapScreen(client: GlassClient) {
                 drawn = look()
             }
             delay(POLL_MS)
+        }
+    }
+
+    // 十字はキャンバスの別 id に置く（0.6.0 から画像を並べられる）。
+    // ただしバッファは全画像の合計で見るので、星図を消してから出す
+    LaunchedEffect(calibrating) {
+        if (calibrating) {
+            commandManager.clearCanvas()
+            shownLabels = 0
+            commandManager.sendCanvasImage(
+                id = MARKER_IMAGE_ID,
+                x = (PANEL_WIDTH - MARKER_SIZE) / 2,
+                y = (PANEL_HEIGHT - MARKER_SIZE) / 2,
+                width = MARKER_SIZE,
+                height = MARKER_SIZE,
+                grayscale = crossMarker(MARKER_SIZE),
+            )
+            markerShown = true
+            log("方位合わせ: グラスに十字を出した")
+        } else if (markerShown) {
+            commandManager.removeCanvasImage(MARKER_IMAGE_ID)
+            markerShown = false
+        }
+    }
+
+    // Compass の値は Compose から見えないので、合わせている間だけ読み出す
+    LaunchedEffect(calibrating, latText, lonText) {
+        while (calibrating) {
+            phoneHeading = compass.trueHeadingDeg(site, System.currentTimeMillis())
+            phonePitch = compass.pitchDeg
+            compassAccuracy = compass.accuracyText()
+            delay(200)
         }
     }
 
@@ -321,30 +363,65 @@ fun StarMapScreen(client: GlassClient) {
             )
 
             Spacer(Modifier.height(16.dp))
-            CommandButton("方位を合わせる（スマホを顔の前にかざして押す）") {
-                val trueHeading = compass.trueHeadingDeg(site, System.currentTimeMillis())
-                if (trueHeading == null) {
-                    log("方位センサーが読めない", failed = true)
-                } else {
-                    headingOffset = normalizeDeg(trueHeading - glassYaw)
-                    calibratedAt = System.currentTimeMillis()
-                    log("方位合わせ: スマホ ${trueHeading.roundToInt()}° / グラス ${glassYaw.roundToInt()}°")
+            if (calibrating) {
+                Text("方位合わせ", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "グラスに十字が出ている。スマホを腕の長さで持ち、" +
+                        "十字がこの丸の真ん中に重なるところまで動かす。" +
+                        "画面を視線に正対させると、下の仰角の差が 0 に近づく。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(Modifier.height(8.dp))
+                Card(colors = CardDefaults.cardColors(containerColor = Color.Black)) {
+                    PhoneMarker(Modifier.fillMaxWidth().height(240.dp))
                 }
-            }
-            Row {
+                Spacer(Modifier.height(8.dp))
+                val tilt = phonePitch?.let { abs(it - glassPitch) }
+                StatusRow(
+                    "仰角",
+                    "スマホ ${phonePitch?.roundToInt() ?: "—"}° / グラス ${glassPitch.roundToInt()}°" +
+                        (tilt?.let { "（差 ${it.roundToInt()}°）" } ?: ""),
+                )
+                StatusRow("正対", if (tilt != null && tilt < FACING_DEG) "合っている" else "スマホを立て直す")
+                StatusRow("スマホの方位", phoneHeading?.let { "${it.roundToInt()}°（真北基準）" } ?: "読めない")
+                StatusRow("磁気センサー", compassAccuracy)
+                Spacer(Modifier.height(8.dp))
+                CommandButton("この向きで合わせる") {
+                    val trueHeading = phoneHeading ?: compass.trueHeadingDeg(site, System.currentTimeMillis())
+                    if (trueHeading == null) {
+                        log("方位センサーが読めない", failed = true)
+                    } else {
+                        headingOffset = normalizeDeg(trueHeading - glassYaw)
+                        calibratedAt = System.currentTimeMillis()
+                        log(
+                            "方位合わせ: スマホ ${trueHeading.roundToInt()}° / " +
+                                "グラス ${glassYaw.roundToInt()}° / 仰角差 ${tilt?.roundToInt() ?: "—"}° / " +
+                                "磁気 $compassAccuracy",
+                        )
+                        calibrating = false
+                    }
+                }
                 OutlinedButton(
-                    onClick = { scope.launch { drawAndSend() } },
-                    modifier = Modifier.weight(1f),
-                ) { Text("いま送る") }
-                Spacer(Modifier.padding(4.dp))
-                OutlinedButton(
-                    onClick = {
-                        commandManager.clearCanvas()
-                        shownLabels = 0
-                        log("表示を消した")
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("表示を消す") }
+                    onClick = { calibrating = false },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("やめる") }
+            } else {
+                CommandButton("方位を合わせる") { calibrating = true }
+                Row {
+                    OutlinedButton(
+                        onClick = { scope.launch { drawAndSend() } },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("いま送る") }
+                    Spacer(Modifier.padding(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            commandManager.clearCanvas()
+                            shownLabels = 0
+                            log("表示を消した")
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("表示を消す") }
+                }
             }
 
             Spacer(Modifier.height(16.dp))
@@ -462,6 +539,22 @@ fun StarMapScreen(client: GlassClient) {
     }
 }
 
+/**
+ * スマホ側のマーカー。グラスの十字をこの中心に重ねてもらう。
+ *
+ * 重ねる相手が「点」だと合っているか分からないので、外側の輪から中心へ絞り込む形にする。
+ */
+@Composable
+private fun PhoneMarker(modifier: Modifier) {
+    Canvas(modifier) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val r = minOf(size.width, size.height) / 2f * 0.85f
+        drawCircle(Color.White, radius = r, center = center, style = Stroke(width = 5f))
+        drawCircle(Color.White, radius = r * 0.5f, center = center, style = Stroke(width = 3f))
+        drawCircle(Color.White, radius = 6f, center = center)
+    }
+}
+
 /** ログ 1 行。失敗だけ色を変えたいので持っておく */
 private data class LogLine(val at: String, val text: String, val failed: Boolean)
 
@@ -471,6 +564,38 @@ private fun StatusRow(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.3f))
         Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.7f))
     }
+}
+
+/** 方位合わせの十字。星図とは別の id に置く（0.6.0 から画像を並べられる） */
+private const val MARKER_IMAGE_ID = 1
+
+/** 十字の大きさ。1px の線は 0.07° しかなく実機で見えないので、線は太くする */
+private const val MARKER_SIZE = 128
+private const val MARKER_THICKNESS = 2
+
+/** スマホの画面が視線に正対しているとみなす仰角の差 */
+private const val FACING_DEG = 5.0
+
+/**
+ * 方位合わせ用の十字。中心は空けておく。
+ * 塗ってしまうとスマホ側のマーカーが緑に潰れて、重なり切ったかが分からない。
+ */
+private fun crossMarker(size: Int): ByteArray {
+    val gray = ByteArray(size * size)
+    val c = size / 2
+    val gap = size / 8
+    val arm = size / 2 - 2
+    for (t in -MARKER_THICKNESS..MARKER_THICKNESS) {
+        for (d in gap..arm) {
+            for (s in intArrayOf(d, -d)) {
+                val x = c + s
+                val y = c + t
+                if (x in 0 until size && y in 0 until size) gray[y * size + x] = 255.toByte()
+                if (y in 0 until size && x in 0 until size) gray[x * size + y] = 255.toByte()
+            }
+        }
+    }
+    return gray
 }
 
 /** 観測地の既定。鯖江 */
