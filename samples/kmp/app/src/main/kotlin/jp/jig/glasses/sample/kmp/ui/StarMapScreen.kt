@@ -3,20 +3,23 @@ package jp.jig.glasses.sample.kmp.ui
 import android.graphics.Bitmap
 import android.util.Log
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,17 +32,18 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GlassClient
-import jp.jig.glasses.sample.kmp.starmap.Aimed
 import jp.jig.glasses.sample.kmp.starmap.Compass
 import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
@@ -56,15 +60,21 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
- * 座標変換パイプラインを実機で確かめる画面。仕様は docs/team-e/coordinate-system.md。
+ * 星図をグラスに出す画面。スマホ側はこの 1 枚だけで、役割は 3 つ。
  *
- * まず「星座を選ぶ」で絵が出ることを確かめ、そのあと「グラスの向き」に切り替えて
- * 空と合っているかを見る、という順で使う。
+ * - 方位を合わせる（グラスに絶対方位の基準が無いので、ここだけは人手が要る）
+ * - いまグラスに映っているものを見る
+ * - 送信のログを見る
  *
- * 出し先はキャンバス（576×360）に固定。星図を画像で置き、星座名をテキストで手前に重ねる。
+ * 星図の向きはグラスの 6DoF に追従する。仕様は docs/team-e/coordinate-system.md。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,9 +85,24 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     val imuStarted by commandManager.imuDataStarted.collectAsState()
 
     var renderer by remember { mutableStateOf<StarMapRenderer?>(null) }
+    val logs = remember { mutableStateListOf<LogLine>() }
+    val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
+
+    fun log(text: String, failed: Boolean = false) {
+        logs.add(0, LogLine(clock.format(Date()), text, failed))
+        while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
+    }
+
     LaunchedEffect(Unit) {
-        val loaded = withContext(Dispatchers.IO) { StarCatalog.load(context) }
-        renderer = StarMapRenderer(loaded)
+        val loaded = runCatching { withContext(Dispatchers.IO) { StarCatalog.load(context) } }
+        loaded.onSuccess {
+            renderer = StarMapRenderer(it)
+            log("星表を読み込んだ")
+        }.onFailure {
+            // 星表が壊れていると画面が黙って止まるので、理由を出す
+            log("星表を読めない: ${it.message}", failed = true)
+            Log.e(TAG, "星表の読み込みで失敗", it)
+        }
     }
 
     val compass = remember { Compass(context) }
@@ -89,12 +114,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     // 観測地は手で入れられるようにしておく。屋内でも試したいので GPS には頼らない
     var latText by remember { mutableStateOf("35.9432") }
     var lonText by remember { mutableStateOf("136.1846") }
-    val site = Site(latText.toDoubleOrNull() ?: 35.9432, lonText.toDoubleOrNull() ?: 136.1846)
-
-    // 星座を選ぶモードなら、方位合わせもグラスの姿勢も要らずに絵が出る
-    var followGlasses by remember { mutableStateOf(false) }
-    var visible by remember { mutableStateOf<List<Aimed>>(emptyList()) }
-    var aimed by remember { mutableStateOf<Aimed?>(null) }
+    val site = Site(latText.toDoubleOrNull() ?: DEFAULT_LAT, lonText.toDoubleOrNull() ?: DEFAULT_LON)
 
     var headingOffset by remember { mutableStateOf(0.0) }
     var calibratedAt by remember { mutableStateOf<Long?>(null) }
@@ -105,19 +125,15 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var limitMag by remember { mutableStateOf(5f) }
     var drawLines by remember { mutableStateOf(true) }
     var imageSize by remember { mutableStateOf(ImageSize.MAX) }
-    // 星座名を出すと星図が消えたのは 0.5.0 までの分割送信の割り込みが原因で、0.6.0 では起きない。
-    // 名前が無いと何座を見ているか分からないので、既定で出す
     var showLabels by remember { mutableStateOf(true) }
     var showDetails by remember { mutableStateOf(false) }
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
     var renderMs by remember { mutableStateOf(0L) }
-    var sendMs by remember { mutableStateOf(0L) }
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
-    var transferMs by remember { mutableStateOf(1500L) }
-    var status by remember { mutableStateOf("") }
-    // 差分更新なので、前のフレームで使った id を消すために枠の数だけ覚えておく
+    var transferMs by remember { mutableStateOf(1000L) }
+    var sending by remember { mutableStateOf(false) }
     var shownLabels by remember { mutableStateOf(0) }
 
     DisposableEffect(commandManager) {
@@ -136,42 +152,18 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         }
     }
 
-    // 6DoF が要るのは追従のときだけ。星座を選ぶモードで流しっぱなしにすると、
-    // 画像の分割送信と帯域を食い合って 1 枚あたりが遅くなる
-    LaunchedEffect(followGlasses) {
-        if (followGlasses) commandManager.startImuData() else if (imuStarted) commandManager.stopImuData()
-    }
+    LaunchedEffect(Unit) { commandManager.startImuData() }
 
-    // 空に出ている星座は時間とともに変わるので、定期的に取り直す
-    LaunchedEffect(renderer, latText, lonText) {
-        val r = renderer ?: return@LaunchedEffect
-        while (true) {
-            visible = withContext(Dispatchers.Default) {
-                r.visibleConstellations(site, System.currentTimeMillis())
-            }
-            if (aimed == null) aimed = visible.firstOrNull()
-            delay(60_000)
-        }
-    }
-
-    // パケットの混ざりは SDK 0.6.0 の直列化で解消したが、送信は呼び出しから見ると
-    // 積むだけで終わる。追従で描き直すたび投げると転送しきれないフレームが溜まるので、
+    // 送信は呼び出しから見ると積むだけで終わる。転送しきる前に次を入れると順番待ちが伸びるので、
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
 
-    fun look(): Look {
-        if (!followGlasses) {
-            val target = aimed ?: return Look(180.0, 45.0)
-            return Look(target.azDeg, target.altDeg)
-        }
-        val az = (normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0
-        return Look(az, glassPitch)
-    }
+    fun look(): Look = Look((normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0, glassPitch)
 
     suspend fun drawAndSend() {
         val r = renderer ?: return
-        // 送信中なら捨てる。積んでも出るころには視線が変わっている
         if (!sendGate.tryLock()) return
+        sending = true
         try {
             val started = System.currentTimeMillis()
             val map = withContext(Dispatchers.Default) {
@@ -197,8 +189,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             transferMs = ((compressed + 199) / 200) * 30L
             if (used > IMAGE_BUFFER_BYTES) {
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
-                status = "バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。星図の大きさを 1 段下げる"
-                Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used 圧縮後=$compressed")
+                log("バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。大きさを 1 段下げる", failed = true)
+                Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used")
                 return
             }
 
@@ -213,24 +205,21 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                 height = map.height,
                 grayscale = map.gray,
             )
-            // 名前が同じでも位置は視線とともに動くので毎フレーム送る。
-            // テキストを送ると星図が消えたのは 0.5.0 までの分割送信の割り込みが原因で、いまは起きない
             val placed = map.toCanvasElements()
             for (batch in placed.batched(shownLabels)) {
                 commandManager.sendCanvasElements(batch)
             }
             shownLabels = placed.size
-            sendMs = System.currentTimeMillis() - sendStarted
-            status = ""
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
 
-            Log.d(
-                TAG,
-                "送信 ${map.width}x${map.height} 名前=$shownLabels 描画=${renderMs}ms " +
-                    "圧縮後=${compressed}B 使用=${used}B 転送見積り=${transferMs}ms",
+            val l = look()
+            log(
+                "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
+                    "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
             )
+            Log.d(TAG, "送信 ${map.width}x${map.height} 圧縮後=${compressed}B 使用=${used}B")
             // 転送し切るまで次を積まない。プレビューに使った時間はもう待ったぶんとして差し引く
             val waited = System.currentTimeMillis() - sendStarted
             delay((transferMs + SETTLE_MS - waited).coerceAtLeast(0))
@@ -238,37 +227,41 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
-            status = "失敗: ${e.message}"
+            log("失敗: ${e.message}", failed = true)
             Log.e(TAG, "drawAndSend で失敗", e)
         } finally {
+            sending = false
             sendGate.unlock()
         }
     }
 
-    // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
-    var autoSent by remember { mutableStateOf(false) }
-    LaunchedEffect(aimed, followGlasses) {
-        if (autoSent || followGlasses || aimed == null) return@LaunchedEffect
-        autoSent = true
-        drawAndSend()
-    }
-
-    // グラスの向きに追従するときだけ描き直し続ける。選んだ星座を見るときは 1 枚でいい
-    LaunchedEffect(followGlasses, renderer) {
-        if (!followGlasses) return@LaunchedEffect
+    /**
+     * 「首が止まったら描き直す」追従。
+     *
+     * 1 枚に約 1 秒かかり、その間グラスは前の絵を捨てて何も出さない。動くたびに送ると
+     * 表示より転送のほうが長く、点いては消えるだけになる（実機で確認）。
+     * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
+     */
+    var settled by remember { mutableStateOf(true) }
+    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels) {
+        if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
+        var previous = look()
+        var movedAt = 0L
         while (true) {
             val now = look()
-            val moved = drawn == null ||
-                kotlin.math.abs(normalizeDeg(now.azDeg - drawn!!.azDeg)) > REDRAW_DEG ||
-                kotlin.math.abs(now.altDeg - drawn!!.altDeg) > REDRAW_DEG
-            // 待ちは drawAndSend が持っている。ここでは動いたかどうかだけ見る
-            if (moved) {
+            val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
+            if (step > STILL_DEG) movedAt = System.currentTimeMillis()
+            previous = now
+            settled = System.currentTimeMillis() - movedAt > STILL_MS
+            val drift = drawn?.let {
+                max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
+            } ?: Double.MAX_VALUE
+            if (settled && drift > REDRAW_DEG) {
                 drawAndSend()
-                drawn = now
-            } else {
-                delay(150)
+                drawn = look()
             }
+            delay(POLL_MS)
         }
     }
 
@@ -285,173 +278,142 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         ) {
             if (renderer == null) {
                 Text("星表を読み込み中…")
-                return@Column
+                Spacer(Modifier.height(12.dp))
             }
 
-            CommandButton("テスト画像（塗りつぶし）") {
-                scope.launch {
-                    if (!sendGate.tryLock()) {
-                        status = "まだ前の画像を送っている"
-                        return@launch
+            Text("グラスに映っているもの", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color.Black)) {
+                val shot = preview
+                if (shot == null) {
+                    Column(
+                        Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat()),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Text("　まだ出していない", color = Color.Gray)
                     }
-                    runCatching {
-                        val w = imageSize.width
-                        val h = imageSize.height
-                        val gray = solidBlock(w, h)
-                        // 星図と同じ id に送って差し替える。経路だけを切り分けたいので位置も揃える
-                        commandManager.sendCanvasImage(
-                            id = STAR_MAP_IMAGE_ID,
-                            x = (PANEL_WIDTH - w) / 2,
-                            y = (PANEL_HEIGHT - h) / 2,
-                            width = w,
-                            height = h,
-                            grayscale = gray,
-                        )
-                        val wait = StarMap(w, h, gray, emptyList()).transferMillis()
-                        status = "テスト画像を送った（約 $wait ms）。出ないなら経路の問題"
-                        Log.d(TAG, "テスト画像 ${w}x$h 転送見積り=${wait}ms")
-                        delay(wait + SETTLE_MS)
-                    }.onFailure {
-                        status = "テスト画像で失敗: ${it.message}"
-                        Log.e(TAG, "テスト画像で失敗", it)
-                    }
-                    sendGate.unlock()
-                }
-            }
-
-            Row {
-                FilterChip(
-                    selected = !followGlasses,
-                    onClick = { followGlasses = false },
-                    label = { Text("星座を選ぶ") },
-                )
-                Spacer(Modifier.padding(4.dp))
-                FilterChip(
-                    selected = followGlasses,
-                    onClick = { followGlasses = true },
-                    label = { Text("グラスの向き") },
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row {
-                for (sz in ImageSize.entries) {
-                    FilterChip(
-                        selected = imageSize == sz,
-                        onClick = { imageSize = sz },
-                        label = { Text(sz.label) },
+                } else {
+                    Image(
+                        bitmap = shot.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().background(Color.Black),
                     )
-                    Spacer(Modifier.padding(2.dp))
                 }
-            }
-            Row {
-                Checkbox(checked = showLabels, onCheckedChange = { showLabels = it })
-                Text("星座名も出す", Modifier.padding(top = 14.dp))
             }
             Text(
-                "小さいほど転送が速く、なめらかに動く。いまの見積り 約 $transferMs ms/枚",
+                "星座名は画像に焼かず、グラス側のテキストとして手前に重なる（ここには出ない）",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Spacer(Modifier.height(12.dp))
 
-            if (!followGlasses) {
-                Text(
-                    "選んだ星座のほうを向いた絵を出す。方位合わせもグラスの姿勢も要らない",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                if (visible.isEmpty()) {
-                    Text("いま空に出ている星座がない（観測地か時刻を確かめる）")
+            Spacer(Modifier.height(16.dp))
+
+            val l = look()
+            StatusRow("視線", "方位 ${l.azDeg.roundToInt()}° / 高度 ${l.altDeg.roundToInt()}°")
+            StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
+            StatusRow(
+                "方位合わせ",
+                calibratedAt?.let { "${(System.currentTimeMillis() - it) / 1000} 秒前" } ?: "まだ",
+            )
+            StatusRow(
+                "表示",
+                when {
+                    sending -> "送信中（約 $transferMs ms／この間グラスは前の絵を消す）"
+                    settled -> "止まっている"
+                    else -> "動いている（止まると送る）"
+                },
+            )
+
+            Spacer(Modifier.height(16.dp))
+            CommandButton("方位を合わせる（スマホを顔の前にかざして押す）") {
+                val trueHeading = compass.trueHeadingDeg(site, System.currentTimeMillis())
+                if (trueHeading == null) {
+                    log("方位センサーが読めない", failed = true)
                 } else {
-                    aimed?.let { Text("いま選んでいるのは ${it.nameJa}（${it.where}）") }
-                    Spacer(Modifier.height(8.dp))
-                    CommandButton("グラスに出す") { scope.launch { drawAndSend() } }
-                    Spacer(Modifier.height(4.dp))
-                    Text("いま出ている星座（高い順）", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(4.dp))
-                    for (c in visible.take(20)) {
-                        OutlinedButton(
-                            onClick = {
-                                aimed = c
-                                scope.launch { drawAndSend() }
+                    headingOffset = normalizeDeg(trueHeading - glassYaw)
+                    calibratedAt = System.currentTimeMillis()
+                    log("方位合わせ: スマホ ${trueHeading.roundToInt()}° / グラス ${glassYaw.roundToInt()}°")
+                }
+            }
+            Row {
+                OutlinedButton(
+                    onClick = { scope.launch { drawAndSend() } },
+                    modifier = Modifier.weight(1f),
+                ) { Text("いま送る") }
+                Spacer(Modifier.padding(4.dp))
+                OutlinedButton(
+                    onClick = {
+                        commandManager.clearCanvas()
+                        shownLabels = 0
+                        log("表示を消した")
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Text("表示を消す") }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("ログ", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp)) {
+                    if (logs.isEmpty()) {
+                        Text("まだ何も送っていない", style = MaterialTheme.typography.bodySmall)
+                    }
+                    for (line in logs) {
+                        Text(
+                            "${line.at}  ${line.text}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (line.failed) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
-                        ) {
-                            Text("${c.nameJa}　${c.where}")
-                        }
-                    }
-                }
-            } else {
-                Text(
-                    "グラスの 6DoF に追従して描き直す。空と合わせるには方位合わせが要る",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text("方位 ${look().azDeg.roundToInt()}° / 高度 ${look().altDeg.roundToInt()}°")
-                Text("6DoF ${if (imuStarted) "受信中" else "停止中"}")
-                calibratedAt?.let { Text("方位合わせから ${(System.currentTimeMillis() - it) / 1000} 秒") }
-                    ?: Text("まだ方位を合わせていない")
-                Spacer(Modifier.height(8.dp))
-                CommandButton("方位を合わせる（スマホを顔の前にかざして押す）") {
-                    val trueHeading = compass.trueHeadingDeg(site, System.currentTimeMillis())
-                    if (trueHeading == null) {
-                        status = "方位センサーが読めない"
-                    } else {
-                        headingOffset = normalizeDeg(trueHeading - glassYaw)
-                        calibratedAt = System.currentTimeMillis()
-                        status = "スマホの方位 ${trueHeading.roundToInt()}° で合わせた"
+                        )
                     }
                 }
             }
 
-            preview?.let {
-                Spacer(Modifier.height(12.dp))
-                Image(
-                    bitmap = it.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    "グラスに出している画像。星座名は焼き込まず、テキストとして手前に重なる",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-
-            if (status.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(status, style = MaterialTheme.typography.bodySmall)
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = { commandManager.clearCanvas() }, modifier = Modifier.fillMaxWidth()) {
-                Text("グラスの表示を消す")
-            }
-
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            Spacer(Modifier.height(16.dp))
             Row {
                 Checkbox(checked = showDetails, onCheckedChange = { showDetails = it })
                 Text("細かい設定を出す", Modifier.padding(top = 14.dp))
             }
 
             if (showDetails) {
+                Text("星図の大きさ", style = MaterialTheme.typography.titleSmall)
+                Row {
+                    for (sz in ImageSize.entries) {
+                        FilterChip(
+                            selected = imageSize == sz,
+                            onClick = { imageSize = sz },
+                            label = { Text(sz.label) },
+                        )
+                        Spacer(Modifier.padding(2.dp))
+                    }
+                }
+                Row {
+                    Checkbox(checked = showLabels, onCheckedChange = { showLabels = it })
+                    Text("星座名を出す", Modifier.padding(top = 14.dp))
+                }
+                Row {
+                    Checkbox(checked = drawLines, onCheckedChange = { drawLines = it })
+                    Text("星座線を描く（転送量の半分以上を占める）", Modifier.padding(top = 14.dp))
+                }
                 Text("画角 ${fov.roundToInt()}°")
                 Slider(value = fov, onValueChange = { fov = it }, valueRange = 10f..70f)
                 Text("限界等級 ${"%.1f".format(limitMag)}")
                 Slider(value = limitMag, onValueChange = { limitMag = it }, valueRange = 2f..5f)
-                Row {
-                    Checkbox(checked = drawLines, onCheckedChange = { drawLines = it })
-                    Text("星座線を描く", Modifier.padding(top = 14.dp))
+                lastMap?.let {
+                    Text(
+                        "${it.width}×${it.height} / 描画 $renderMs ms / 転送 約 $transferMs ms",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-                Text("描画 $renderMs ms / 送信の呼び出し $sendMs ms / 画像の転送 約 $transferMs ms")
-                Text(
-                    "送信は内部でキューイングされるので、呼び出し時間は転送完了までの時間ではない",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                lastMap?.let { Text("ラベル ${it.labels.size} 個 / ${it.width}×${it.height}") }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = latText,
                     onValueChange = { latText = it },
                     label = { Text("緯度") },
+                    isError = latText.toDoubleOrNull() == null,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(4.dp))
@@ -459,20 +421,77 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                     value = lonText,
                     onValueChange = { lonText = it },
                     label = { Text("経度") },
+                    isError = lonText.toDoubleOrNull() == null,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            if (!sendGate.tryLock()) {
+                                log("まだ前の画像を送っている")
+                                return@launch
+                            }
+                            try {
+                                val w = imageSize.width
+                                val h = imageSize.height
+                                val gray = solidBlock(w, h)
+                                // 星図と同じ id に送って差し替える。経路だけを切り分けたいので位置も揃える
+                                commandManager.sendCanvasImage(
+                                    id = STAR_MAP_IMAGE_ID,
+                                    x = (PANEL_WIDTH - w) / 2,
+                                    y = (PANEL_HEIGHT - h) / 2,
+                                    width = w,
+                                    height = h,
+                                    grayscale = gray,
+                                )
+                                val wait = StarMap(w, h, gray, emptyList()).transferMillis()
+                                log("テスト画像 ${w}x$h（約 $wait ms）。出ないなら経路の問題")
+                                delay(wait + SETTLE_MS)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
+                                log("テスト画像で失敗: ${e.message}", failed = true)
+                            } finally {
+                                sendGate.unlock()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("テスト画像（塗りつぶし）を送る") }
             }
             Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-/**
- * 星座名をキャンバスのテキスト要素にする。
- *
- * sendCanvasElements は差分更新なので、前のフレームで使った id は消さないと残る。
- * 空文字を送るとその id が消えるので、余った枠は常に空で埋める。
- */
+/** ログ 1 行。失敗だけ色を変えたいので持っておく */
+private data class LogLine(val at: String, val text: String, val failed: Boolean)
+
+@Composable
+private fun StatusRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.3f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.7f))
+    }
+}
+
+/** 観測地の既定。鯖江 */
+private const val DEFAULT_LAT = 35.9432
+private const val DEFAULT_LON = 136.1846
+
+/** ログはこの行数だけ持つ */
+private const val LOG_LINES = 40
+
+/** 追従の見張り間隔 */
+private const val POLL_MS = 100L
+
+/** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
+private const val STILL_DEG = 1.0
+
+/** 動きが止まってからこれだけ待って送る */
+private const val STILL_MS = 400L
+
 /**
  * 星図の大きさ。キャンバス（576×360）いっぱいには出せない。
  *
@@ -497,8 +516,13 @@ private enum class ImageSize(val width: Int, val height: Int, val label: String)
 
 private const val TAG = "StarMap"
 
-/** これだけ視線が動いたら描き直す。止まっているのに送り直すと、そのたび画面が消えて点滅する */
-private const val REDRAW_DEG = 2.0
+/**
+ * 前に送った絵からこれだけ視線がずれたら描き直す。
+ *
+ * 送り直すたびグラスは前の絵を捨てて約 1 秒黙るので、少し動いたくらいでは送らない。
+ * 画角 35° に対しておよそ 1/6。
+ */
+private const val REDRAW_DEG = 6.0
 
 /**
  * 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕。
