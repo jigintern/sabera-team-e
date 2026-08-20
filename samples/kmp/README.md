@@ -1,24 +1,32 @@
-# Sabera App SDK KMP Sample
+# team-e のアプリ
 
-Kotlin + Jetpack Compose から直接 Sabera App SDK を利用するサンプルアプリ。
-Flutter の MethodChannel ブリッジなしで、SDK API を直接呼び出す。
+**`app/` が team-e のアプリ本体。** Kotlin + Jetpack Compose から Sabera App SDK を直接呼ぶ。
 
-> 現在 Android のみ対応。iOS は後日追加予定。
+| モジュール | 中身 |
+|---|---|
+| **`app/`** | **アプリ本体。ここを書き換えて育てる** |
+| `snippets/` | ドキュメント用のコード例。**アプリではない**（壊すと CI が落ちる） |
 
-## 前提条件
+> **Android 実機のみ。** iOS は上流でも SDK 0.0.10 のまま追従していないので、team-e では扱わない。
 
-- Android Studio
-- Android 実機 (BLE 必須、エミュレータ不可)
-- GitHub Packages から SDK を取得するための認証設定（[ルート README](../../README.md) 参照）
+## 前提
 
-## ビルド・実行
+- Android Studio / JDK 17
+- **Android 実機**（BLE 必須。エミュレータ不可）
+- SDK 取得用の GitHub PAT → [CONTRIBUTING.md](../../CONTRIBUTING.md)
+
+## 動かす
 
 ```bash
 cd samples/kmp
-./gradlew :app:installDebug
+./gradlew :app:installDebug              # 実機にインストール
+./gradlew :app:testDebugUnitTest         # JVM テスト
+./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck   # コード例の検証（CI に無いので手元で）
 ```
+
+仕様は [docs/team-e/](../../docs/team-e/)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
 
 ## ライセンス
 
 このサンプルコードは [Apache License 2.0](../../LICENSE)。
-SDK 本体は対象外で、別途 SDK 利用規約が適用される（[ルート README](../../README.md) 参照）。
+SDK 本体は対象外で、別途 SDK 利用規約が適用される。
