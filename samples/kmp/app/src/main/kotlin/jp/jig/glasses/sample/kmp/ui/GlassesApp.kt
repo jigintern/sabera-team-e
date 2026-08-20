@@ -74,7 +74,8 @@ fun GlassesApp(manager: GlassManager) {
                     client = currentClient,
                     initialHeadingOffset = headingOffset,
                     initialCalibratedAt = calibratedAt.takeIf { it > 0L },
-                    onHome = { screen = HOME_SCREEN },
+                    constellation = constellation,
+                    onRecalibrate = { screen = CALIBRATION_SCREEN },
                 )
             }
         }
