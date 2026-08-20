@@ -1,55 +1,34 @@
 # コントリビューションガイド
 
-- team-e でこのリポジトリを触るときの手順とルール
-- AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)
-
-## このリポジトリでやること
-
-- SABERA スマートグラス向けに、**空にかざすと視界と星座が重なり、AI に頼むと今見えている星座を解説してくれるアプリ**を作る
-- いまは **仕様策定フェーズ**。実装より「何を作るか」を書き残すほうが優先
-- SDK 0.0.12 で **画像送信**（`enterImageDisplayPage` / `sendImage`）が使える
-  - グレースケールを渡すだけでよい。**196x196 / 緑単色 / 3bit（8 階調）**という制約は残る
-  - 詳細は [AGENTS.md](AGENTS.md#グラスに何を出せるか)
-- SDK 0.1.0 で **グラスの 6DoF**（`startImuData` / `imuData`）が取れるようになった
-  - ピッチとロールは絶対値で取れるが、**ヨーは起動基準の相対値でドリフトする**
-  - **スマホのコンパスでは代替できない**（頭とスマホの相対姿勢が未知）。方位の埋め方は AGENTS.md 参照
-- **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファーム非対応）
-- SDK 0.4.0 で **自由配置キャンバスに画像を置ける**（`sendCanvasImage`）
-  - **星図と星座名ラベルを同じ画面に出せる。** 画像表示ページ（196x196）より広い
-  - `FEATURE_VERSION 2.2.0` 以上のファームが要る
-  - **画像バッファは 380,000 バイトまで。** 576×360 は入らないので 512×320 程度に落とす
-  - 詳細は [AGENTS.md](AGENTS.md#グラスに何を出せるか)
-- **0.5.0 でアプリ本体に実装が無いメソッドが撤去された**（電源・リモコンのイベントリスナーを含む）
-- **0.6.0 でキャンバス画像が 8 枚まで置けるようになった**（`sendCanvasImage` に `id` が増えた）
-  - **0.5.0 までとは互換が無い。** あわせて SDK が分割送信を直列化するようになった
-- SDK 0.3.0 で **グラスのマイクから PCM16 / 16kHz が取れる**（`startMicStreaming` / `micAudio`）
-- **グラスから音は鳴らせない**（スピーカーが無い）。AI 解説の読み上げは Android の
-  `TextToSpeech` で、**スマホのスピーカーから鳴る**
-- 上流 SDK は 0.6.0 まで取り込み済み
+team-e でこのリポジトリを触るときの手順とルール。
+AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様は [docs/team-e/](docs/team-e/)。
 
 ## 環境をつくる
 
 ### 1. 必要なもの
 
-- **Android 実機**（BLE 必須。**エミュレータでは動かない**）
-- Android Studio
-- JDK 17
-- Python 3（ドキュメント用スクリプト）
-- Ruby 3.4 + Bundler（ドキュメントサイトをローカルで見る場合のみ）
+| | 補足 |
+|---|---|
+| **Android 実機** | **BLE 必須。エミュレータでは動かない** |
+| Android Studio / JDK 17 | |
+| Python 3 | ドキュメント生成スクリプト |
+| Ruby 3.4 + Bundler | ドキュメントサイトを手元で見るときだけ |
 
 ### 2. GitHub PAT を設定する（最初の関門）
 
-- SDK は private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている
-- **`read:packages` スコープの PAT が無いとビルドが認証エラーで落ちる**
-- 発行手順 → [docs/github-pat.md](docs/github-pat.md)
-- 置き場所 → `~/.gradle/gradle.properties`（リポジトリ内ではなくホーム配下）
+SDK は private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている。
+**`read:packages` スコープの PAT が無いとビルドが認証エラーで落ちる。**
+発行手順 → [docs/github-pat.md](docs/github-pat.md)
+
+`~/.gradle/gradle.properties`（**リポジトリ内ではなくホーム配下**）：
 
 ```properties
 GitHubPackagesUsername=<GitHubのユーザー名>
 GitHubPackagesPassword=<read:packages を持つ PAT>
 ```
 
-- プロパティ名は `samples/kmp/settings.gradle.kts` のリポジトリ名（`GitHubPackages`）から決まる。**変えると認証されない**
+- プロパティ名は `samples/kmp/settings.gradle.kts` のリポジトリ名（`GitHubPackages`）から決まる。
+  **変えると認証されない**
 - **PAT は絶対にコミットしない**
 
 ### 3. OpenAI の API キーを置く（AI 解説を使うときだけ）
@@ -58,34 +37,38 @@ GitHubPackagesPassword=<read:packages を持つ PAT>
 cp .env.example .env   # OPENAI_API_KEY= に手で書き込む
 ```
 
-- `.env` は **`.gitignore` 済み**。テンプレートの `.env.example` だけを追跡している
-- 置き場所は `.env` → `local.properties` → `~/.gradle/gradle.properties`（`openAiApiKey`）→ 環境変数 の順で探す
-  - **リポジトリの外に置きたいなら `~/.gradle/gradle.properties` が安全。** SDK 取得の PAT と同じ場所
+- `.env` は `.gitignore` 済み。テンプレートの `.env.example` だけを追跡している
+- 探す順は `.env` → `local.properties` → `~/.gradle/gradle.properties`（`openAiApiKey`）→ 環境変数
+- **リポジトリの外に置きたいなら `~/.gradle/gradle.properties`**（SDK 取得の PAT と同じ場所）
 - **キーが無くてもビルドは通る。** 星図までは動き、タップすると「AI の設定がありません」と喋る
-- **キーは APK に埋まる。** 逆コンパイルすれば読めるので、**配布せず手元の実機で動かす**前提。
-  配布するならバックエンド経由に変える必要がある
+- **キーは APK に埋まる。** 逆コンパイルすれば読めるので、**配布せず手元の実機で動かす**前提
 
 ### 4. 動かす
 
 ```bash
 cd samples/kmp
-./gradlew :app:installDebug
+./gradlew :app:installDebug              # 実機にインストール
+./gradlew :app:testDebugUnitTest         # JVM テスト（座標変換・SGP4・AI 周り）
+./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck   # ドキュメントのコード例
 ```
 
-- 実機にインストールされる
-- アプリ起動 → デバイス選択ダイアログでグラスを選ぶ、で接続まで完了
-- 詰まったら [困ったとき](#困ったとき) へ
+アプリ起動 → デバイス選択ダイアログでグラスを選ぶ、で接続まで完了。
+詰まったら [困ったとき](#困ったとき)へ。
 
 ## どこを触るか
 
-- **`samples/kmp/app/`** — team-e のアプリコード。ここを書き換えて育てる
-- `samples/kmp/snippets/` — **ドキュメント用のコード例置き場。アプリではない**。壊すと CI が落ちる
-- `samples/flutter/` — 使わない。参照用に残す
-- `docs/` — SDK のドキュメントサイト。team-e の仕様書もここに置く（後述）
+| パス | |
+|---|---|
+| **`samples/kmp/app/`** | **アプリ本体。ここを書き換えて育てる** |
+| `samples/kmp/snippets/` | **ドキュメント用のコード例。アプリではない**（壊すと CI が落ちる） |
+| `samples/flutter/` | Flutter 版サンプル。**触らない**（別のチームが触っている） |
+| `docs/team-e/` | team-e の仕様書 |
+| `docs/` の他 | SDK のドキュメントサイト。**team-e の仕様は混ぜない** |
+| `data/` / `tools/` | 同梱データと生成スクリプト。`data/` は**すべて生成物なので手で編集しない** |
 
 ## 進め方
 
-- 運用は軽量。**main への直接 push を許可**する（仕様策定フェーズで、壊れて困る実装がまだ無いため）
+- 運用は軽量。**main への直接 push を許可**する
 - 次のときは feature ブランチを切って PR にする
   - 他のメンバーの作業とぶつかりそうな変更
   - 設計の方向を決める変更（アーキテクチャ、依存の追加）
@@ -98,15 +81,12 @@ git push -u origin feat/star-catalog
 ```
 
 - CI（`.github/workflows/docs.yml`）はすべての PR と main への push で回る。**落ちたまま放置しない**
-- **コード例のコンパイルと ktlint は CI から外してある**（SDK 取得に PAT が要るため）。手元で回す
-
-```bash
-cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
-```
+- **コード例のコンパイルと ktlint は CI から外してある**（SDK 取得に PAT が要るため）。
+  **触ったら必ず手元で回す**
 
 ### コミットメッセージ
 
-- 形式は `<type>: <日本語の要約>`
+形式は `<type>: <日本語の要約>`。本文は任意で、書くなら「なぜそうしたか」。
 
 | type | 使いどころ |
 |---|---|
@@ -116,9 +96,7 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 | `refactor:` | 挙動を変えない整理 |
 | `test:` | テスト |
 | `chore:` | 雑務（設定、依存の更新など） |
-| `build:` | ビルド周り |
-| `ci:` | CI 設定 |
-| `style:` | 整形のみ |
+| `build:` / `ci:` / `style:` | ビルド周り / CI 設定 / 整形のみ |
 
 ```
 docs: 星座データの持ち方の候補を仕様書に追記する
@@ -126,8 +104,7 @@ docs: 星座データの持ち方の候補を仕様書に追記する
 Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを表にした。
 ```
 
-- 本文は任意。書くなら「なぜそうしたか」
-- **`Co-Authored-By` に AI エージェント（Claude / Codex など）を入れない**
+**`Co-Authored-By` に AI エージェント（Claude / Codex など）を入れない。** 作者は人間。
 
 ## 仕様書とドキュメント
 
@@ -135,13 +112,9 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 
 | 書くもの | 置き場所 |
 |---|---|
-| team-e の仕様書・議事録・設計メモ | `docs/team-e/`（まだ無い。最初に書く人が作る） |
-| 決まった技術的前提・制約 | [AGENTS.md](AGENTS.md) |
-| SDK の使い方・API リファレンス | `docs/`（SDK 側の話なので team-e の仕様は混ぜない） |
-
-`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。
-読むだけなら上流の公開サイト **<https://jig-sabera.github.io/sabera-sdk/>** が早い。
-`docs/` を直して見た目を確かめたいときだけ手元で Jekyll を立てる。
+| team-e の仕様・設計判断 | [`docs/team-e/`](docs/team-e/) |
+| 決まった技術的前提・SDK の制約 | [AGENTS.md](AGENTS.md) |
+| SDK の使い方・API リファレンス | `docs/`（上流と共有。team-e の話は混ぜない） |
 
 書き方の作法 → [docs/authoring.md](docs/authoring.md)。要点：
 
@@ -149,7 +122,9 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 - コード例は Markdown に直接書かない。出処は `samples/kmp/snippets/` の Kotlin
 - `docs/_data/api_links.yml` と `docs/_site/` は生成物。手で編集しない
 
-ローカルで見る：
+`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。
+読むだけなら **<https://jig-sabera.github.io/sabera-sdk/>** が早い。
+見た目を確かめたいときだけ：
 
 ```bash
 cd docs && bundle install && bundle exec jekyll serve   # http://127.0.0.1:4000/
@@ -157,26 +132,18 @@ cd docs && bundle install && bundle exec jekyll serve   # http://127.0.0.1:4000/
 
 ## 困ったとき
 
-- **ビルドが 401 / 認証エラーで落ちる**
-  - `~/.gradle/gradle.properties` に書いたか
-  - PAT に `read:packages` スコープが付いているか
-  - プロパティ名が `GitHubPackagesUsername` / `GitHubPackagesPassword` になっているか
-- **グラスが見つからない / 接続できない**
-  - エミュレータでは動かない。実機を使う
-  - Bluetooth と位置情報の権限が許可されているか
-- **CI の「docs のコード例が最新か確かめる」が落ちる**
-  - `samples/kmp/snippets/` を直したあと `python3 scripts/sync-snippets.py` を忘れている
-  - 実行して差分をコミットする
-- **`:snippets` のコンパイルが手元で落ちる**
-  - `samples/kmp/snippets/` が SDK の実 API と食い違っている
-  - `:snippets` はドキュメント専用。アプリの都合で書き換えない
-  - CI では検出できないので、触ったら必ず手元で回す
-- **グラスの画面に何も出ない**
-  - 送信先のページを先に開く必要がある（例: `enterEmptyScreenPage()` → `sendEmptyScreenContent()`）
-  - 画像なら 196x196 を超えていないか。超えるとファーム側で弾かれて無表示になる
+| 症状 | 見るところ |
+|---|---|
+| **ビルドが 401 / 認証エラー** | PAT が `~/.gradle/gradle.properties` にあるか。`read:packages` スコープが付いているか。プロパティ名が `GitHubPackagesUsername` / `GitHubPackagesPassword` か |
+| **グラスが見つからない** | エミュレータでは動かない。Bluetooth と位置情報の権限が許可されているか |
+| **CI の sync-snippets が落ちる** | `samples/kmp/snippets/` を直したあと `python3 scripts/sync-snippets.py` を忘れている。実行して差分をコミットする |
+| **`:snippets` のコンパイルが落ちる** | SDK の実 API と食い違っている。`:snippets` はドキュメント専用で、アプリの都合で書き換えない |
+| **グラスの画面に何も出ない** | キャンバス（`sendCanvasImage` / `sendCanvasElements`）は送るだけで出るが、**上限を超えると `IllegalArgumentException` で落ちる**。用途別ページは先に開く必要がある。→ [グラス出力の制約](docs/team-e/glass-output.md) |
+| **星図が点いては消える** | 転送中は前の絵が消える。**首が止まってから送る**（0.4 秒静止 ＋ 6° 以上のずれ） |
 
 ## ライセンス
 
 - このリポジトリのサンプル・ラッパーコードは [Apache License 2.0](LICENSE)
-- **SDK 本体（`jp.jig.sabera.app.sdk:*`）はこのライセンスの対象外**
-  - GitHub Packages から配布されるバイナリで、利用には別途 SDK 利用規約が適用される
+- **SDK 本体（`jp.jig.sabera.app.sdk:*`）は対象外。** GitHub Packages 配布のバイナリで、
+  利用には別途 SDK 利用規約が適用される
+- 同梱の星表データ（d3-celestial / XHIP）は BSD-3-Clause。帰属は [NOTICE](NOTICE)
