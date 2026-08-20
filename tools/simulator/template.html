@@ -87,7 +87,7 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
 <div class="wrap">
 <header>
   <h1>天球インスペクタ</h1>
-  <p class="sub">SABERA をかけている人に何が見えるかを、実機の前にブラウザで確かめる。空と地上の景色を背景に、グラスが出す緑単色をそのまま重ねている。表示パネルは <strong>576×360</strong>（点線）で、その中に星図を実寸で置いている（実線）。<strong>SDK 0.4.0 の <code>sendCanvasImage</code> ならパネルのほぼ全面に描ける</strong>（画像バッファが 380,000 バイトまでなので上限は 512×320）。星座名は画像とは別のテキスト要素なので、手前に重なる。<strong>波導ディスプレイは黒が透明</strong>なので、暗い画素の向こうには景色が透ける。</p>
+  <p class="sub">SABERA をかけている人に何が見えるかを、実機の前にブラウザで確かめる。空と地上の景色を背景に、グラスが出す緑単色をそのまま重ねている。表示パネルは <strong>576×360</strong>（点線）で、その中に星図を実寸で置いている（実線）。<strong>SDK 0.4.0 の <code>sendCanvasImage</code> ならパネルのほぼ全面に描ける</strong>（画像バッファが 380,000 バイトまでなので上限は 528×330）。星座名は画像とは別のテキスト要素なので、手前に重なる。<strong>波導ディスプレイは黒が透明</strong>なので、暗い画素の向こうには景色が透ける。</p>
   <div class="stats">
     <span>恒星 <b id="s-stars">—</b></span>
     <span>星座 <b id="s-cons">—</b></span>
@@ -123,7 +123,7 @@ footer{border-top:1px solid var(--rule); padding-top:16px; font-size:12.5px; col
         <div class="field">
           <label for="size">星図を描くサイズ</label>
           <select id="size">
-            <option value="canvas">512 × 320 — 画像バッファに入る最大（0.4.0）</option>
+            <option value="canvas">528 × 330 — 画像バッファに入る最大（0.4.0）</option>
             <option value="square">320 × 320 — 正方形に留める</option>
             <option value="image">196 × 196 — 画像表示ページ（退路）</option>
           </select>
@@ -345,10 +345,10 @@ function context(){
 /* ---- グラスが出す画像 --------------------------------------------
    表示パネルは 576x360。SDK 0.4.0 の sendCanvasImage でこの範囲に画像を置ける。
    0.2.0 までは画像表示ページ（196x196）しか無く、テキストとは排他だった。
-   ただし画像バッファは w*h*2 の合計で 380,000 バイトまでなので、576x360 は
-   画素だけで 414,720 になり入らない。16:10 のまま 512x320 に落とす。          */
+   ただし画像バッファは w*h*2 + 圧縮後サイズ が 380,000 バイトまでなので、576x360 は
+   画素だけで 414,720 になり入らない。16:10 のまま 528x330 に落とす（実機で確認）。 */
 const PANEL_W=576, PANEL_H=360;
-const SIZES={canvas:[512,320], square:[320,320], image:[196,196]};
+const SIZES={canvas:[528,330], square:[320,320], image:[196,196]};
 const buf=document.createElement('canvas');
 const bctx=buf.getContext('2d',{willReadFrequently:true});
 const GLASS_GREEN=[56,255,116];
