@@ -9,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,22 +17,24 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -101,7 +104,8 @@ fun StarMapScreen(
     client: GlassClient,
     initialHeadingOffset: Double,
     initialCalibratedAt: Long?,
-    onHome: () -> Unit,
+    constellation: ConstellationBackground,
+    onRecalibrate: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -189,12 +193,13 @@ fun StarMapScreen(
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
-    var fov by remember { mutableStateOf(35f) }
-    var limitMag by remember { mutableStateOf(5f) }
-    var drawLines by remember { mutableStateOf(true) }
-    var imageSize by remember { mutableStateOf(ImageSize.MAX) }
-    var showLabels by remember { mutableStateOf(true) }
+    val fov = 35f
+    val limitMag = 5f
+    val drawLines = true
+    val imageSize = ImageSize.MAX
+    val showLabels = true
     var showDetails by remember { mutableStateOf(false) }
+    var satelliteMode by remember { mutableStateOf(false) }
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
@@ -206,7 +211,7 @@ fun StarMapScreen(
     var waitMs by remember { mutableStateOf(0L) }
 
     // 1 パケットあたりの見積り。転送の実時間は測る手段が無いので、目で見て詰められるようにする
-    var packetMs by remember { mutableStateOf(PACKET_MS_DEFAULT) }
+    val packetMs = PACKET_MS_DEFAULT
     var sending by remember { mutableStateOf(false) }
     var shownLabels by remember { mutableStateOf(0) }
 
@@ -355,8 +360,8 @@ fun StarMapScreen(
      * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
      */
     var settled by remember { mutableStateOf(true) }
-    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating) {
-        if (renderer == null || calibrating) return@LaunchedEffect
+    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating, satelliteMode) {
+        if (renderer == null || calibrating || satelliteMode) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
@@ -489,32 +494,83 @@ fun StarMapScreen(
         onDispose { job.cancel() }
     }
 
-    Scaffold(
+    val starMapColors = darkColorScheme(
+        primary = Color(0xFF75E6A3),
+        surface = Color(0xE6152028),
+        surfaceVariant = Color(0xE6243039),
+        onSurface = Color(0xFFF4F8F5),
+        onSurfaceVariant = Color(0xFFC5D0CB),
+    )
+
+    MaterialTheme(colorScheme = starMapColors) {
+        Box(Modifier.fillMaxSize()) {
+            SeasonalConstellationBackground(
+                constellation = constellation,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Scaffold(
+                containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("星図") },
+                title = { Text(if (showDetails) "星図の設定" else "現在の星空") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xA608111B),
+                    titleContentColor = Color.White,
+                ),
                 navigationIcon = {
-                    TextButton(
-                        onClick = {
-                            commandManager.closeCanvas()
-                            onHome()
-                        },
-                    ) {
-                        Text("ホーム")
+                    if (showDetails) {
+                        TextButton(onClick = { showDetails = false }) {
+                            Text("戻る", color = Color.White)
+                        }
+                    }
+                },
+                actions = {
+                    if (!showDetails) {
+                        TextButton(
+                            onClick = {
+                                satelliteMode = !satelliteMode
+                                if (satelliteMode) {
+                                    // 衛星画面の準備中に星図を残すと切り替わったように見えないため消す
+                                    commandManager.clearCanvas()
+                                    shownLabels = 0
+                                }
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                containerColor = if (satelliteMode) Color(0xFF2D6A4F) else Color.Transparent,
+                            ),
+                        ) {
+                            Text("衛星モード", color = Color.White)
+                        }
+                        TextButton(onClick = { showDetails = true }) {
+                            Text("設定", color = Color.White)
+                        }
                     }
                 },
             )
         },
-    ) { padding ->
+            ) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
         ) {
+            if (!showDetails) {
+            if (satelliteMode) {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+                ) {
+                    Text(
+                        "衛星モードは準備中です",
+                        modifier = Modifier.padding(24.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            } else {
             if (renderer == null) {
                 Text("星表を読み込み中…")
                 Spacer(Modifier.height(12.dp))
             }
 
-            Text("グラスに映っているもの", style = MaterialTheme.typography.titleMedium)
+            Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(4.dp))
             Card(colors = CardDefaults.cardColors(containerColor = Color.Black)) {
                 val shot = preview
@@ -534,28 +590,74 @@ fun StarMapScreen(
                 }
             }
             Text(
-                "星座名は画像に焼かず、グラス側のテキストとして手前に重なる（ここには出ない）",
+                "グラスの向きを止めると、その方角の星図に更新します",
                 style = MaterialTheme.typography.bodySmall,
             )
 
             Spacer(Modifier.height(16.dp))
+            Text("AI 星座解説", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        when {
+                            narration.phase == NarrationPhase.GENERATING -> "星座を調べています…"
+                            narration.phase == NarrationPhase.SPEAKING || speaking -> "解説を読み上げています"
+                            BuildConfig.OPENAI_API_KEY.isEmpty() -> "AI解説を使うにはAPIキーの設定が必要です"
+                            else -> "グラスのツルを1回タップすると解説します"
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (narration.constellation.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(narration.constellation, style = MaterialTheme.typography.titleLarge)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        narration.text,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 160.dp)
+                            .verticalScroll(rememberScrollState()),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (narration.phase == NarrationPhase.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
 
-            val l = look()
-            StatusRow("視線", "方位 ${l.azDeg.roundToInt()}° / 高度 ${l.altDeg.roundToInt()}°")
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { toggleNarration() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color(0xFF07140D),
+                ),
+            ) {
+                Text(
+                    if (narrator.busy || speaking) "解説を止める" else "この星空を解説する",
+                )
+            }
+            OutlinedButton(
+                onClick = onRecalibrate,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("方位を合わせ直す") }
+            }
+            }
+
+            if (showDetails) {
             StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
             StatusRow(
                 "方位合わせ",
                 calibratedAt?.let { "${(System.currentTimeMillis() - it) / 1000} 秒前" } ?: "まだ",
             )
-            StatusRow(
-                "表示",
-                when {
-                    sending -> "送信中（約 $transferMs ms／この間グラスは前の絵を消す）"
-                    settled -> "止まっている"
-                    else -> "動いている（止まると送る）"
-                },
-            )
-
             Spacer(Modifier.height(16.dp))
             if (calibrating) {
                 Text("方位合わせ", style = MaterialTheme.typography.titleMedium)
@@ -619,94 +721,36 @@ fun StarMapScreen(
             }
 
             Spacer(Modifier.height(16.dp))
-            Text("AI 解説", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
-                    StatusRow(
-                        "状態",
-                        when {
-                            narration.phase == NarrationPhase.GENERATING -> "AI に聞いている…"
-                            narration.phase == NarrationPhase.SPEAKING || speaking -> "読み上げ中"
-                            BuildConfig.OPENAI_API_KEY.isEmpty() -> "キー未設定（.env を作る）"
-                            else -> "待機中（グラスのツルを 1 回タップ）"
-                        },
-                    )
-                    if (narration.constellation.isNotEmpty()) {
-                        StatusRow("星座", narration.constellation)
-                    }
+                    Text("ログ", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    Text(
-                        narration.text.ifEmpty { "まだ解説していない" },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (narration.phase == NarrationPhase.FAILED) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
-                        },
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Text("ログ", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp)) {
-                    if (logs.isEmpty()) {
-                        Text("まだ何も送っていない", style = MaterialTheme.typography.bodySmall)
-                    }
-                    for (line in logs) {
-                        Text(
-                            "${line.at}  ${line.text}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (line.failed) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 180.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        if (logs.isEmpty()) {
+                            Text("まだ何も送っていない", style = MaterialTheme.typography.bodySmall)
+                        }
+                        for (line in logs) {
+                            Text(
+                                "${line.at}  ${line.text}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (line.failed) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
                     }
                 }
             }
 
             Spacer(Modifier.height(16.dp))
-            Row {
-                Checkbox(checked = showDetails, onCheckedChange = { showDetails = it })
-                Text("細かい設定を出す", Modifier.padding(top = 14.dp))
-            }
-
-            if (showDetails) {
-                Text("星図の大きさ", style = MaterialTheme.typography.titleSmall)
-                Row {
-                    for (sz in ImageSize.entries) {
-                        FilterChip(
-                            selected = imageSize == sz,
-                            onClick = { imageSize = sz },
-                            label = { Text(sz.label) },
-                        )
-                        Spacer(Modifier.padding(2.dp))
-                    }
-                }
-                Row {
-                    Checkbox(checked = showLabels, onCheckedChange = { showLabels = it })
-                    Text("星座名を出す", Modifier.padding(top = 14.dp))
-                }
-                Row {
-                    Checkbox(checked = drawLines, onCheckedChange = { drawLines = it })
-                    Text("星座線を描く（転送量の半分以上を占める）", Modifier.padding(top = 14.dp))
-                }
-                Text("画角 ${fov.roundToInt()}°")
-                Slider(value = fov, onValueChange = { fov = it }, valueRange = 10f..70f)
-                Text("限界等級 ${"%.1f".format(limitMag)}")
-                Slider(value = limitMag, onValueChange = { limitMag = it }, valueRange = 2f..5f)
-                Text("1 パケットの見積り ${packetMs.roundToInt()} ms")
-                Slider(value = packetMs, onValueChange = { packetMs = it }, valueRange = 8f..40f)
-                Text(
-                    "次の 1 枚を送るまでの待ちを決める。下げるほど追従が速くなり、" +
-                        "下げすぎると送信が順番待ちで溜まって遅れて出る（絵は壊れない）",
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                StatusRow("画面サイズ", ImageSize.MAX.label)
                 lastMap?.let {
                     Text(
                         "${it.width}×${it.height} / 描画 $renderMs ms / " +
@@ -737,6 +781,8 @@ fun StarMapScreen(
                 )
             }
             Spacer(Modifier.height(24.dp))
+        }
+            }
         }
     }
 }
@@ -865,9 +911,6 @@ private const val STILL_MS = 400L
  */
 private enum class ImageSize(val width: Int, val height: Int, val label: String) {
     MAX(528, 330, "最大 528×330"),
-    LARGE(512, 320, "大 512×320"),
-    MEDIUM(384, 240, "中 384×240"),
-    SMALL(256, 160, "小 256×160"),
 }
 
 private const val TAG = "StarMap"

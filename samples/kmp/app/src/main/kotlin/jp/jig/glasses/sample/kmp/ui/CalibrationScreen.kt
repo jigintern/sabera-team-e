@@ -292,7 +292,7 @@ fun CalibrationScreen(
                 onClick = onHome,
                 colors = ButtonDefaults.textButtonColors(contentColor = SABERA_GREEN),
             ) {
-                Text("ホームへ戻る（一時ボタン）")
+                Text("ホーム")
             }
         }
     }
