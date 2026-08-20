@@ -9,14 +9,14 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * SGP4（近地球）の伝播計算。
+ * SGP4 / SDP4 の伝播計算。
  *
  * Vallado の参照実装（CelesTrak が配布している `SGP4.cpp`）を Kotlin に写したもの。
  * **変数名は参照実装のまま**にしてある。読みやすさより、元と 1 行ずつ突き合わせられることを取った。
  * 検算は `Sgp4Test` が参照実装の出力と突き合わせている。
  *
- * **周期 225 分以上（みちびき・ひまわりなど）は深宇宙の分岐に入るが、まだ書いていない。**
- * `deepSpace` が true のものは伝播できない。
+ * **周期 225 分以上（みちびき・ひまわりなど）は深宇宙の分岐に入る。**
+ * そちらの係数は [DeepSpace] にある。
  */
 class Sgp4(val tle: Tle) {
 
@@ -52,6 +52,9 @@ class Sgp4(val tle: Tle) {
 
     private var noUnkozai = 0.0
     private var gsto = 0.0
+
+    /** 深宇宙のときだけ作る。近地球では null */
+    private var deep: DeepSpace? = null
 
     init {
         // initl 相当
@@ -144,8 +147,32 @@ class Sgp4(val tle: Tle) {
             sinmao = sin(tle.mo)
             x7thm1 = 7.0 * cosio2 - 1.0
 
-            // 深宇宙はここで dscom / dpper / dsinit を呼ぶ。まだ書いていない
-            if (deepSpace) isimp = 1
+            if (deepSpace) {
+                isimp = 1
+                val ds = DeepSpace()
+                val tc = 0.0
+                ds.initCoefficients(
+                    epoch = tle.epochDaysSince1950,
+                    ep = tle.ecco,
+                    argpp = tle.argpo,
+                    tc = tc,
+                    inclp = tle.inclo,
+                    nodep = tle.nodeo,
+                    np = noUnkozai,
+                )
+                // 参照実装はここで dpper を init='y' で呼ぶが、その場合は何も書き換えないので省く
+                val els = DeepSpace.Elements(
+                    em = tle.ecco, argpm = 0.0, inclm = tle.inclo,
+                    mm = 0.0, nm = noUnkozai, nodem = 0.0,
+                )
+                ds.initResonance(
+                    xke = XKE, argpo = tle.argpo, t = 0.0, tc = tc, gsto = gsto,
+                    mo = tle.mo, mdot = mdot, no = noUnkozai, nodeo = tle.nodeo,
+                    nodedot = nodedot, xpidot = argpdot + nodedot,
+                    ecco = tle.ecco, eccsq = eccsq, els = els,
+                )
+                deep = ds
+            }
 
             if (isimp != 1) {
                 val cc1sq = cc1 * cc1
@@ -167,8 +194,6 @@ class Sgp4(val tle: Tle) {
      * 呼ぶ側で「出せなかった衛星は飛ばす」作りにする。
      */
     fun propagate(tsince: Double): TemeState? {
-        if (deepSpace) return null
-
         val twopi = 2.0 * PI
         val vkmpersec = RADIUS_EARTH_KM * XKE / 60.0
 
@@ -199,7 +224,24 @@ class Sgp4(val tle: Tle) {
 
         var nm = noUnkozai
         var em = tle.ecco
-        val inclm = tle.inclo
+        var inclm = tle.inclo
+
+        val ds = deep
+        if (ds != null) {
+            val els = DeepSpace.Elements(
+                em = em, argpm = argpm, inclm = inclm, mm = mm, nm = nm, nodem = nodem,
+            )
+            ds.applyResonance(
+                argpo = tle.argpo, argpdot = argpdot, t = tsince, tc = tsince,
+                gsto = gsto, no = noUnkozai, els = els,
+            )
+            em = els.em
+            argpm = els.argpm
+            inclm = els.inclm
+            mm = els.mm
+            nm = els.nm
+            nodem = els.nodem
+        }
         if (nm <= 0.0) return null
 
         val am = (XKE / nm).pow(X2O3) * tempa * tempa
@@ -217,13 +259,40 @@ class Sgp4(val tle: Tle) {
 
         val sinim = sin(inclm)
         val cosim = cos(inclm)
-        val ep = em
-        val xincp = inclm
-        val argpp = argpm
-        val nodep = nodem
-        val mp = mm
-        val sinip = sinim
-        val cosip = cosim
+        var ep = em
+        var xincp = inclm
+        var argpp = argpm
+        var nodep = nodem
+        var mp = mm
+        var sinip = sinim
+        var cosip = cosim
+
+        if (ds != null) {
+            val perturbed = DeepSpace.Perturbed(
+                ep = ep, inclp = xincp, nodep = nodep, argpp = argpp, mp = mp,
+            )
+            ds.applyPeriodics(tsince, tle.inclo, initializing = false, els = perturbed, afspc = AFSPC_MODE)
+            ep = perturbed.ep
+            xincp = perturbed.inclp
+            nodep = perturbed.nodep
+            argpp = perturbed.argpp
+            mp = perturbed.mp
+            if (xincp < 0.0) {
+                xincp = -xincp
+                nodep += PI
+                argpp -= PI
+            }
+            if (ep < 0.0 || ep > 1.0) return null
+
+            sinip = sin(xincp)
+            cosip = cos(xincp)
+            aycof = -0.5 * J3OJ2 * sinip
+            xlcof = if (abs(cosip + 1.0) > 1.5e-12) {
+                -0.25 * J3OJ2 * sinip * (3.0 + 5.0 * cosip) / (1.0 + cosip)
+            } else {
+                -0.25 * J3OJ2 * sinip * (3.0 + 5.0 * cosip) / TEMP4
+            }
+        }
 
         val axnl = ep * cos(argpp)
         var temp = 1.0 / (am * (1.0 - ep * ep))
@@ -266,6 +335,13 @@ class Sgp4(val tle: Tle) {
         temp = 1.0 / pl
         val temp1 = 0.5 * J2 * temp
         val temp2 = temp1 * temp
+
+        if (ds != null) {
+            val cosisq = cosip * cosip
+            con41 = 3.0 * cosisq - 1.0
+            x1mth2 = 1.0 - cosisq
+            x7thm1 = 7.0 * cosisq - 1.0
+        }
 
         val mrt = rl * (1.0 - 1.5 * temp2 * betal * con41) + 0.5 * temp1 * x1mth2 * cos2u
         su -= 0.25 * temp2 * x7thm1 * sin2u
@@ -315,6 +391,13 @@ class Sgp4(val tle: Tle) {
         const val J3OJ2 = J3 / J2
         private const val X2O3 = 2.0 / 3.0
         private const val TEMP4 = 1.5e-12
+
+        /**
+         * 参照実装の opsmode。'a'（AFSPC のやり方）にしてある。
+         * 角度の折り返し方が 'i'（改良版）と少し違うだけだが、
+         * **検算に使っている期待値を 'a' で作っている**ので合わせておく。
+         */
+        private const val AFSPC_MODE = true
 
         /** グリニッジ平均恒星時[rad]。`Astro.kt` のものとは基準が違うので混ぜない */
         fun gstime(jdut1: Double): Double {

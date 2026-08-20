@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.abs
 
 /**
  * 同梱した TLE が実際に使えるかを見る。
@@ -33,28 +34,68 @@ class CatalogTest {
     fun `みちびきとひまわりは深宇宙の分岐に落ちる`() {
         val tles = load("satellites.tle")
         val deep = tles.filter { Sgp4(it).deepSpace }.map { it.name }
-        // 周期 225 分以上。準天頂と静止はここに入るので、SDP4 を書くまで出せない
+        // 周期 225 分以上。準天頂と静止はここに入る
         assertTrue("みちびきが深宇宙扱いでない", deep.count { it.contains("みちびき") } == 5)
         assertTrue("ひまわりが深宇宙扱いでない", deep.count { it.contains("ひまわり") } == 2)
         assertEquals("深宇宙はみちびき 5 とひまわり 2 だけのはず", 7, deep.size)
     }
 
     @Test
-    fun `低軌道の衛星はいまの実装で伝播できる`() {
+    fun `同梱した 16 機すべてを伝播できる`() {
         val now = System.currentTimeMillis()
         val sabae = Observer(35.9432, 136.1846)
         val results = load("satellites.tle")
-            .map { it to Sgp4(it) }
-            .filterNot { (_, s) -> s.deepSpace }
-            .mapNotNull { (tle, s) -> s.at(now)?.let { tle to it } }
-        assertEquals("低軌道の 9 機すべてを伝播できるはず", 9, results.size)
+            .mapNotNull { tle -> Sgp4(tle).at(now)?.let { tle to it } }
+        assertEquals("16 機すべて伝播できるはず", 16, results.size)
         for ((tle, state) in results) {
             val sub = Observer.subPoint(state, now)
-            assertTrue("${tle.name} の高度がおかしい: ${sub.altitudeKm}", sub.altitudeKm in 200.0..1200.0)
             val look = sabae.look(state, now)
             assertTrue("${tle.name} の方位がおかしい", look.azDeg in 0.0..360.0)
-            assertTrue("${tle.name} の距離がおかしい: ${look.rangeKm}", look.rangeKm in 200.0..14000.0)
+            assertTrue("${tle.name} の高度がおかしい: ${sub.altitudeKm}", sub.altitudeKm in 200.0..40000.0)
         }
+    }
+
+    @Test
+    fun `ひまわりは鯖江から見て南の空の決まった位置にいる`() {
+        val sabae = Observer(35.9432, 136.1846)
+        val himawari = load("satellites.tle").first { it.name.contains("ひまわり8") }
+        val sgp4 = Sgp4(himawari)
+
+        val now = System.currentTimeMillis()
+        val look = sgp4.at(now)?.let { sabae.look(it, now) }
+        checkNotNull(look) { "ひまわりを伝播できない" }
+
+        // 東経 140.7° の静止軌道。鯖江からは南よりやや東、空の半ばに見えるはず
+        assertTrue("方位が南寄りでない: ${look.azDeg}", look.azDeg in 165.0..180.0)
+        assertTrue("高度がおかしい: ${look.altDeg}", look.altDeg in 40.0..55.0)
+        assertTrue("距離が静止軌道でない: ${look.rangeKm}", look.rangeKm in 35000.0..40000.0)
+
+        // 静止軌道なので 6 時間経ってもほとんど動かない（低軌道なら地平線を何周もする）
+        val later = now + 6 * 3600 * 1000L
+        val moved = sgp4.at(later)?.let { sabae.look(it, later) }
+        checkNotNull(moved)
+        assertTrue("静止軌道なのに動きすぎ: ${moved.azDeg} vs ${look.azDeg}", abs(moved.azDeg - look.azDeg) < 2.0)
+        assertTrue("静止軌道なのに動きすぎ: ${moved.altDeg} vs ${look.altDeg}", abs(moved.altDeg - look.altDeg) < 2.0)
+
+        val sub = Observer.subPoint(checkNotNull(sgp4.at(now)), now)
+        assertEquals("真下の点が東経 140.7° 付近にない", 140.7, sub.lonDeg, 1.0)
+        assertEquals("赤道上にない", 0.0, sub.latDeg, 1.0)
+        println("ひまわり8号: 方位 ${"%.1f".format(look.azDeg)}° / 高度 ${"%.1f".format(look.altDeg)}° / ${"%.0f".format(look.rangeKm)} km")
+    }
+
+    @Test
+    fun `みちびきは日本の上空に長くとどまる`() {
+        val sabae = Observer(35.9432, 136.1846)
+        val michibiki = load("satellites.tle").filter { it.name.contains("みちびき") }
+            .map { it to Sgp4(it) }
+        val now = System.currentTimeMillis()
+
+        // 準天頂軌道の 3 機は日本の上空を分け合うので、いつでもどれかが高い位置にいる
+        val highest = michibiki.mapNotNull { (tle, s) -> s.at(now)?.let { tle.name to sabae.look(it, now) } }
+            .maxByOrNull { it.second.altDeg }
+        checkNotNull(highest)
+        println("いちばん高いみちびき: ${highest.first} 高度 ${"%.1f".format(highest.second.altDeg)}° / 方位 ${"%.1f".format(highest.second.azDeg)}°")
+        assertTrue("どのみちびきも空に出ていない: ${highest.second.altDeg}", highest.second.altDeg > 30.0)
     }
 
     @Test

@@ -67,13 +67,15 @@ class Sgp4Test {
     }
 
     @Test
-    fun `近地球の位置と速度が参照実装と一致する`() {
+    fun `位置と速度が参照実装と一致する`() {
+        // 深宇宙は共鳴を時間積分するので、**呼ぶ順番で結果が変わる**。
+        // 期待値を作ったときと同じ順（元期 → 指定時刻）で回す
         val sgp4 = propagators()
         var checked = 0
+        var deepChecked = 0
         var worstPos = 0.0
         var worstVel = 0.0
         for (e in expectations()) {
-            if (e.deepSpace) continue
             val s = sgp4[e.norad] ?: continue
             val state = s.propagate(e.minutes)
             if (e.error != 0) {
@@ -98,18 +100,14 @@ class Sgp4Test {
             assertTrue("NORAD ${e.norad} ${e.minutes}分 で位置が ${dp}km ずれた", dp < 1e-5)
             assertTrue("NORAD ${e.norad} ${e.minutes}分 で速度が ${dv}km/s ずれた", dv < 1e-8)
             checked++
+            if (e.deepSpace) deepChecked++
         }
-        println("近地球 $checked 点を検算した。位置の最大差 ${"%.2e".format(worstPos)} km / 速度 ${"%.2e".format(worstVel)} km/s")
-        assertTrue("検算した点が少なすぎる", checked >= 20)
-    }
-
-    @Test
-    fun `深宇宙はまだ伝播できないことを明示する`() {
-        val sgp4 = propagators()
-        val deep = sgp4.values.filter { it.deepSpace }
-        assertTrue("深宇宙の検証ケースが無い", deep.isNotEmpty())
-        // 黙って間違った値を返すより、出せないと分かるほうがよい
-        assertTrue(deep.all { it.propagate(0.0) == null })
+        println(
+            "$checked 点を検算した（うち深宇宙 $deepChecked 点）。" +
+                "位置の最大差 ${"%.2e".format(worstPos)} km / 速度 ${"%.2e".format(worstVel)} km/s",
+        )
+        assertTrue("検算した点が少なすぎる", checked >= 100)
+        assertTrue("深宇宙を検算していない", deepChecked >= 80)
     }
 
     @Test
