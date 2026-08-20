@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
@@ -74,6 +75,7 @@ import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.starmap.SessionLog
 import jp.jig.glasses.sample.kmp.starmap.Site
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
@@ -95,6 +97,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -124,9 +127,20 @@ fun StarMapScreen(
     val logs = remember { mutableStateListOf<LogLine>() }
     val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
 
+    // 画面のログは 40 行で、画面を出ると消える。ドリフト率のような長い計測が取れないので
+    // 同じ行をファイルにも残す（docs/team-e/coordinate-system.md の「実測しないと決められないこと」）
+    val sessionLog = remember { SessionLog(context, scope) }
+
+    // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
+    var logBytes by remember { mutableStateOf(0L) }
+
     fun log(text: String, failed: Boolean = false) {
         logs.add(0, LogLine(clock.format(Date()), text, failed))
         while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
+        sessionLog.append(if (failed) "失敗  " + text else text)
+        // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
+        // 書き出しは屋外用で、机の上では logcat のほうが早い
+        if (failed) Log.w(TAG, text) else Log.d(TAG, text)
     }
 
     LaunchedEffect(Unit) {
@@ -260,6 +274,29 @@ fun StarMapScreen(
     // 「また流れ出した ＝ 転送が終わった」の目印に使う
     var lastImuAt by remember { mutableStateOf(0L) }
 
+    // ドリフト計測の材料。ヨーのずれは「頭を回した」と区別が付かないので、
+    // 合わせた時点の yaw と、そこから振った累積量を両方持っておく
+    var yawAtCalibration by remember { mutableStateOf<Double?>(null) }
+
+    // 累積回転には STILL_DEG のデッドバンドを入れる。入れないとサンプルごとの
+    // 揺れ（±0.5° ほど）が積もって、実測で 300°/分 になり動きの目印にならなかった
+    var turnedDeg by remember { mutableStateOf(0.0) }
+
+    /**
+     * 静止中のジャイロ。**ドリフトの正体がジャイロバイアスかを確かめるための材料。**
+     *
+     * ヨーのドリフトが実測 0.73°/秒 だったので、`gyroZDps` の平均がこれと一致すれば
+     * 「yaw はジャイロの素の積分」で、引けば直る。一致しなければファームが別の処理を
+     * しているので対策が変わる。
+     *
+     * 幅（最小〜最大）も持つ。**グラスを動かしたかどうかはこれで分かる**
+     * （動かした分ぶんは平均に混ざるので、幅が大きい区間は捨てる）。
+     */
+    var gyroZSum by remember { mutableStateOf(0.0) }
+    var gyroZCount by remember { mutableStateOf(0) }
+    var gyroZMin by remember { mutableStateOf(Double.NaN) }
+    var gyroZMax by remember { mutableStateOf(Double.NaN) }
+
     // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
     val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
 
@@ -270,6 +307,15 @@ fun StarMapScreen(
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
+                lookHistory.lastOrNull()?.let {
+                    val step = abs(normalizeDeg(glassYaw - it.second))
+                    if (step > STILL_DEG) turnedDeg += step
+                }
+                val gyroZ = data.gyroZDps.toDouble()
+                gyroZSum += gyroZ
+                gyroZCount++
+                gyroZMin = if (gyroZMin.isNaN()) gyroZ else min(gyroZMin, gyroZ)
+                gyroZMax = if (gyroZMax.isNaN()) gyroZ else max(gyroZMax, gyroZ)
                 lookHistory.addLast(Triple(lastImuAt, glassYaw, glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
                     lookHistory.removeFirst()
@@ -470,6 +516,77 @@ fun StarMapScreen(
                 if (drawAndSend()) drawn = look()
             }
             delay(POLL_MS)
+        }
+    }
+
+    /**
+     * ドリフト計測。**ずれた量そのものは記録できない。**
+     *
+     * グラスの yaw がずれていく量なので、yaw を見ても「頭を回した」のか
+     * 「ジャイロがドリフトした」のか区別が付かない。区別する情報が機体内に無い。
+     * そこで**判断はせず材料だけ残す** — 累積回転がほぼ 0 の区間（机に置いた・じっとしていた）を
+     * あとから拾えば、そこの yaw の変化がドリフトそのものになる。
+     */
+    LaunchedEffect(calibratedAt) {
+        if (calibratedAt == null) return@LaunchedEffect
+        // yaw が届く前に基準を取ると 0° を掴む
+        while (lastImuAt == 0L) delay(POLL_MS)
+        // 前の画面で合わせたときは基準を持っていないので、画面に入った時点を基準にする。
+        // ドリフトは変化量なので基準はどこでもよく、いつ取ったかが分かれば足りる
+        val base = yawAtCalibration ?: glassYaw
+        val baseAt = System.currentTimeMillis()
+        turnedDeg = 0.0
+        log("ドリフト計測 開始 基準yaw=%.1f°".format(base))
+        var previousYaw = base
+        var previousAt = baseAt
+        while (true) {
+            delay(DRIFT_LOG_MS)
+            val now = System.currentTimeMillis()
+            // 前の行からの変化を出す。合計だけだと途中で速さが変わったのが分からない
+            val rate = normalizeDeg(glassYaw - previousYaw) / ((now - previousAt) / 60_000.0)
+            log(
+                ("ドリフト計測 経過=%.1f分 yaw=%.1f° 基準から=%+.1f° この1分=%+.1f°/分 " +
+                    "累積回転=%.0f° 静止=%s 磁気方位=%s(%s)")
+                    .format(
+                        (now - baseAt) / 60_000.0,
+                        glassYaw,
+                        normalizeDeg(glassYaw - base),
+                        rate,
+                        turnedDeg,
+                        if (settled) "はい" else "いいえ",
+                        // phoneHeading は合わせている間しか更新しないので Compass を直に読む。
+                        // スマホを動かせば当然変わる値だが、置いたまま測るときは
+                        // 「本当に動いていないか」の裏取りになる
+                        compass.trueHeadingDeg(site, now)?.let { "%.1f°".format(it) } ?: "—",
+                        compass.accuracyText(),
+                    ),
+            )
+            // ジャイロの平均がヨーのドリフト率（度/秒）と一致すれば、バイアスを引けば直る。
+            // 幅が大きい区間はグラスを動かしているので捨てる
+            if (gyroZCount > 0) {
+                log(
+                    "  ジャイロZ 平均=%+.3f°/秒 幅=%.2f°/秒 n=%d（ヨーの実測は %+.3f°/秒）"
+                        .format(
+                            gyroZSum / gyroZCount,
+                            gyroZMax - gyroZMin,
+                            gyroZCount,
+                            rate / 60.0,
+                        ),
+                )
+            }
+            previousYaw = glassYaw
+            previousAt = now
+            gyroZSum = 0.0
+            gyroZCount = 0
+            gyroZMin = Double.NaN
+            gyroZMax = Double.NaN
+        }
+    }
+
+    LaunchedEffect(showDetails) {
+        while (showDetails) {
+            logBytes = sessionLog.bytes
+            delay(LOG_SIZE_POLL_MS)
         }
     }
 
@@ -1019,6 +1136,8 @@ fun StarMapScreen(
                     } else {
                         headingOffset = normalizeDeg(trueHeading - glassYaw)
                         calibratedAt = System.currentTimeMillis()
+                        yawAtCalibration = glassYaw
+                        turnedDeg = 0.0
                         log(
                             "方位合わせ: スマホ ${trueHeading.roundToInt()}° / " +
                                 "グラス ${glassYaw.roundToInt()}° / 仰角差 ${tilt?.roundToInt() ?: "—"}° / " +
@@ -1054,6 +1173,35 @@ fun StarMapScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
                     Text("ログ", style = MaterialTheme.typography.titleMedium)
+                    // 画面に出るのは直近 40 行だけ。長い計測はファイルに残っているので、
+                    // 何バイト溜まっているかを出して書き出しと消去へ導く
+                    Text(
+                        "記録 %.1f KB（画面は直近 %d 行）".format(logBytes / 1024.0, LOG_LINES),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row {
+                        OutlinedButton(
+                            onClick = {
+                                val intent = sessionLog.shareIntent()
+                                if (intent == null) {
+                                    log("記録がまだ空", failed = true)
+                                } else {
+                                    context.startActivity(Intent.createChooser(intent, "記録を書き出す"))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("記録を書き出す") }
+                        Spacer(Modifier.padding(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                sessionLog.clear()
+                                logs.clear()
+                                log("記録を消した。ここから計測しなおす")
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("記録を消す") }
+                    }
                     Spacer(Modifier.height(4.dp))
                     Column(
                         Modifier
@@ -1203,6 +1351,17 @@ private const val DEFAULT_LON = 136.1846
 
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
+
+/**
+ * ドリフトの材料を残す間隔。
+ *
+ * 1 分おきなら 30 分の観測で 30 行。画面のログ（40 行）には入らないが、
+ * ファイルには残る（`SessionLog`）。
+ */
+private const val DRIFT_LOG_MS = 60_000L
+
+/** 記録の大きさを拾い直す間隔。設定パネルを開いている間だけ動く */
+private const val LOG_SIZE_POLL_MS = 2_000L
 
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L
