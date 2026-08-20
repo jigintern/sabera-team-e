@@ -11,10 +11,10 @@ import androidx.compose.runtime.setValue
 import app.jigglass.glass.GlassManager
 
 /**
- * ホームから観測を始め、未接続ならスキャン、接続済みなら星図へ進む。
+ * ホームから観測を始め、未接続なら接続確認、接続済みなら方位合わせを経て星図へ進む。
  *
- * 上流サンプルの各画面（CommandScreen など）は SDK の使い方の参照として残してあるが、
- * team-e のアプリからは開かない。
+ * SDK の使い方だけを見せる上流サンプルの画面は撤去した。参照するなら docs/api/ と
+ * samples/kmp/snippets/ を見る。
  */
 @Composable
 fun GlassesApp(manager: GlassManager) {
