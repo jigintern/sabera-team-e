@@ -176,7 +176,7 @@ fun ConnectionCheckScreen(
                 onClick = onHome,
                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF75E6A3)),
             ) {
-                Text("ホームへ戻る（一時ボタン）")
+                Text("ホーム")
             }
         }
     }
