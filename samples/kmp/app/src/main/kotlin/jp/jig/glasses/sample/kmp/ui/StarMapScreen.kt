@@ -563,7 +563,11 @@ fun StarMapScreen(
     val narrator = remember(speaker) {
         Narrator(
             speaker = speaker,
-            client = OpenAiClient(BuildConfig.OPENAI_API_KEY, BuildConfig.OPENAI_MODEL),
+            client = OpenAiClient(
+                apiKey = BuildConfig.OPENAI_API_KEY,
+                model = BuildConfig.OPENAI_MODEL,
+                reasoningEffort = BuildConfig.OPENAI_REASONING_EFFORT,
+            ),
             log = { text, failed -> log(text, failed) },
         )
     }

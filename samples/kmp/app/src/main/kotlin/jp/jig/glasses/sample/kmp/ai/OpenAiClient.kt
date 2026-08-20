@@ -20,6 +20,8 @@ import java.net.URL
 class OpenAiClient(
     private val apiKey: String,
     private val model: String,
+    /** 推論の強さ。**空なら送らない**（推論を持たないモデルに送ると 400 で弾かれる） */
+    private val reasoningEffort: String = "",
     private val endpoint: String = CHAT_COMPLETIONS,
 ) {
 
@@ -30,7 +32,7 @@ class OpenAiClient(
      */
     suspend fun explain(request: ExplainRequest): String = withContext(Dispatchers.IO) {
         require(configured) { "API キーが設定されていない" }
-        val body = buildRequestBody(model, request).toString().toByteArray(Charsets.UTF_8)
+        val body = buildRequestBody(model, request, reasoningEffort).toString().toByteArray(Charsets.UTF_8)
 
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -62,6 +64,16 @@ class OpenAiClient(
         private const val READ_TIMEOUT_MS = 30_000
 
         /**
+         * 出力の上限。
+         *
+         * **推論トークンと枠を共用する**ので、推論するモデルでは思考だけで使い切ることがある。
+         * 400 にしていたときは、実測で 5 回中 3 回が `finish_reason: length` で本文が空だった。
+         * 喋る長さはプロンプト（3〜4 文・200 文字程度）で縛っているので、
+         * ここを広げても喋る量は増えない。**切られないための余裕**でしかない。
+         */
+        private const val MAX_COMPLETION_TOKENS = 2000
+
+        /**
          * 読み上げ前提の指示。
          *
          * TextToSpeech は記号をそのまま読むので、箇条書きや括弧が混ざると聞けたものではない。
@@ -80,7 +92,11 @@ class OpenAiClient(
          * リクエスト本文。画像は data URL で本文に埋める
          * （528×330 のほぼ真っ黒な PNG なので数 KB にしかならない）。
          */
-        fun buildRequestBody(model: String, request: ExplainRequest): JSONObject {
+        fun buildRequestBody(
+            model: String,
+            request: ExplainRequest,
+            reasoningEffort: String = "",
+        ): JSONObject {
             val content = JSONArray().apply {
                 put(
                     JSONObject()
@@ -101,24 +117,47 @@ class OpenAiClient(
 
             return JSONObject()
                 .put("model", model)
-                .put("max_completion_tokens", 400)
+                .put("max_completion_tokens", MAX_COMPLETION_TOKENS)
                 .put(
                     "messages",
                     JSONArray()
                         .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
                         .put(JSONObject().put("role", "user").put("content", content)),
                 )
+                .apply {
+                    // 空のまま送ると、推論を持たないモデルが 400 を返す。モデルを差し替えても壊れないよう、
+                    // 値があるときだけ載せる
+                    if (reasoningEffort.isNotEmpty()) put("reasoning_effort", reasoningEffort)
+                }
         }
 
-        /** 応答から本文だけ取り出す。取れなければ例外（黙って空文字を喋らせない） */
+        /**
+         * 応答から本文だけ取り出す。取れなければ例外（黙って空文字を喋らせない）。
+         *
+         * **空だった理由まで持って返す。** 通信は成功しているので、
+         * これを `IOException` にすると呼び出し側が圏外と区別できない。
+         */
         fun parseReply(json: String): String {
-            val choices = JSONObject(json).optJSONArray("choices")
+            val choice = JSONObject(json).optJSONArray("choices")?.optJSONObject(0)
                 ?: throw IOException("応答に choices が無い")
-            val message = choices.optJSONObject(0)?.optJSONObject("message")
+            val message = choice.optJSONObject("message")
                 ?: throw IOException("応答に message が無い")
+
+            // 断られたときは content が空になり、理由は refusal に入る。捨てると原因が消える
+            val refusal = message.optString("refusal").trim()
+            if (refusal.isNotEmpty()) throw EmptyReplyException("AI が回答を断った: $refusal")
+
             val text = message.optString("content").trim()
-            if (text.isEmpty()) throw IOException("応答が空だった")
-            return text
+            if (text.isNotEmpty()) return text
+
+            throw EmptyReplyException(
+                when (choice.optString("finish_reason")) {
+                    // 推論が出力枠を食い潰した典型。reasoning_effort を下げるか枠を広げる
+                    "length" -> "トークン上限で切れて本文が空（推論が枠を使い切った可能性）"
+                    "content_filter" -> "フィルタに引っかかって本文が空"
+                    else -> "本文が空で返ってきた"
+                },
+            )
         }
 
         /** HTTP エラーを人が読める形に。OpenAI は error.message に理由を入れてくる */
@@ -133,6 +172,44 @@ class OpenAiClient(
             }
         }
     }
+}
+
+/**
+ * 応答は返ったのに本文が無かった。**通信の失敗ではない**ので `IOException` と分ける。
+ *
+ * ここを一緒くたにしていたせいで、推論が枠を使い切っただけなのに
+ * 「いまは通信ができないので」と喋っていた。
+ */
+class EmptyReplyException(message: String) : Exception(message)
+
+/** 失敗の種類。喋り分けるために使う */
+enum class FailureKind {
+    /** 応答は返ったが本文が空。もう一度頼めば返ることがある */
+    EMPTY,
+
+    /** API がエラーを返した。キー・モデル名・レート制限など。再試行しても同じ */
+    API,
+
+    /** そもそも届いていない。圏外・タイムアウト */
+    NETWORK,
+}
+
+/**
+ * 例外を「何が起きたか」に翻訳する。
+ *
+ * **純関数にしてあるのは JVM テストで検算するため。** 実機でしか踏めない経路なので、
+ * ここを取り違えると原因の切り分けが何時間も遅れる（実際に遅れた）。
+ */
+fun classifyFailure(e: Throwable): FailureKind = when (e) {
+    is EmptyReplyException -> FailureKind.EMPTY
+    is java.net.UnknownHostException,
+    is java.net.SocketTimeoutException,
+    is java.net.ConnectException,
+    is javax.net.ssl.SSLException,
+    -> FailureKind.NETWORK
+    // errorMessage() が組み立てた HTTP エラーはここに来る
+    is IOException -> FailureKind.API
+    else -> FailureKind.API
 }
 
 /**

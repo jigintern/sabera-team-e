@@ -31,6 +31,10 @@ fun secret(envName: String, gradleName: String): String {
 val openAiApiKey = secret("OPENAI_API_KEY", "openAiApiKey")
 val openAiModel = secret("OPENAI_MODEL", "openAiModel").ifEmpty { "gpt-4o" }
 
+// 推論の強さ。空なら送らない（推論を持たないモデルに送ると 400 で弾かれる）。
+// 送らないと既定の強さで推論が走り、待たされたうえに出力枠を食い潰して本文が空になる
+val openAiReasoningEffort = secret("OPENAI_REASONING_EFFORT", "openAiReasoningEffort")
+
 android {
     namespace = "jp.jig.glasses.sample.kmp"
     compileSdk = 36
@@ -45,6 +49,7 @@ android {
         // キーは APK に埋まる。逆コンパイルすれば読めるので、配布せず手元の実機で動かす前提
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
         buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
+        buildConfigField("String", "OPENAI_REASONING_EFFORT", "\"$openAiReasoningEffort\"")
     }
 
     buildFeatures {
