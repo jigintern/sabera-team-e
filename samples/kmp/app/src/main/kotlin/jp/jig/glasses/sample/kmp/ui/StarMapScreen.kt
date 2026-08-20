@@ -671,7 +671,7 @@ fun StarMapScreen(
                 // 画角も焼いたときの値を使う。つまみを動かした直後に今の画角で投影すると、
                 // 絵は前の画角のままなので印だけがずれる
                 val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
-                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh)
+                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh, showFigures)
             }
             if (moved.isEmpty()) return
             // 衛星モードは星座名を出さないので、送り直すのは印だけ。

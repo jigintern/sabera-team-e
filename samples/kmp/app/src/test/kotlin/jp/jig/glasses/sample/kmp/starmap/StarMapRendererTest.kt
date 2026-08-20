@@ -125,9 +125,9 @@ class StarMapRendererTest {
     }
 
     @Test
-    fun `輪郭は点のすぐ近くに置くが、点には重ならない`() {
+    fun `輪郭は引き出し線でつないだ枠に入り、点には重ならない`() {
         // 実物大なら 0.24 画素しかないので、輪郭は「位置」ではなく「正体」を出すもの。
-        // 点の上に重ねると位置が読めなくなるので、縦に逃がして置けているかを見る
+        // 点の上に重ねると位置が読めなくなるので、引き出し線で離して置けているかを見る
         val renderer = StarMapRenderer(catalog())
         val look = Look(180.0, 45.0)
         val track = SkyTrack(
@@ -161,12 +161,23 @@ class StarMapRendererTest {
             }
         }
 
-        // ただし遠くへ飛ばしてもいない。輪郭は 1 個ぶんの高さ ＋ 名前ぶんの余白に収まる
+        // ただし遠くへ飛ばしてもいない。引き出し線の長さ ＋ 枠の高さに収まる
         val far = with.gray.indices.filter { i ->
             (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
         }.map { i -> Math.abs(i / PANEL_WIDTH - cy) }
-        val reach = (PANEL_WIDTH * 0.13).toInt() + 26 + 4
+        val size = (PANEL_WIDTH * 0.13).toInt()
+        val reach = 14 + (size * 0.45).toInt() + size / 2 + 4
         assertTrue("輪郭が点から離れすぎている（最遠 ${far.max()} 画素）", far.max() <= reach)
+
+        // 名前は点ではなく枠の上に出る。点に重ねると位置が読めない
+        val labelled = SkyTrack(
+            name = "ISS", nowAzDeg = 180.0, nowAltDeg = 45.0, sunlit = true, labelled = true,
+        )
+        val label = renderer.trackLabels(look, 35.0, PANEL_WIDTH, PANEL_HEIGHT, listOf(labelled)).single()
+        assertTrue(
+            "名前が点の上に乗っている（${label.x}, ${label.y}）",
+            Math.abs(label.y - cy) > 20 || Math.abs(label.x - cx) > 20,
+        )
     }
 
     @Test
