@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.starmap
 
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -122,6 +123,62 @@ class StarMapRendererTest {
         println("衛星モードで光った画素 $lit / ${withTrack.gray.size}、ラベル ${withTrack.labels.map { it.text }}")
         assertTrue("軌跡が描かれていない（$lit 画素）", lit > 100)
         assertTrue("衛星以外の名前が出ている", withTrack.labels.all { it.text.startsWith("●") })
+    }
+
+    @Test
+    fun `輪郭は印に重ならず、引き出し線でつながる`() {
+        // 実物大なら 0.24 画素しかないので、輪郭は「位置」ではなく「正体」を出すもの。
+        // 印の上に重ねると位置が読めなくなるため、離して置けているかを見る
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        val track = SkyTrack(
+            name = "ISS",
+            points = listOf(doubleArrayOf(180.0, 45.0)),
+            nowAzDeg = 180.0,
+            nowAltDeg = 45.0,
+            sunlit = true,
+            labelled = true,
+        )
+        fun render(figures: Boolean) = renderer.render(
+            site = site, epochMillis = epoch, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
+            drawLines = false, tracks = listOf(track), drawStars = false, drawFigures = figures,
+        )
+
+        val without = render(false)
+        val with = render(true)
+        val added = with.gray.indices.count { i ->
+            (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
+        }
+        println("輪郭と引き出し線で増えた画素 $added")
+        assertTrue("輪郭が描かれていない（増えた画素 $added）", added > 200)
+
+        // 印のまわり（半径 6 画素）には何も足されていないこと
+        val cx = PANEL_WIDTH / 2
+        val cy = PANEL_HEIGHT / 2
+        for (dy in -6..6) {
+            for (dx in -6..6) {
+                val i = (cy + dy) * PANEL_WIDTH + (cx + dx)
+                val addedHere = (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
+                assertTrue("印のすぐ横に輪郭が乗っている", !addedHere)
+            }
+        }
+    }
+
+    @Test
+    fun `衛星の名前から輪郭の形が決まる`() {
+        assertEquals(SatelliteFigure.STATION, SatelliteFigure.of("ISS"))
+        assertEquals(SatelliteFigure.STATION, SatelliteFigure.of("天宮"))
+        assertEquals(SatelliteFigure.DISH, SatelliteFigure.of("ひまわり8"))
+        assertEquals(SatelliteFigure.WINGED, SatelliteFigure.of("みちびき2"))
+        assertEquals(SatelliteFigure.WINGED, SatelliteFigure.of("しきさい"))
+        // 3 種類とも、正規化座標が 0..1 に収まっている（はみ出すと枠の外へ描く）
+        for (figure in SatelliteFigure.entries) {
+            for (stroke in figure.strokes) {
+                for (p in stroke.points) {
+                    assertTrue("$figure が枠から出ている: ${p[0]}, ${p[1]}", p[0] in 0.0..1.0 && p[1] in 0.0..1.0)
+                }
+            }
+        }
     }
 
     @Test

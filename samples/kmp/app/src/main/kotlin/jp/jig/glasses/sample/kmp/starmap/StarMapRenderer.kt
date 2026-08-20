@@ -64,6 +64,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // 人工衛星モードでは星を出さない。星と軌跡が同じ緑 8 階調なので、
         // 重ねると「どれが衛星か」が分からなくなる（星座モードは逆に衛星を渡さない）
         drawStars: Boolean = true,
+        // 主役 1 機の輪郭を出すか。実機で読めるかを確かめられるよう切れるようにしてある
+        drawFigures: Boolean = true,
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -108,6 +110,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 dot(gray, width, height, q[0], q[1], 255, (3.0 * width / 196.0).roundToInt(), round = true)
             }
         }
+        // 輪郭は軌跡より後。引き出し線が軌跡の上を通ってよい（線同士なら読める）
+        if (drawFigures) drawLeadFigure(gray, width, height, basis, k, tracks)
+
         val trackLabels = trackLabels(look, fovDeg, width, height, tracks)
 
         val starLabels = if (drawStars) {
@@ -323,6 +328,109 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return labels
     }
 
+    /**
+     * 視野の中心にいちばん近い名前つき衛星の輪郭を、空いている場所へ置いて引き出し線でつなぐ。
+     *
+     * **輪郭を「いまの位置」に重ねない理由は [SatelliteFigure]。**
+     * 8 機ぜんぶに出すと 96 画素の四角が画面を埋めるので、主役 1 機だけにする。
+     */
+    private fun drawLeadFigure(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        basis: Basis,
+        k: Double,
+        tracks: List<SkyTrack>,
+    ) {
+        val cx = width / 2.0
+        val cy = height / 2.0
+        var lead: SkyTrack? = null
+        var leadAt: DoubleArray? = null
+        var best = Double.MAX_VALUE
+        for (track in tracks) {
+            if (!track.labelled) continue
+            val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
+            val d = hypot(q[0] - cx, q[1] - cy)
+            if (d < best) {
+                best = d
+                lead = track
+                leadAt = q
+            }
+        }
+        val track = lead ?: return
+        val at = leadAt ?: return
+        val size = (width * 0.18).roundToInt().coerceIn(40, 104)
+        val box = placeFigure(width, height, at, size) ?: return
+        leader(gray, width, height, at, box, size)
+        drawFigure(gray, width, height, SatelliteFigure.of(track.name), box, size)
+    }
+
+    /** 輪郭の置き場所。斜め → 横 → 縦の順に試して、画像から出ないところを取る */
+    private fun placeFigure(width: Int, height: Int, at: DoubleArray, size: Int): DoubleArray? {
+        val step = size * 1.35
+        val offsets = listOf(
+            1.0 to -1.0, -1.0 to -1.0, 1.0 to 1.0, -1.0 to 1.0,
+            1.4 to 0.0, -1.4 to 0.0, 0.0 to -1.4, 0.0 to 1.4,
+        )
+        for ((fx, fy) in offsets) {
+            val x = at[0] + fx * step - size / 2.0
+            val y = at[1] + fy * step - size / 2.0
+            if (x >= 2 && y >= 2 && x + size <= width - 2 && y + size <= height - 2) {
+                return doubleArrayOf(x, y)
+            }
+        }
+        return null
+    }
+
+    /** 印と輪郭を結ぶ線。**枠の中には入れない**（輪郭と重なると読めない） */
+    private fun leader(gray: ByteArray, width: Int, height: Int, at: DoubleArray, box: DoubleArray, size: Int) {
+        val dx = box[0] + size / 2.0 - at[0]
+        val dy = box[1] + size / 2.0 - at[1]
+        val len = hypot(dx, dy)
+        if (len < 1.0) return
+        var f = 1.0
+        while (f > 0.0) {
+            val x = at[0] + dx * f
+            val y = at[1] + dy * f
+            val outside = x < box[0] - 2 || x > box[0] + size + 2 || y < box[1] - 2 || y > box[1] + size + 2
+            if (outside) break
+            f -= 1.0 / len
+        }
+        // 印の側も少し空ける。印に線がくっつくと、どちらが位置なのか分からなくなる
+        val start = LEADER_GAP / len
+        if (f <= start) return
+        line(
+            gray, width, height,
+            doubleArrayOf(at[0] + dx * start, at[1] + dy * start),
+            doubleArrayOf(at[0] + dx * f, at[1] + dy * f),
+            LEADER_VALUE, 0,
+        )
+    }
+
+    private fun drawFigure(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        figure: SatelliteFigure,
+        box: DoubleArray,
+        size: Int,
+    ) {
+        // 外形だけ太くする。桟まで太くすると 96 画素では潰れる
+        val thick = if (size >= 80) 1 else 0
+        for (stroke in figure.strokes) {
+            val value = if (stroke.strong) FIGURE_VALUE else FIGURE_INNER_VALUE
+            val radius = if (stroke.strong) thick else 0
+            val pts = stroke.points.map { doubleArrayOf(box[0] + it[0] * size, box[1] + it[1] * size) }
+            for (i in 0 until pts.size - 1) {
+                line(gray, width, height, pts[i], pts[i + 1], value, radius)
+            }
+            if (stroke.closed && pts.size > 2) {
+                line(gray, width, height, pts.last(), pts.first(), value, radius)
+            }
+        }
+    }
+
     /** 軌跡を折れ線で描く。点はすでに方位・高度なので、投影して結ぶだけ */
     private fun drawTrack(
         gray: ByteArray,
@@ -437,5 +545,17 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** 衛星の軌跡は星座線より明るく。同じ濃さだと空の模様と見分けが付かない */
         const val TRACK_VALUE = 200
+
+        /** 輪郭の外形。いちばん明るくして「これは実景ではない」と分かるようにする */
+        const val FIGURE_VALUE = 255
+
+        /** パネルの桟。外形と同じ明るさだと、96 画素では 1 枚の板に見える */
+        const val FIGURE_INNER_VALUE = 120
+
+        /** 引き出し線。軌跡より暗く、星座線よりは明るい */
+        const val LEADER_VALUE = 150
+
+        /** 引き出し線を印から離す距離[画素] */
+        const val LEADER_GAP = 7.0
     }
 }

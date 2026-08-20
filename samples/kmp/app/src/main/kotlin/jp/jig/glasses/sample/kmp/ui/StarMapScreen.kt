@@ -200,6 +200,9 @@ fun StarMapScreen(
     var imageSize by remember { mutableStateOf(ImageSize.MAX) }
     var showLabels by remember { mutableStateOf(true) }
 
+    // 衛星の輪郭。実物大ではないアイコンなので、邪魔なら切れるようにしておく
+    var showFigures by remember { mutableStateOf(true) }
+
     // 星座モードと人工衛星モードを行き来する。切り替えはグラスのダブルタップ
     var satelliteMode by remember { mutableStateOf(false) }
     var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
@@ -348,6 +351,7 @@ fun StarMapScreen(
                     maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
                     tracks = tracks,
                     drawStars = !satelliteMode,
+                    drawFigures = showFigures,
                 )
             }
             renderMs = System.currentTimeMillis() - started
@@ -439,7 +443,9 @@ fun StarMapScreen(
      * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
      */
     var settled by remember { mutableStateOf(true) }
-    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating, satelliteMode) {
+    LaunchedEffect(
+        renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating, satelliteMode, showFigures,
+    ) {
         if (renderer == null || calibrating) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
@@ -922,6 +928,10 @@ fun StarMapScreen(
                         "衛星モードは星を描かないので、星座名・星座線・限界等級は効かない",
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Row {
+                        Checkbox(checked = showFigures, onCheckedChange = { showFigures = it })
+                        Text("主役 1 機の輪郭を出す", Modifier.padding(top = 14.dp))
+                    }
                 }
                 Text("画角 ${fov.roundToInt()}°")
                 Slider(value = fov, onValueChange = { fov = it }, valueRange = 10f..70f)
