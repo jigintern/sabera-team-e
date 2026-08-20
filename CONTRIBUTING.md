@@ -61,7 +61,6 @@ cd samples/kmp
 |---|---|
 | **`samples/kmp/app/`** | **アプリ本体。ここを書き換えて育てる** |
 | `samples/kmp/snippets/` | **ドキュメント用のコード例。アプリではない**（壊すと CI が落ちる） |
-| `samples/flutter/` | Flutter 版サンプル。**触らない**（別のチームが触っている） |
 | `docs/team-e/` | team-e の仕様書 |
 | `docs/` の他 | SDK のドキュメントサイト。**team-e の仕様は混ぜない** |
 | `data/` / `tools/` | 同梱データと生成スクリプト。`data/` は**すべて生成物なので手で編集しない** |

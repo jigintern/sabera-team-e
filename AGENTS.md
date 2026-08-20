@@ -27,7 +27,6 @@
 |---|---|
 | `samples/kmp/app/` | **team-e のアプリ本体**（Kotlin + Compose）。ここを書き換えて育てる |
 | `samples/kmp/snippets/` | ドキュメント用コード例。**アプリではない**（壊すと CI が落ちる） |
-| `samples/flutter/` | Flutter 版サンプル。**team-e では使わない。触らない**（別のチームが触っている） |
 | `docs/team-e/` | **team-e の仕様書** |
 | `docs/` の他 | SDK ドキュメントサイト（Jekyll / just-the-docs）。公開せず手元で読む |
 | `docs/api/` | SDK API リファレンス。雛形は `scripts/gen-api-docs.py` が生成 |
@@ -119,8 +118,10 @@ git rm -r --cached docs/_site && rm -rf docs/_site
 - `LICENSE` は上流が変えたときだけ個別に取り込む
 - **上の `comm` は毎回走らせる。** `git checkout <tree> -- <path>` は上流で削除された
   ファイルを消さないので、0.0.14 で撤去された `enter-ai-page.md` が居残った実例がある
-- **team-e が撤去したものが復活する。** 使わない上流サンプル画面（`CommandScreen` など 12 ファイル）は
-  削除済みなので、`comm` の逆向き（上流にあって手元に無い）も確認する
+- **team-e が撤去したものが復活する。** 使わない上流サンプル画面（`CommandScreen` など 12 ファイル）と
+  `samples/flutter/` は削除済みなので、`comm` の逆向き（上流にあって手元に無い）も確認する。
+  **`samples/flutter/` は上流で今も開発が続いている**（jig-SABERA/sabera-sdk#20）ので、
+  取り込むたびに戻ってくる
 - **`Package.swift` は checkout の対象外なので復活しない**（`docs samples scripts` に入っていない）。
   **広い範囲を checkout するときだけ気をつける**
 

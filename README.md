@@ -48,7 +48,6 @@ cd samples/kmp
 | [docs/team-e/](docs/team-e/) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
 | `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
 | `samples/kmp/snippets/` | ドキュメント用のコード例。**アプリではない**（壊すと CI が落ちる） |
-| `samples/flutter/` | Flutter 版サンプル。**team-e では使わない**（別のチームが触っている） |
 | `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
 | `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
 | `docs/` | SDK のドキュメントサイト（公開はせず手元で読む） |
