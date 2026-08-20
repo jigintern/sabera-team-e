@@ -208,10 +208,20 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     LaunchedEffect(followGlasses, renderer) {
         if (!followGlasses) return@LaunchedEffect
         if (!imuStarted) commandManager.startImuData()
+        var drawn: Look? = null
         while (true) {
-            drawAndSend()
-            // 転送しきる前に次を送ると画像が組み上がらない。実測ぶんだけ待つ
-            delay(transferMs + 150L)
+            val now = look()
+            val moved = drawn == null ||
+                kotlin.math.abs(normalizeDeg(now.azDeg - drawn!!.azDeg)) > REDRAW_DEG ||
+                kotlin.math.abs(now.altDeg - drawn!!.altDeg) > REDRAW_DEG
+            if (moved) {
+                drawAndSend()
+                drawn = now
+                // 画像は送るたび前の1枚が破棄される。組み立てと描画が終わるまで次を送らない
+                delay(transferMs + SETTLE_MS)
+            } else {
+                delay(150)
+            }
         }
     }
 
@@ -334,6 +344,16 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(12.dp))
+            CommandButton("テスト画像を出す（塗りつぶし）") {
+                runCatching {
+                    val w = imageSize.width
+                    val h = imageSize.height
+                    commandManager.sendCanvasImage(
+                        (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, solidBlock(w, h),
+                    )
+                    status = "テスト画像を送った。これが出ないなら星図の中身ではなく経路の問題"
+                }.onFailure { status = "テスト画像で失敗: ${it.message}" }
+            }
             Button(onClick = { commandManager.clearCanvas() }, modifier = Modifier.fillMaxWidth()) {
                 Text("グラスの表示を消す")
             }
@@ -400,6 +420,12 @@ private enum class ImageSize(val width: Int, val height: Int, val label: String)
     SMALL(256, 160, "小 256×160"),
 }
 
+/** これだけ視線が動いたら描き直す。止まっているのに送り直すと、そのたび画面が消えて点滅する */
+private const val REDRAW_DEG = 2.0
+
+/** 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕 */
+private const val SETTLE_MS = 600L
+
 /** キャンバスのテキスト要素は id 0..7 の 8 個まで */
 private const val CANVAS_TEXT_SLOTS = 8
 
@@ -446,6 +472,15 @@ private fun StarMap.toElementBatches(previousCount: Int): List<List<CommandManag
     }
     if (current.isNotEmpty()) batches += current
     return batches
+}
+
+/** 中央に最大輝度の塊を置いただけの画像。見えるかどうかだけを確かめる */
+private fun solidBlock(w: Int, h: Int): ByteArray {
+    val gray = ByteArray(w * h)
+    for (y in h / 4 until h * 3 / 4) {
+        for (x in w / 4 until w * 3 / 4) gray[y * w + x] = 255.toByte()
+    }
+    return gray
 }
 
 /**
