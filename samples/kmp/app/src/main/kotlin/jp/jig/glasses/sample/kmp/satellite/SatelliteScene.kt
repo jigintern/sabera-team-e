@@ -31,6 +31,18 @@ class SatelliteScene(
         return (nowMillis - parsed.time) / 86_400_000.0
     }
 
+    /**
+     * 軌道要素そのものの古さ[日]。名前つき衛星の中央値を取る。
+     *
+     * **位置のずれを決めるのは取得日ではなく元期。** 取得日は「いつ落としたか」でしかなく、
+     * キャッシュを使い回すと実際より新しく見える（元期は落とした時点で数時間〜数日前）。
+     */
+    fun elementAgeDays(nowMillis: Long): Double? {
+        if (named.isEmpty()) return null
+        val ages = named.map { (nowMillis - it.tle.epochUnixMillis) / 86_400_000.0 }.sorted()
+        return ages[ages.size / 2]
+    }
+
     /** 空にいる衛星 1 機ぶんの情報。スマホ側の一覧にも使う */
     class Sighting(
         val name: String,
@@ -155,8 +167,8 @@ class SatelliteScene(
     }
 
     companion object {
-        /** 名前を出す数。キャンバスのテキスト枠 8 個を星座名と分け合う */
-        const val MAX_NAMED = 3
+        /** 名前を出す数。衛星モードでは星座名を出さないので、テキスト枠 8 個を丸ごと使える */
+        const val MAX_NAMED = 8
 
         /** 軌跡だけ描くスターリンクの数。多すぎると星図が線で埋まる */
         const val MAX_STARLINK = 8

@@ -54,6 +54,7 @@ import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.Compass
+import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
@@ -189,10 +190,9 @@ fun StarMapScreen(
     var sightings by remember { mutableStateOf<List<SatelliteScene.Sighting>>(emptyList()) }
     var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
 
-    // いま出ている画像を「どの視線で焼いたか」。印だけ動かすときにこの座標系へ乗せる
+    // いま出ている画像を「どの視線・どの画角で焼いたか」。印だけ動かすときにこの座標系へ乗せる
     var drawnLook by remember { mutableStateOf<Look?>(null) }
-    var drawnTracks by remember { mutableStateOf<List<jp.jig.glasses.sample.kmp.starmap.SkyTrack>>(emptyList()) }
-    var starLabels by remember { mutableStateOf<List<jp.jig.glasses.sample.kmp.starmap.Label>>(emptyList()) }
+    var drawnFov by remember { mutableStateOf(0.0) }
 
     // 10,748 機ぶんあるので IO で読む。読み終わるまで衛星モードには入れない
     LaunchedEffect(Unit) {
@@ -246,6 +246,9 @@ fun StarMapScreen(
             // 切断しない限りグラス側は送り続ける。画面を出るときに止めないと、
             // 他の画面でも 10Hz のサンプルが BLE を流れ続ける
             commandManager.stopImuData()
+            // ホームボタン以外（戻るキー・切断・アプリ終了）で抜けたときに、
+            // 古い星図がグラスに出たままになる。閉じる手段はリモコンの戻るだけなので、ここで閉じる
+            runCatching { commandManager.closeCanvas() }
         }
     }
 
@@ -259,7 +262,11 @@ fun StarMapScreen(
                 when (gesture) {
                     GestureType.DOUBLE_TAP -> {
                         val scene = satellites
-                        if (scene == null || !scene.loaded) {
+                        if (calibrating) {
+                            // 合わせている間に切り替えると、十字を消したあとに
+                            // 思っていないモードの星図が出てくる
+                            log("方位合わせ中はモードを切り替えない")
+                        } else if (scene == null || !scene.loaded) {
                             log("軌道要素が読めていない")
                         } else {
                             satelliteMode = !satelliteMode
@@ -280,7 +287,7 @@ fun StarMapScreen(
         onDispose { job.cancel() }
     }
 
-    // スマホ側の一覧。1 秒ごとに作り直す。全機回しても数十 ms で終わる
+    // スマホ側の一覧。衛星モードなら 3 秒、星座モードなら 15 秒ごとに作り直す
     LaunchedEffect(satellites, satelliteMode, latText, lonText) {
         val scene = satellites ?: return@LaunchedEffect
         while (true) {
@@ -309,9 +316,10 @@ fun StarMapScreen(
 
     fun look(): Look = Look((normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0, glassPitch)
 
-    suspend fun drawAndSend() {
-        val r = renderer ?: return
-        if (!sendGate.tryLock()) return
+    /** 送れたら true。送らずに帰ったときに「描いた視線」を進めると、次の描き直しが止まる */
+    suspend fun drawAndSend(): Boolean {
+        val r = renderer ?: return false
+        if (!sendGate.tryLock()) return false
         sending = true
         try {
             val started = System.currentTimeMillis()
@@ -335,9 +343,12 @@ fun StarMapScreen(
                     limitMagnitude = limitMag.toDouble(),
                     width = imageSize.width,
                     height = imageSize.height,
-                    drawLines = drawLines,
+                    // 衛星モードでは星も星座線も出さない。同じ緑 8 階調なので、
+                    // 星を残すと軌跡がその中に紛れて「どれが衛星か」が読めない
+                    drawLines = drawLines && !satelliteMode,
                     maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
                     tracks = tracks,
+                    drawStars = !satelliteMode,
                 )
             }
             renderMs = System.currentTimeMillis() - started
@@ -352,7 +363,7 @@ fun StarMapScreen(
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
                 log("バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。大きさを 1 段下げる", failed = true)
                 Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used")
-                return
+                return false
             }
 
             val sendStarted = System.currentTimeMillis()
@@ -366,15 +377,21 @@ fun StarMapScreen(
                 height = map.height,
                 grayscale = map.gray,
             )
-            val placed = map.toCanvasElements()
+            // 衛星モードで視野に 1 機も無いと真っ黒な絵だけが出る。
+            // 切り替わったのか壊れたのか見分けが付かないので、そのことを書いておく
+            val shown = if (satelliteMode && tracks.isEmpty()) {
+                StarMap(map.width, map.height, map.gray, listOf(Label("衛星なし", map.width / 2, map.height / 2)))
+            } else {
+                map
+            }
+            val placed = shown.toCanvasElements()
             for (batch in placed.batched(shownLabels)) {
                 commandManager.sendCanvasElements(batch)
             }
             shownLabels = placed.size
             // 印だけ動かすために、この画像を焼いた条件を覚えておく
             drawnLook = look()
-            drawnTracks = tracks
-            starLabels = map.labels.filterNot { it.text.startsWith("●") || it.text.startsWith("○") }
+            drawnFov = fov.toDouble()
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
@@ -401,12 +418,14 @@ fun StarMapScreen(
             }
             waitMs = if (freed > 0) freed else System.currentTimeMillis() - sendStarted
             Log.d(TAG, "待ち ${waitMs}ms（見積り ${transferMs + SETTLE_MS}ms / 6DoF で打ち切り=${freed > 0}）")
+            return true
         } catch (e: CancellationException) {
             // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
             log("失敗: ${e.message}", failed = true)
             Log.e(TAG, "drawAndSend で失敗", e)
+            return false
         } finally {
             sending = false
             sendGate.unlock()
@@ -436,8 +455,9 @@ fun StarMapScreen(
                 max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
             } ?: Double.MAX_VALUE
             if (settled && drift > REDRAW_DEG) {
-                drawAndSend()
-                drawn = look()
+                // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
+                // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
+                if (drawAndSend()) drawn = look()
             }
             delay(POLL_MS)
         }
@@ -496,13 +516,15 @@ fun StarMapScreen(
                 val observer = Observer(site.latDeg, site.lonDeg)
                 // 軌跡は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
                 // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない
-                val fresh = scene.tracksInView(observer, now, baseLook, fov.toDouble(), maxStarlink = 0)
-                r.trackLabels(baseLook, fov.toDouble(), map.width, map.height, fresh)
+                // 画角も焼いたときの値を使う。つまみを動かした直後に今の画角で投影すると、
+                // 絵は前の画角のままなので印だけがずれる
+                val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
+                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh)
             }
             if (moved.isEmpty()) return
-            // 星座名の id がずれないよう、衛星と星座名をまとめて送り直す
-            val labels = moved + starLabels
-            val elements = StarMap(map.width, map.height, map.gray, labels).toCanvasElements()
+            // 衛星モードは星座名を出さないので、送り直すのは印だけ。
+            // 前のフレームより数が減ったぶんは batched が空文字で消す
+            val elements = StarMap(map.width, map.height, map.gray, moved).toCanvasElements()
             for (batch in elements.batched(shownLabels)) {
                 commandManager.sendCanvasElements(batch)
             }
@@ -606,14 +628,16 @@ fun StarMapScreen(
                     },
                 )
                 StatusRow("頭上", "名前つき $satellitesAbove 機 / スターリンク $starlinkAbove 機")
-                val age = satellites?.ageDays(System.currentTimeMillis())
+                // 古さは取得日ではなく元期で見る。取得日はキャッシュを使い回すと嘘になるし、
+                // 落とした時点で元期は数時間〜数日前なので、位置のずれはこちらで決まる
+                val age = satellites?.elementAgeDays(System.currentTimeMillis())
                 StatusRow(
-                    "軌道要素",
+                    "軌道要素の元期",
                     when {
-                        age == null -> "取得日が分からない"
+                        age == null -> "分からない"
                         age < 2.0 -> "${"%.1f".format(age)} 日前（十分新しい）"
-                        age < 7.0 -> "${"%.1f".format(age)} 日前（そろそろずれる）"
-                        else -> "${"%.0f".format(age)} 日前。**取り直したほうがよい**"
+                        age < 7.0 -> "${"%.1f".format(age)} 日前（そろそろずれる。1 日 0.6°）"
+                        else -> "${"%.0f".format(age)} 日前。取り直したほうがよい"
                     },
                 )
             }
@@ -705,6 +729,9 @@ fun StarMapScreen(
                         onClick = {
                             commandManager.clearCanvas()
                             shownLabels = 0
+                            // 印の送り直しも止める。残しておくと、消した画像の上に
+                            // 衛星の名前だけが 1.5 秒後に浮かんでくる
+                            drawnLook = null
                             log("表示を消した")
                         },
                         modifier = Modifier.weight(1f),
@@ -759,6 +786,12 @@ fun StarMapScreen(
                 Row {
                     Checkbox(checked = drawLines, onCheckedChange = { drawLines = it })
                     Text("星座線を描く（転送量の半分以上を占める）", Modifier.padding(top = 14.dp))
+                }
+                if (satelliteMode) {
+                    Text(
+                        "衛星モードは星を描かないので、星座名・星座線・限界等級は効かない",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Text("画角 ${fov.roundToInt()}°")
                 Slider(value = fov, onValueChange = { fov = it }, valueRange = 10f..70f)

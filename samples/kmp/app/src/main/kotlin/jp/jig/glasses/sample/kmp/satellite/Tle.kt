@@ -37,8 +37,11 @@ class Tle(
     /** 平均運動の 2 階微分[rad/分^3] */
     val nddot: Double,
 ) {
-    /** J2000.0 元期からの日数。SGP4 の内部時刻に使う */
+    /** 1950.0 元期からの日数。**深宇宙の日月項がこの基準を取る**ので、J2000 に直さない */
     val epochDaysSince1950: Double get() = (jdEpoch - 2433281.5) + jdEpochFrac
+
+    /** 元期の UNIX ミリ秒。**軌道要素の古さはこれで測る**（取得日ではない） */
+    val epochUnixMillis: Long get() = ((jdEpoch - 2440587.5 + jdEpochFrac) * 86_400_000.0).toLong()
 
     /** 元期から `epochMillis` までの経過分。SGP4 に渡す時刻はこれ */
     fun minutesSinceEpoch(epochMillis: Long): Double {

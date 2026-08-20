@@ -84,6 +84,47 @@ class StarMapRendererTest {
     }
 
     @Test
+    fun `衛星モードには星も星座名も混ざらない`() {
+        // 星と軌跡は同じ緑 8 階調なので、混ざると「どれが衛星か」が読めなくなる
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        val empty = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            drawLines = false,
+            drawStars = false,
+        )
+        assertTrue("衛星が居ないのに光っている", empty.gray.all { (it.toInt() and 0xFF) == 0 })
+        assertTrue("星座名が残っている", empty.labels.isEmpty())
+
+        val track = SkyTrack(
+            name = "テスト衛星",
+            points = (-5..5).map { doubleArrayOf(180.0 + it, 45.0) },
+            nowAzDeg = 180.0,
+            nowAltDeg = 45.0,
+            sunlit = true,
+            labelled = true,
+        )
+        val withTrack = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            drawLines = false,
+            tracks = listOf(track),
+            drawStars = false,
+        )
+        val lit = withTrack.gray.count { (it.toInt() and 0xFF) > 0 }
+        println("衛星モードで光った画素 $lit / ${withTrack.gray.size}、ラベル ${withTrack.labels.map { it.text }}")
+        assertTrue("軌跡が描かれていない（$lit 画素）", lit > 100)
+        assertTrue("衛星以外の名前が出ている", withTrack.labels.all { it.text.startsWith("●") })
+    }
+
+    @Test
     fun `3bitに落としても階調が残る`() {
         // 量子化後に全部 0 になっていたら、実機では真っ黒になる
         val map = StarMapRenderer(catalog()).render(

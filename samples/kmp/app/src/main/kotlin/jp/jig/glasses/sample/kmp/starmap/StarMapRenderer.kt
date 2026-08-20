@@ -61,6 +61,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawLines: Boolean = true,
         maxLabels: Int = 8,
         tracks: List<SkyTrack> = emptyList(),
+        // 人工衛星モードでは星を出さない。星と軌跡が同じ緑 8 階調なので、
+        // 重ねると「どれが衛星か」が分からなくなる（星座モードは逆に衛星を渡さない）
+        drawStars: Boolean = true,
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -79,19 +82,21 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             }
         }
 
-        for (i in catalog.stars.indices) {
-            val star = catalog.stars[i]
-            if (star.magnitude > limitMagnitude) continue
-            val p = precessed.stars[i]
-            val aa = toAltAz(p[0], p[1], lst, site.latDeg)
-            val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
-            if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
-            // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
-            val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
-            val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
-            // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
-            val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
-            dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+        if (drawStars) {
+            for (i in catalog.stars.indices) {
+                val star = catalog.stars[i]
+                if (star.magnitude > limitMagnitude) continue
+                val p = precessed.stars[i]
+                val aa = toAltAz(p[0], p[1], lst, site.latDeg)
+                val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
+                if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
+                // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
+                val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
+                val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
+                // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
+                val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
+                dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+            }
         }
 
         // 衛星の軌跡は星より手前に描く。星座線より明るくして見分けが付くようにする
@@ -105,7 +110,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
         val trackLabels = trackLabels(look, fovDeg, width, height, tracks)
 
-        val starLabels = labels(precessed, lst, site, basis, k, width, height, maxLabels)
+        val starLabels = if (drawStars) {
+            labels(precessed, lst, site, basis, k, width, height, maxLabels)
+        } else {
+            emptyList()
+        }
         // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
         val merged = (trackLabels + starLabels).take(maxLabels.coerceAtLeast(trackLabels.size))
         return StarMap(width, height, gray, merged)

@@ -137,10 +137,14 @@ def main() -> None:
         size = len(starlink.encode("utf-8"))
         print(f"data/starlink.tle: {count} 機 / {size:,} バイト")
 
-    print("取得日を data/satellites-fetched.txt に残す")
-    (DATA / "satellites-fetched.txt").write_text(
-        time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n", encoding="utf-8"
-    )
+    if args.skip_starlink:
+        # starlink.tle は前回のまま。取得日を今に書き換えると、アプリが古さを見誤る
+        print("starlink を取らなかったので data/satellites-fetched.txt はそのまま")
+    else:
+        print("取得日を data/satellites-fetched.txt に残す")
+        (DATA / "satellites-fetched.txt").write_text(
+            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n", encoding="utf-8"
+        )
 
 
 if __name__ == "__main__":

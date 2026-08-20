@@ -13,9 +13,10 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 衛星を星図に重ねるところまでの通し確認。
+ * 衛星を星図と同じ座標系に乗せるところまでの通し確認。
  *
- * **軌跡を焼くと転送量が増える**ので、グラスのバッファ（380,000 バイト）に
+ * **衛星モードは星を描かない**（星と軌跡が同じ緑 8 階調なので混ざると読めない）。
+ * それでも軌跡を焼くと転送量は増えるので、グラスのバッファ（380,000 バイト）に
  * 収まるかどうかもここで見る。
  */
 class SatelliteSceneTest {
@@ -113,6 +114,21 @@ class SatelliteSceneTest {
         println("衛星 ${tracks.size} 本を焼いた 528×330: バッファ使用 $used バイト（上限 380,000）")
         assertTrue("バッファを超える: $used", used <= 380_000)
         assertTrue("衛星の名前が出ていない", map.labels.any { it.text.startsWith("●") || it.text.startsWith("○") })
+
+        // 実際の衛星モードは星も星座線も描かない。上の値は星座モードとの合わせ技での上限で、
+        // 送るのはこちら。真っ黒な背景ばかりになるので圧縮後がぐっと縮む
+        val satelliteOnly = renderer.render(
+            site = sabae, epochMillis = now, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
+            width = width, height = height, drawLines = false, maxLabels = 8, tracks = tracks,
+            drawStars = false,
+        )
+        val usedAlone = width * height * 2 + compressedBytes(satelliteOnly.gray, width, height)
+        println("衛星だけの 528×330: バッファ使用 $usedAlone バイト")
+        assertTrue("衛星だけのほうが重い: $usedAlone >= $used", usedAlone < used)
+        assertTrue(
+            "星座名が混ざっている",
+            satelliteOnly.labels.all { it.text.startsWith("●") || it.text.startsWith("○") },
+        )
     }
 
     @Test
@@ -157,7 +173,13 @@ class SatelliteSceneTest {
         val age = scene.ageDays(System.currentTimeMillis())
         checkNotNull(age) { "取得日が読めない" }
         assertTrue("取得日が未来になっている: $age", age >= -0.1)
-        println("同梱した TLE は ${"%.2f".format(age)} 日前のもの")
+
+        // 位置のずれを決めるのは元期。取得日より必ず古い（落とした時点で数時間前のものが来る）
+        val epochAge = scene.elementAgeDays(System.currentTimeMillis())
+        checkNotNull(epochAge) { "元期が読めない" }
+        assertTrue("元期が未来になっている: $epochAge", epochAge >= -0.1)
+        assertTrue("元期が取得日より新しい: 元期 $epochAge / 取得 $age", epochAge >= age - 0.1)
+        println("同梱した TLE は 取得 ${"%.2f".format(age)} 日前 / 元期 ${"%.2f".format(epochAge)} 日前")
     }
 
     @Test
@@ -214,9 +236,9 @@ class SatelliteSceneTest {
     }
 
     @Test
-    fun `名前を出す数はテキスト枠を食い尽くさない`() {
-        // キャンバスのテキストは 8 個。衛星に全部使うと星座名が出せなくなる
-        assertTrue(SatelliteScene.MAX_NAMED <= 3)
-        assertEquals(3, SatelliteScene.MAX_NAMED)
+    fun `名前を出す数はキャンバスのテキスト枠に収まる`() {
+        // キャンバスのテキストは id 0..7 の 8 個。衛星モードは星座名を出さないので枠を全部使えるが、
+        // 超えたぶんは黙って落ちる（星座と分け合っていたころは 3 個までだった）
+        assertTrue(SatelliteScene.MAX_NAMED <= 8)
     }
 }
