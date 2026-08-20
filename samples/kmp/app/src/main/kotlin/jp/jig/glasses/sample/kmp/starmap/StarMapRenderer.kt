@@ -121,6 +121,66 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     /**
+     * 視線に近い順に星座名を返す。AI に「いま何を見ているか」を伝えるために使う。
+     *
+     * **これは近似。** 仕様（coordinate-system.md ⑦）が求めるのは IAU 境界による判定で、
+     * そちらは天球を隙間なく分割するので属する星座が一意に決まる。ここでは星座線までの
+     * 角距離が最小の星座を返しているだけなので、線の無い暗い領域では答えがずれる。
+     * 境界表（Roman 1987）を入れるときは**この関数の中身だけ差し替えれば済む**。
+     */
+    fun constellationsNear(site: Site, epochMillis: Long, look: Look, max: Int = 4): List<String> {
+        val d = daysFromJ2000(epochMillis)
+        val lst = localSiderealDeg(d, site.lonDeg)
+        val precessed = precessed(d)
+        val target = enu(look.azDeg, look.altDeg)
+
+        fun sky(raDec: DoubleArray): Vec3 {
+            val aa = toAltAz(raDec[0], raDec[1], lst, site.latDeg)
+            return enu(aa[0], aa[1])
+        }
+
+        val scored = ArrayList<Pair<Double, String>>(catalog.constellations.size)
+        for (i in catalog.constellations.indices) {
+            var nearest = -2.0
+            for (seg in precessed.lines[i]) {
+                for (j in seg.indices) {
+                    val v = sky(seg[j])
+                    if ((v dot target) > nearest) nearest = v dot target
+                    // 頂点だけ見ると、長い星座線が視線のすぐ脇を通っていても拾えない。
+                    // 星座は数十度に広がるので、5° ごとに刻めば取りこぼさない
+                    if (j + 1 < seg.size) {
+                        val a = v
+                        val b = sky(seg[j + 1])
+                        val ang = acos((a dot b).coerceIn(-1.0, 1.0))
+                        val steps = ceil(ang * DEG / 5.0).toInt()
+                        val s = sin(ang)
+                        if (steps > 1 && s >= 1e-9) {
+                            for (k in 1 until steps) {
+                                val f = k.toDouble() / steps
+                                val w0 = sin((1 - f) * ang) / s
+                                val w1 = sin(f * ang) / s
+                                val m = Vec3(
+                                    a.x * w0 + b.x * w1,
+                                    a.y * w0 + b.y * w1,
+                                    a.z * w0 + b.z * w1,
+                                ).normalized()
+                                if ((m dot target) > nearest) nearest = m dot target
+                            }
+                        }
+                    }
+                }
+            }
+            // 星座線を持たない星座は中心で代用する
+            if (nearest <= -2.0) {
+                val center = precessed.centers[i] ?: continue
+                nearest = sky(center) dot target
+            }
+            scored += nearest to catalog.constellations[i].nameJa
+        }
+        return scored.sortedByDescending { it.first }.take(max).map { it.second }
+    }
+
+    /**
      * いま空に出ている星座を、高度の高い順に返す。
      * キャリブレーションもグラスの姿勢も要らずに「その星座を見た絵」を出すために使う。
      */

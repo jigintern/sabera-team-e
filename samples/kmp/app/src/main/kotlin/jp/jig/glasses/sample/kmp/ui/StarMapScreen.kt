@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.graphics.Bitmap
+import android.util.Base64
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +53,12 @@ import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
+import jp.jig.glasses.sample.kmp.BuildConfig
+import jp.jig.glasses.sample.kmp.ai.NarrationInput
+import jp.jig.glasses.sample.kmp.ai.NarrationPhase
+import jp.jig.glasses.sample.kmp.ai.Narrator
+import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.Speaker
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.Compass
@@ -75,6 +83,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -95,6 +104,8 @@ import kotlin.math.roundToInt
 @Composable
 fun StarMapScreen(
     client: GlassClient,
+    initialHeadingOffset: Double,
+    initialCalibratedAt: Long?,
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -133,7 +144,14 @@ fun StarMapScreen(
     var latText by remember { mutableStateOf("%.4f".format(DEFAULT_LAT)) }
     var lonText by remember { mutableStateOf("%.4f".format(DEFAULT_LON)) }
     var siteSource by remember { mutableStateOf("手入力（鯖江）") }
-    val site = Site(latText.toDoubleOrNull() ?: DEFAULT_LAT, lonText.toDoubleOrNull() ?: DEFAULT_LON)
+    // 素の val にすると、長生きするコルーチン（追従ループ・ジェスチャー購読）が
+    // 起動時の値を握ったままになり、あとから測位できても観測地が更新されない。
+    // 委譲プロパティにしておけば、読むたび最新になる
+    val site by remember {
+        derivedStateOf {
+            Site(latText.toDoubleOrNull() ?: DEFAULT_LAT, lonText.toDoubleOrNull() ?: DEFAULT_LON)
+        }
+    }
 
     val locator = remember { Locator(context) }
     var locateNow by remember { mutableStateOf(0) }
@@ -171,8 +189,8 @@ fun StarMapScreen(
         }
     }
 
-    var headingOffset by remember { mutableStateOf(0.0) }
-    var calibratedAt by remember { mutableStateOf<Long?>(null) }
+    var headingOffset by remember(initialHeadingOffset) { mutableStateOf(initialHeadingOffset) }
+    var calibratedAt by remember(initialCalibratedAt) { mutableStateOf(initialCalibratedAt) }
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
@@ -232,6 +250,9 @@ fun StarMapScreen(
     // 「また流れ出した ＝ 転送が終わった」の目印に使う
     var lastImuAt by remember { mutableStateOf(0L) }
 
+    // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
+    val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
+
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
             commandManager.imuData.collect { data ->
@@ -239,6 +260,10 @@ fun StarMapScreen(
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
+                lookHistory.addLast(Triple(lastImuAt, glassYaw, glassPitch))
+                while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
+                    lookHistory.removeFirst()
+                }
             }
         }
         onDispose {
@@ -253,39 +278,6 @@ fun StarMapScreen(
     }
 
     LaunchedEffect(Unit) { commandManager.startImuData() }
-
-    // ジェスチャーは SharedFlow なので、購読を始める前のぶんは受け取れない。
-    // ダブルタップで星座 ⇄ 人工衛星を行き来する
-    DisposableEffect(commandManager) {
-        val job: Job = scope.launch {
-            commandManager.gestureEvents.collect { gesture ->
-                when (gesture) {
-                    GestureType.DOUBLE_TAP -> {
-                        val scene = satellites
-                        if (calibrating) {
-                            // 合わせている間に切り替えると、十字を消したあとに
-                            // 思っていないモードの星図が出てくる
-                            log("方位合わせ中はモードを切り替えない")
-                        } else if (scene == null || !scene.loaded) {
-                            log("軌道要素が読めていない")
-                        } else {
-                            satelliteMode = !satelliteMode
-                            log(if (satelliteMode) "人工衛星モードへ（ダブルタップ）" else "星座モードへ（ダブルタップ）")
-                        }
-                    }
-
-                    // 仕様どおり長押しは方位合わせ。いつでも呼べる必要がある
-                    GestureType.HOLD -> {
-                        calibrating = true
-                        log("方位合わせへ（長押し）")
-                    }
-
-                    else -> log("ジェスチャー: $gesture")
-                }
-            }
-        }
-        onDispose { job.cancel() }
-    }
 
     // スマホ側の一覧。衛星モードなら 3 秒、星座モードなら 15 秒ごとに作り直す
     LaunchedEffect(satellites, satelliteMode, latText, lonText) {
@@ -315,6 +307,13 @@ fun StarMapScreen(
     val sendGate = remember { Mutex() }
 
     fun look(): Look = Look((normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0, glassPitch)
+
+    /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
+    fun latchedLook(): Look {
+        val target = System.currentTimeMillis() - LATCH_MS
+        val entry = lookHistory.lastOrNull { it.first <= target } ?: return look()
+        return Look((normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0, entry.third)
+    }
 
     /** 送れたら true。送らずに帰ったときに「描いた視線」を進めると、次の描き直しが止まる */
     suspend fun drawAndSend(): Boolean {
@@ -493,6 +492,107 @@ fun StarMapScreen(
             compassAccuracy = compass.accuracyText()
             delay(200)
         }
+    }
+
+    // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない
+    val speaker = remember { Speaker(context) }
+    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+
+    val narrator = remember(speaker) {
+        Narrator(
+            speaker = speaker,
+            client = OpenAiClient(BuildConfig.OPENAI_API_KEY, BuildConfig.OPENAI_MODEL),
+            log = { text, failed -> log(text, failed) },
+        )
+    }
+    val narration by narrator.state.collectAsState()
+    val speaking by speaker.speaking.collectAsState()
+
+    // 読み上げが終わったら待機に戻す。TextToSpeech の完了通知は Speaker が拾っている
+    LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
+
+    LaunchedEffect(Unit) {
+        if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
+            log("OPENAI_API_KEY が設定されていない（.env を作る）", failed = true)
+        }
+    }
+
+    var narrationJob by remember { mutableStateOf<Job?>(null) }
+    val timestamp = remember { SimpleDateFormat("yyyy-MM-dd HH:mm z", Locale.JAPAN) }
+
+    fun startNarration() {
+        val r = renderer
+        if (r == null) {
+            log("星表がまだ読めていない", failed = true)
+            return
+        }
+        val latched = latchedLook()
+        narrationJob = scope.launch {
+            val names = withContext(Dispatchers.Default) {
+                r.constellationsNear(site, System.currentTimeMillis(), latched)
+            }
+            // 送るのはグラスに出ている絵そのもの。別に描き直すと、聞いている人の視界と食い違う
+            val png = lastMap?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
+            narrator.narrate(
+                NarrationInput(
+                    calibrated = calibratedAt != null,
+                    altDeg = latched.altDeg,
+                    azDeg = latched.azDeg,
+                    constellations = names,
+                    latDeg = site.latDeg,
+                    lonDeg = site.lonDeg,
+                    localTime = timestamp.format(Date()),
+                    pngBase64 = png,
+                ),
+            )
+        }
+    }
+
+    fun stopNarration() {
+        narrationJob?.cancel()
+        narrationJob = null
+        narrator.stop()
+        log("解説を止めた")
+    }
+
+    /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
+    fun toggleNarration() {
+        if (narrator.busy || speaking) stopNarration() else startNarration()
+    }
+
+    // gestureEvents は SharedFlow。購読前のジェスチャーは受け取れないので、画面に入った時点で購読する
+    DisposableEffect(commandManager) {
+        val job: Job = scope.launch {
+            commandManager.gestureEvents.collect { gesture ->
+                when (gesture) {
+                    GestureType.SINGLE_TAP -> toggleNarration()
+
+                    // 「もっと詳しく」に当てていた枠。人工衛星モードとの切り替えに使う
+                    GestureType.DOUBLE_TAP -> {
+                        val scene = satellites
+                        if (calibrating) {
+                            // 合わせている間に切り替えると、十字を消したあとに
+                            // 思っていないモードの星図が出てくる
+                            log("方位合わせ中はモードを切り替えない")
+                        } else if (scene == null || !scene.loaded) {
+                            log("軌道要素が読めていない")
+                        } else {
+                            satelliteMode = !satelliteMode
+                            log(if (satelliteMode) "人工衛星モードへ（ダブルタップ）" else "星座モードへ（ダブルタップ）")
+                        }
+                    }
+
+                    // 仕様どおり長押しは方位合わせ。いつでも呼べる必要がある
+                    GestureType.HOLD -> {
+                        calibrating = true
+                        log("方位合わせへ（長押し）")
+                    }
+
+                    else -> log("ジェスチャー ${gesture.name}（未割り当て）")
+                }
+            }
+        }
+        onDispose { job.cancel() }
     }
 
     /**
@@ -740,6 +840,36 @@ fun StarMapScreen(
             }
 
             Spacer(Modifier.height(16.dp))
+            Text("AI 解説", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(8.dp)) {
+                    StatusRow(
+                        "状態",
+                        when {
+                            narration.phase == NarrationPhase.GENERATING -> "AI に聞いている…"
+                            narration.phase == NarrationPhase.SPEAKING || speaking -> "読み上げ中"
+                            BuildConfig.OPENAI_API_KEY.isEmpty() -> "キー未設定（.env を作る）"
+                            else -> "待機中（グラスのツルを 1 回タップ）"
+                        },
+                    )
+                    if (narration.constellation.isNotEmpty()) {
+                        StatusRow("星座", narration.constellation)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        narration.text.ifEmpty { "まだ解説していない" },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (narration.phase == NarrationPhase.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
             Text("ログ", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             Card(Modifier.fillMaxWidth()) {
@@ -936,6 +1066,17 @@ private const val POLL_MS = 100L
  */
 private const val MARKER_INTERVAL_MS = 1_500L
 
+/**
+ * どれだけ過去の視線で星座を決めるか。
+ *
+ * **ツルをタップすると頭が動く。** タップ時点の視線で判定すると、押した反動で
+ * 隣の星座に化けることがある（app-flow.md）。
+ */
+private const val LATCH_MS = 500L
+
+/** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
+private const val HISTORY_MS = 3_000L
+
 /** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
 private const val STILL_DEG = 1.0
 
@@ -1089,6 +1230,27 @@ private fun StarMap.compressedBytes(): Int {
         i += run
     }
     return bytes
+}
+
+/**
+ * AI に送る星図。
+ *
+ * **グラスに出したのと同じ 3bit へ落としてから渡す。** 8bit のまま送ると、
+ * 実機では潰れて見えない淡い星まで写ってしまい、「見えていないもの」の解説が返る。
+ * 緑には写さない（色味は表示の都合で、絵の中身とは関係がない）。
+ */
+private fun StarMap.toPngBase64(): String {
+    val pixels = IntArray(width * height)
+    for (i in pixels.indices) {
+        val v = gray[i].toInt() and 0xFF
+        val q = Math.round(v / 255.0 * 7.0).toInt() * 255 / 7
+        pixels[i] = (0xFF shl 24) or (q shl 16) or (q shl 8) or q
+    }
+    val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+    val out = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+    bitmap.recycle()
+    return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
 }
 
 /** 実機で見える色に寄せた確認用。3bit へ落としてから緑に写す（順序を逆にすると階調が狂う） */

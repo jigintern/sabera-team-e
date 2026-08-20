@@ -4,6 +4,33 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+/**
+ * 秘密情報を探す。リポジトリ直下の .env が正で、置き場所を変えたい人のために後ろ 3 つも見る。
+ *
+ * どれも無ければ空文字を返してビルドは通す。キーが無いだけでビルドが落ちると、
+ * AI を使わない人（星図だけ直す人）まで巻き添えになる。
+ */
+fun secret(envName: String, gradleName: String): String {
+    fun dotenv(file: File): String? = file.takeIf { it.isFile }
+        ?.readLines()
+        ?.firstNotNullOfOrNull { line ->
+            val trimmed = line.trim()
+            if (trimmed.startsWith("#") || "=" !in trimmed) return@firstNotNullOfOrNull null
+            val (name, value) = trimmed.split("=", limit = 2)
+            if (name.trim() != envName) null else value.trim().trim('"', '\'')
+        }
+        ?.takeIf { it.isNotEmpty() }
+
+    return dotenv(rootProject.file("../../.env"))
+        ?: dotenv(rootProject.file("local.properties"))
+        ?: (project.findProperty(gradleName) as String?)?.takeIf { it.isNotEmpty() }
+        ?: System.getenv(envName)?.takeIf { it.isNotEmpty() }
+        ?: ""
+}
+
+val openAiApiKey = secret("OPENAI_API_KEY", "openAiApiKey")
+val openAiModel = secret("OPENAI_MODEL", "openAiModel").ifEmpty { "gpt-4o" }
+
 android {
     namespace = "jp.jig.glasses.sample.kmp"
     compileSdk = 36
@@ -14,6 +41,14 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
+
+        // キーは APK に埋まる。逆コンパイルすれば読めるので、配布せず手元の実機で動かす前提
+        buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
+        buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
