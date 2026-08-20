@@ -108,6 +108,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var renderMs by remember { mutableStateOf(0L) }
     var sendMs by remember { mutableStateOf(0L) }
     var status by remember { mutableStateOf("") }
+    // 差分更新なので、前のフレームで使った id を消すために覚えておく
+    var shownLabels by remember { mutableStateOf(0) }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -143,29 +145,36 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 
     suspend fun drawAndSend() {
         val r = renderer ?: return
-        val started = System.currentTimeMillis()
-        val map = withContext(Dispatchers.Default) {
-            r.render(
-                site = site,
-                epochMillis = System.currentTimeMillis(),
-                look = look(),
-                fovDeg = fov.toDouble(),
-                limitMagnitude = limitMag.toDouble(),
-                drawLines = drawLines,
-            )
-        }
-        renderMs = System.currentTimeMillis() - started
-        lastMap = map
-        preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
-
-        val sendStarted = System.currentTimeMillis()
+        // 描画で落ちても黙って消えないよう、送信まで含めて丸ごと拾う
         runCatching {
+            val started = System.currentTimeMillis()
+            val map = withContext(Dispatchers.Default) {
+                r.render(
+                    site = site,
+                    epochMillis = System.currentTimeMillis(),
+                    look = look(),
+                    fovDeg = fov.toDouble(),
+                    limitMagnitude = limitMag.toDouble(),
+                    width = IMAGE_WIDTH,
+                    height = IMAGE_HEIGHT,
+                    drawLines = drawLines,
+                )
+            }
+            renderMs = System.currentTimeMillis() - started
+            lastMap = map
+            preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
+
+            val sendStarted = System.currentTimeMillis()
             // 画像とテキストは別バッファなので、画像を置いてから名前を差分で載せる
-            commandManager.sendCanvasImage(0, 0, map.width, map.height, map.gray)
-            commandManager.sendCanvasElements(map.toElements())
+            commandManager.sendCanvasImage(IMAGE_X, IMAGE_Y, map.width, map.height, map.gray)
+            // 1 パケット 190 バイトに収まらないので、分けて送る
+            for (batch in map.toElementBatches(shownLabels)) {
+                commandManager.sendCanvasElements(batch)
+            }
+            shownLabels = map.labels.size
+            sendMs = System.currentTimeMillis() - sendStarted
             status = ""
-        }.onFailure { status = "送信に失敗: ${it.message}" }
-        sendMs = System.currentTimeMillis() - sendStarted
+        }.onFailure { status = "失敗: ${it.message}" }
     }
 
     // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
@@ -338,21 +347,62 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
  * sendCanvasElements は差分更新なので、前のフレームで使った id は消さないと残る。
  * 空文字を送るとその id が消えるので、余った枠は常に空で埋める。
  */
-private fun StarMap.toElements(): List<CommandManager.CanvasElement> =
-    (0 until CANVAS_TEXT_SLOTS).map { i ->
-        val label = labels.getOrNull(i)
-        CommandManager.CanvasElement(
-            id = i,
-            x = ((label?.x ?: 0) - 60).coerceIn(0, PANEL_WIDTH - 120),
-            y = ((label?.y ?: 0) - 10).coerceIn(0, PANEL_HEIGHT - 22),
-            width = 120,
-            height = 22,
-            text = label?.text ?: "",
-        )
-    }
+/**
+ * 星図の大きさ。キャンバス（576×360）には収まらない。
+ *
+ * SDK が `width * height * 2 + 圧縮後サイズ <= 380,000` を要求する。
+ * 576×360 だと画素だけで 414,720 になって必ず弾かれるので、縦横比はそのままで一回り小さくする。
+ */
+private const val IMAGE_WIDTH = 512
+private const val IMAGE_HEIGHT = 320
+private const val IMAGE_X = (PANEL_WIDTH - IMAGE_WIDTH) / 2
+private const val IMAGE_Y = (PANEL_HEIGHT - IMAGE_HEIGHT) / 2
 
 /** キャンバスのテキスト要素は id 0..7 の 8 個まで */
 private const val CANVAS_TEXT_SLOTS = 8
+
+/** 1 パケットに載る内層 TLV の合計。分割送信できないので超えると SDK が弾く */
+private const val CANVAS_TEXT_BUDGET = 190
+
+/** 要素 1 個ぶんのバイト数。TLV ヘッダ 3 + id と矩形 9 + 本文 */
+private fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArray(Charsets.UTF_8).size
+
+/**
+ * 星座名をキャンバスのテキスト要素にして、190 バイトずつの束に分ける。
+ *
+ * 座標は星図の中の位置なので、キャンバス上の置き場所へずらす。
+ * sendCanvasElements は差分更新なので、前のフレームで使った id は空文字を送って消す。
+ */
+private fun StarMap.toElementBatches(previousCount: Int): List<List<CommandManager.CanvasElement>> {
+    val shown = labels.take(CANVAS_TEXT_SLOTS).mapIndexed { i, label ->
+        CommandManager.CanvasElement(
+            id = i,
+            x = (IMAGE_X + label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
+            y = (IMAGE_Y + label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
+            width = 120,
+            height = 22,
+            text = label.text,
+        )
+    }
+    val cleared = (shown.size until previousCount.coerceAtMost(CANVAS_TEXT_SLOTS)).map { i ->
+        CommandManager.CanvasElement(id = i, x = 0, y = 0, width = 0, height = 0, text = "")
+    }
+
+    val batches = ArrayList<List<CommandManager.CanvasElement>>()
+    var current = ArrayList<CommandManager.CanvasElement>()
+    var used = 0
+    for (e in shown + cleared) {
+        if (current.isNotEmpty() && used + e.byteSize() > CANVAS_TEXT_BUDGET) {
+            batches += current
+            current = ArrayList()
+            used = 0
+        }
+        current += e
+        used += e.byteSize()
+    }
+    if (current.isNotEmpty()) batches += current
+    return batches
+}
 
 /** 実機で見える色に寄せた確認用。3bit へ落としてから緑に写す（順序を逆にすると階調が狂う） */
 private fun StarMap.toPreviewBitmap(): Bitmap {
