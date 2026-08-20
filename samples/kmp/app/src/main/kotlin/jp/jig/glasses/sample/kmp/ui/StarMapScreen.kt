@@ -181,6 +181,9 @@ fun StarMapScreen(client: GlassClient) {
 
     /** 実際に待った時間。見積りとどれだけ違うかを見るために出す */
     var waitMs by remember { mutableStateOf(0L) }
+
+    // 1 パケットあたりの見積り。転送の実時間は測る手段が無いので、目で見て詰められるようにする
+    var packetMs by remember { mutableStateOf(PACKET_MS_DEFAULT) }
     var sending by remember { mutableStateOf(false) }
     var shownLabels by remember { mutableStateOf(0) }
 
@@ -246,7 +249,7 @@ fun StarMapScreen(client: GlassClient) {
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
             val compressed = map.compressedBytes()
             val used = map.width * map.height * 2 + compressed
-            transferMs = ((compressed + 199) / 200) * 30L
+            transferMs = ((compressed + 199) / 200) * packetMs.toLong()
             if (used > IMAGE_BUFFER_BYTES) {
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
                 log("バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。大きさを 1 段下げる", failed = true)
@@ -538,6 +541,13 @@ fun StarMapScreen(client: GlassClient) {
                 Slider(value = fov, onValueChange = { fov = it }, valueRange = 10f..70f)
                 Text("限界等級 ${"%.1f".format(limitMag)}")
                 Slider(value = limitMag, onValueChange = { limitMag = it }, valueRange = 2f..5f)
+                Text("1 パケットの見積り ${packetMs.roundToInt()} ms")
+                Slider(value = packetMs, onValueChange = { packetMs = it }, valueRange = 8f..40f)
+                Text(
+                    "次の 1 枚を送るまでの待ちを決める。下げるほど追従が速くなり、" +
+                        "下げすぎると送信が順番待ちで溜まって遅れて出る（絵は壊れない）",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 lastMap?.let {
                     Text(
                         "${it.width}×${it.height} / 描画 $renderMs ms / " +
@@ -631,7 +641,22 @@ private fun crossMarker(size: Int): ByteArray {
     return gray
 }
 
-/** 6DoF がこれより新しく届いていれば、BLE は空いたとみなす */
+/**
+ * 1 パケット（200 バイト）を書き出すのにかかる時間の初期値。
+ *
+ * もとは 30ms で見積もっていたが、根拠は以前の実測メモだけで、確かめ直せていない。
+ * 短くしすぎても 0.6.0 の SDK が送信を直列化するので絵は壊れず、順番待ちが伸びるだけなので、
+ * 画面のつまみで下げながら詰められるようにしてある。
+ */
+private const val PACKET_MS_DEFAULT = 20f
+
+/**
+ * 6DoF がこれより新しく届いていれば BLE は空いたとみなす、つもりの値。
+ *
+ * 実機で見るかぎり打ち切りは毎回「見積りの半分」の下限で起きていて、
+ * 転送中も 6DoF は流れ続けている。つまりこれは転送の終わりを検出できていない。
+ * 害は無い（待ちの上限は見積りのまま）ので残すが、当てにはしない。
+ */
 private const val IMU_FREE_MS = 300L
 
 /** 測位を待つ上限。屋内では返らないので、待ち続けない */
