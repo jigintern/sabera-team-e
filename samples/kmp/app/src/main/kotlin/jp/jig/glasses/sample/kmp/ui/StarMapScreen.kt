@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -82,6 +83,8 @@ import jp.jig.glasses.sample.kmp.starmap.SessionLog
 import jp.jig.glasses.sample.kmp.starmap.Site
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
+import jp.jig.glasses.sample.kmp.sound.Bgm
+import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
 import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
@@ -858,6 +861,25 @@ fun StarMapScreen(
     // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
 
+    // BGM は解説していない間も鳴らす。**プラネタリウムの雰囲気は無音では出ない**
+    val soundPrefs = remember { SoundPrefs(context) }
+    var voiceVolume by remember { mutableStateOf(soundPrefs.voiceVolume) }
+    var bgmVolume by remember { mutableStateOf(soundPrefs.bgmVolume) }
+    var bgmOn by remember { mutableStateOf(soundPrefs.bgmEnabled) }
+    val bgm = remember { Bgm(context, scope) { text, failed -> log(text, failed) } }
+    val bgmTrack by bgm.track.collectAsState()
+    DisposableEffect(bgm) { onDispose { bgm.release() } }
+
+    // 曲は太陽高度で決める。時計だと同じ 19 時が夏と冬で違う空になる
+    LaunchedEffect(skyDarkness, bgmOn) {
+        bgm.enabled = bgmOn
+        bgm.follow(skyDarkness)
+    }
+    // 解説が始まったら絞る。同じ音量のままだと言葉が埋もれる
+    LaunchedEffect(speaking) { bgm.duck(speaking) }
+    LaunchedEffect(voiceVolume) { voice.volume = voiceVolume }
+    LaunchedEffect(bgmVolume) { bgm.volume = bgmVolume }
+
     // タップした瞬間に最初の一言を返すため、いま視野にある星座の分だけ先に作っておく。
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
     // 星図の 1 番目のラベルと解説の主役がずれることはあるが、外れてもキャッシュが当たらないだけ
@@ -1390,6 +1412,50 @@ fun StarMapScreen(
                             },
                         )
                     }
+                    Spacer(Modifier.height(4.dp))
+                    // 適正な音量は場所（屋外の暗騒音）と機種で変わる。ここで合わせて覚えさせる
+                    Text(
+                        "読み上げの音量 %d%%".format((voiceVolume * 100).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = voiceVolume,
+                        onValueChange = { voiceVolume = it },
+                        onValueChangeFinished = { soundPrefs.voiceVolume = voiceVolume },
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (bgmOn) "BGM（いま ${bgmTrack?.label ?: "止まっている"}）" else "BGM なし",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = bgmOn,
+                            onCheckedChange = {
+                                bgmOn = it
+                                soundPrefs.bgmEnabled = it
+                                log(if (it) "BGM を入れた" else "BGM を止めた")
+                            },
+                        )
+                    }
+                    Text(
+                        "BGM の音量 %d%%（解説中は自動で下がる）".format((bgmVolume * 100).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = bgmVolume,
+                        onValueChange = { bgmVolume = it },
+                        onValueChangeFinished = { soundPrefs.bgmVolume = bgmVolume },
+                        enabled = bgmOn,
+                    )
+                    // CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えないので、
+                    // ここにも出しておく
+                    Text(
+                        "BGM: Silver Blue Light / Fluidscape by Kevin MacLeod " +
+                            "(incompetech.com) CC BY 4.0",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8A9BA8),
+                    )
                     Spacer(Modifier.height(4.dp))
                     Row {
                         OutlinedButton(

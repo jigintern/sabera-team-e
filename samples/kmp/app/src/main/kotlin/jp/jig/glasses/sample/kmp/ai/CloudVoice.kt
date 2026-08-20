@@ -56,6 +56,25 @@ class CloudVoice(
     /** 直しても直らない失敗（キーが違う等）を踏んだか。踏んだら以後は端末の読み上げだけ使う */
     private val _broken = MutableStateFlow(false)
 
+    /**
+     * 読み上げの音量 0..1。BGM とのつり合いは場所と機種で変わるので、ユーザーが決める。
+     *
+     * 落とし先（端末の読み上げ）にも同じ値を渡す。**退避したときに音量が飛ぶと事故に聞こえる**。
+     */
+    @Volatile
+    private var volumeValue = 1.0f
+    var volume: Float
+        get() = volumeValue
+        set(value) {
+            volumeValue = value.coerceIn(0f, 1f)
+            fallback.volume = volumeValue
+            runCatching { track?.setVolume(volumeValue) }
+        }
+
+    /** 鳴っている最中の AudioTrack。つまみを動かしたその場で効かせるために持つ */
+    @Volatile
+    private var track: AudioTrack? = null
+
     private val cacheDir = File(context.cacheDir, CACHE_DIR)
     private val queue = Channel<Utterance>(Channel.UNLIMITED)
 
@@ -193,7 +212,7 @@ class CloudVoice(
      * 生成の数百 ms に対して確保のコストは小さい。
      */
     private suspend fun play(text: String) {
-        val track = newTrack()
+        val track = newTrack().also { this.track = it }
         var started = false
         var bytesWritten = 0L
         try {
@@ -219,6 +238,7 @@ class CloudVoice(
                 delay(DRAIN_POLL_MS)
             }
         } finally {
+            this.track = null
             runCatching {
                 track.pause()
                 track.flush()
@@ -250,6 +270,7 @@ class CloudVoice(
             // 溜める量より小さいと、鳴らし始める前に write が詰まって進まなくなる
             .setBufferSizeInBytes(maxOf(minimum, PREBUFFER_BYTES * 2))
             .build()
+            .apply { setVolume(volumeValue) }
     }
 
     /** キャッシュにあればそれを、無ければ作らせて（残せるものは残して）[onPcm] へ流す */

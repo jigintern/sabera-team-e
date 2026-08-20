@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ai
 
 import android.content.Context
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -44,6 +45,14 @@ class Speaker(context: Context) : Voice, VoiceStatus {
 
     /** 初期化が終わる前に来た発話。捨てるとタップ直後の「〇〇座ですね」が消える */
     private val pending = ArrayList<String>()
+
+    /**
+     * 読み上げの音量 0..1。設定パネルのつまみから来る。
+     *
+     * `TextToSpeech` に音量の持ち合わせは無く、**発話ごとに Bundle で渡す**しかない。
+     */
+    @Volatile
+    var volume: Float = 1.0f
 
     @Volatile
     private var ready = false
@@ -131,8 +140,11 @@ class Speaker(context: Context) : Voice, VoiceStatus {
 
     private fun enqueue(text: String, flush: Boolean) {
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f))
+        }
         _speaking.value = true
-        tts.speak(text, mode, null, "sabera-${text.hashCode()}")
+        tts.speak(text, mode, params, "sabera-${text.hashCode()}")
     }
 
     override fun stop() {

@@ -78,3 +78,21 @@ SGP4 の実装は David A. Vallado らの参照実装を Kotlin に移したも�
 
   参照実装の配布元
   https://celestrak.org/software/vallado-sw.php
+
+--------------------------------------------------------------------------------
+
+samples/kmp/app/src/main/res/raw/bgm_twilight.ogg
+samples/kmp/app/src/main/res/raw/bgm_night.ogg
+
+これらは Kevin MacLeod の楽曲から、ループ用に一部を切り出して再エンコードしたものです。
+
+  bgm_twilight.ogg — "Silver Blue Light" by Kevin MacLeod
+  bgm_night.ogg    — "Fluidscape" by Kevin MacLeod
+
+  incompetech.com
+  https://incompetech.com/
+  Licensed under Creative Commons: By Attribution 4.0 License
+  https://creativecommons.org/licenses/by/4.0/
+
+  元の楽曲から 120 秒を切り出し、末尾を先頭にクロスフェードして繰り返せるようにし、
+  音量を揃えたうえで Ogg Opus に変換しています（改変あり）。
