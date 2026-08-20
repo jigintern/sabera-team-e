@@ -89,6 +89,8 @@ import kotlin.math.roundToInt
 @Composable
 fun StarMapScreen(
     client: GlassClient,
+    initialHeadingOffset: Double,
+    initialCalibratedAt: Long?,
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -165,8 +167,8 @@ fun StarMapScreen(
         }
     }
 
-    var headingOffset by remember { mutableStateOf(0.0) }
-    var calibratedAt by remember { mutableStateOf<Long?>(null) }
+    var headingOffset by remember(initialHeadingOffset) { mutableStateOf(initialHeadingOffset) }
+    var calibratedAt by remember(initialCalibratedAt) { mutableStateOf(initialCalibratedAt) }
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
