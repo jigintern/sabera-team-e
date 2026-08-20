@@ -101,6 +101,9 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var fov by remember { mutableStateOf(35f) }
     var limitMag by remember { mutableStateOf(5f) }
     var drawLines by remember { mutableStateOf(true) }
+    var imageSize by remember { mutableStateOf(ImageSize.MEDIUM) }
+    // 星座名を送ると星図が消える疑いがあるので、既定では出さない
+    var showLabels by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
@@ -110,8 +113,9 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1500L) }
     var status by remember { mutableStateOf("") }
-    // 差分更新なので、前のフレームで使った id を消すために覚えておく
-    var shownLabels by remember { mutableStateOf(0) }
+    // 差分更新なので、前のフレームで使った id を消すために覚えておく。
+    // 名前が変わらない限り送り直さない（テキストを送るたびに星図が消えるため）
+    var shownNames by remember { mutableStateOf<List<String>>(emptyList()) }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -157,9 +161,10 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                     look = look(),
                     fovDeg = fov.toDouble(),
                     limitMagnitude = limitMag.toDouble(),
-                    width = IMAGE_WIDTH,
-                    height = IMAGE_HEIGHT,
+                    width = imageSize.width,
+                    height = imageSize.height,
                     drawLines = drawLines,
+                    maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
                 )
             }
             renderMs = System.currentTimeMillis() - started
@@ -170,12 +175,21 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             // 星座名を先に送り切る。画像とテキストは同じコマンド 0x1B で、
             // SDK は両者を別コルーチンで書くため、あとから送ると画像の分割送信に割り込んで
             // ファーム側の組み立てが壊れる（実機のログで確認）
-            for (batch in map.toElementBatches(shownLabels)) {
-                commandManager.sendCanvasElements(batch)
-                delay(60)
+            val names = map.labels.map { it.text }
+            if (names != shownNames) {
+                for (batch in map.toElementBatches(shownNames.size)) {
+                    commandManager.sendCanvasElements(batch)
+                    delay(60)
+                }
+                shownNames = names
             }
-            shownLabels = map.labels.size
-            commandManager.sendCanvasImage(IMAGE_X, IMAGE_Y, map.width, map.height, map.gray)
+            commandManager.sendCanvasImage(
+                (PANEL_WIDTH - map.width) / 2,
+                (PANEL_HEIGHT - map.height) / 2,
+                map.width,
+                map.height,
+                map.gray,
+            )
             transferMs = map.transferMillis()
             sendMs = System.currentTimeMillis() - sendStarted
             status = ""
@@ -197,7 +211,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         while (true) {
             drawAndSend()
             // 転送しきる前に次を送ると画像が組み上がらない。実測ぶんだけ待つ
-            delay(transferMs + 500L)
+            delay(transferMs + 150L)
         }
     }
 
@@ -230,6 +244,25 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                     label = { Text("グラスの向き") },
                 )
             }
+            Spacer(Modifier.height(8.dp))
+            Row {
+                for (sz in ImageSize.entries) {
+                    FilterChip(
+                        selected = imageSize == sz,
+                        onClick = { imageSize = sz },
+                        label = { Text(sz.label) },
+                    )
+                    Spacer(Modifier.padding(2.dp))
+                }
+            }
+            Row {
+                Checkbox(checked = showLabels, onCheckedChange = { showLabels = it })
+                Text("星座名も出す", Modifier.padding(top = 14.dp))
+            }
+            Text(
+                "小さいほど転送が速く、なめらかに動く。いまの見積り 約 $transferMs ms/枚",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(Modifier.height(12.dp))
 
             if (!followGlasses) {
@@ -353,15 +386,19 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
  * 空文字を送るとその id が消えるので、余った枠は常に空で埋める。
  */
 /**
- * 星図の大きさ。キャンバス（576×360）には収まらない。
+ * 星図の大きさ。キャンバス（576×360）いっぱいには出せない。
  *
- * SDK が `width * height * 2 + 圧縮後サイズ <= 380,000` を要求する。
- * 576×360 だと画素だけで 414,720 になって必ず弾かれるので、縦横比はそのままで一回り小さくする。
+ * SDK が `width * height * 2 + 圧縮後サイズ <= 380,000` を要求するので、576×360 は
+ * 画素だけで 414,720 になって必ず弾かれる。縦横比 16:10 のまま一回り小さくする。
+ *
+ * 転送量は面積でほぼ決まる。3bit RLE は真っ黒でも 32 画素で 1 バイト使うので、
+ * 面積 / 32 バイトが下限。大きいほど 1 枚あたりが遅くなる。
  */
-private const val IMAGE_WIDTH = 512
-private const val IMAGE_HEIGHT = 320
-private const val IMAGE_X = (PANEL_WIDTH - IMAGE_WIDTH) / 2
-private const val IMAGE_Y = (PANEL_HEIGHT - IMAGE_HEIGHT) / 2
+private enum class ImageSize(val width: Int, val height: Int, val label: String) {
+    LARGE(512, 320, "大 512×320"),
+    MEDIUM(384, 240, "中 384×240"),
+    SMALL(256, 160, "小 256×160"),
+}
 
 /** キャンバスのテキスト要素は id 0..7 の 8 個まで */
 private const val CANVAS_TEXT_SLOTS = 8
@@ -379,11 +416,13 @@ private fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArray
  * sendCanvasElements は差分更新なので、前のフレームで使った id は空文字を送って消す。
  */
 private fun StarMap.toElementBatches(previousCount: Int): List<List<CommandManager.CanvasElement>> {
+    val offsetX = (PANEL_WIDTH - width) / 2
+    val offsetY = (PANEL_HEIGHT - height) / 2
     val shown = labels.take(CANVAS_TEXT_SLOTS).mapIndexed { i, label ->
         CommandManager.CanvasElement(
             id = i,
-            x = (IMAGE_X + label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
-            y = (IMAGE_Y + label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
+            x = (offsetX + label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
+            y = (offsetY + label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
             width = 120,
             height = 22,
             text = label.text,
