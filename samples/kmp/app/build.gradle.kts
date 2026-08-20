@@ -28,6 +28,11 @@ android {
         }
     }
 
+    sourceSets {
+        // 星表はリポジトリ直下の data/ が正。コピーを置くと二重管理になるのでここから読む
+        getByName("main").assets.srcDir(rootProject.file("../../data"))
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -51,4 +56,9 @@ dependencies {
     // AndroidX
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    // 座標変換は実機に載せる前に手元で検算する
+    testImplementation("junit:junit:4.13.2")
+    // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
+    testImplementation("org.json:json:20240303")
 }

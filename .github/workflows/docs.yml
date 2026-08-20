@@ -30,6 +30,11 @@ jobs:
       - name: docs のコード例が最新か確かめる
         run: python3 scripts/sync-snippets.py --check
 
+      # 星表の生成物（build-star-catalog.py --check）は d3-celestial の取得にネットワークが
+      # 要るので CI では回さない。data/ を触ったら手元で確かめる。
+      - name: 天球シミュレータが最新か確かめる
+        run: python3 tools/build-simulator.py --check
+
   # サイトの公開はしていない（下の注記を参照）。ビルドが壊れていないことだけを PR で見る。
   build:
     runs-on: ubuntu-latest
