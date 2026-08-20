@@ -84,6 +84,30 @@ class StarMapRendererTest {
     }
 
     @Test
+    fun `向いた先の星座がAIに渡す名前の先頭に来る`() {
+        // ここがずれると、AI が別の星座の解説を喋る
+        val renderer = StarMapRenderer(catalog())
+        for (target in renderer.visibleConstellations(site, epoch).take(5)) {
+            val near = renderer.constellationsNear(site, epoch, Look(target.azDeg, target.altDeg))
+            println("${target.where} を向く → ${near.joinToString("、")}")
+            assertTrue(
+                "${target.nameJa} を向いたのに候補にすら入っていない: $near",
+                target.nameJa in near,
+            )
+        }
+    }
+
+    @Test
+    fun `星座名は視野中心に近い順に並ぶ`() {
+        val renderer = StarMapRenderer(catalog())
+        val target = renderer.visibleConstellations(site, epoch).first()
+        val near = renderer.constellationsNear(site, epoch, Look(target.azDeg, target.altDeg), max = 4)
+        assertTrue("候補が空", near.isNotEmpty())
+        assertTrue("max を超えて返っている", near.size <= 4)
+        assertTrue("同じ名前が重複している", near.size == near.toSet().size)
+    }
+
+    @Test
     fun `3bitに落としても階調が残る`() {
         // 量子化後に全部 0 になっていたら、実機では真っ黒になる
         val map = StarMapRenderer(catalog()).render(

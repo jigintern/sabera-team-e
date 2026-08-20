@@ -45,7 +45,11 @@ app.*.map.json
 # Jekyll (docs)
 docs/.sass-cache/
 docs/_site/
-.env
 
 # 星表の取得キャッシュ
 tools/.cache/
+
+# 秘密情報。テンプレートの .env.example は追跡する（.env には一致しない）
+.env
+.env.local
+.env.*.local

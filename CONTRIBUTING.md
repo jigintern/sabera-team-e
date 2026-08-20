@@ -23,6 +23,8 @@
 - **0.6.0 でキャンバス画像が 8 枚まで置けるようになった**（`sendCanvasImage` に `id` が増えた）
   - **0.5.0 までとは互換が無い。** あわせて SDK が分割送信を直列化するようになった
 - SDK 0.3.0 で **グラスのマイクから PCM16 / 16kHz が取れる**（`startMicStreaming` / `micAudio`）
+- **グラスから音は鳴らせない**（スピーカーが無い）。AI 解説の読み上げは Android の
+  `TextToSpeech` で、**スマホのスピーカーから鳴る**
 - 上流 SDK は 0.6.0 まで取り込み済み
 
 ## 環境をつくる
@@ -50,7 +52,20 @@ GitHubPackagesPassword=<read:packages を持つ PAT>
 - プロパティ名は `samples/kmp/settings.gradle.kts` のリポジトリ名（`GitHubPackages`）から決まる。**変えると認証されない**
 - **PAT は絶対にコミットしない**
 
-### 3. 動かす
+### 3. OpenAI の API キーを置く（AI 解説を使うときだけ）
+
+```bash
+cp .env.example .env   # OPENAI_API_KEY= に手で書き込む
+```
+
+- `.env` は **`.gitignore` 済み**。テンプレートの `.env.example` だけを追跡している
+- 置き場所は `.env` → `local.properties` → `~/.gradle/gradle.properties`（`openAiApiKey`）→ 環境変数 の順で探す
+  - **リポジトリの外に置きたいなら `~/.gradle/gradle.properties` が安全。** SDK 取得の PAT と同じ場所
+- **キーが無くてもビルドは通る。** 星図までは動き、タップすると「AI の設定がありません」と喋る
+- **キーは APK に埋まる。** 逆コンパイルすれば読めるので、**配布せず手元の実機で動かす**前提。
+  配布するならバックエンド経由に変える必要がある
+
+### 4. 動かす
 
 ```bash
 cd samples/kmp

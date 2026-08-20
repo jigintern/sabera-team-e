@@ -9,6 +9,10 @@
     <!-- 観測地の測位。Android 12 以降は FINE だけだと「おおよその位置」を選ばれたときに落ちる -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
+    <!-- AI 解説の生成。OpenAI を叩くのはここだけ -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 圏外かどうかを喋り分けるために回線の状態を見る -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
