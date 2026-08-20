@@ -2,6 +2,8 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -48,6 +50,8 @@ import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.starmap.Compass
+import jp.jig.glasses.sample.kmp.starmap.Located
+import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
@@ -63,6 +67,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -114,10 +119,47 @@ fun StarMapScreen(client: GlassClient) {
         onDispose { compass.stop() }
     }
 
-    // 観測地は手で入れられるようにしておく。屋内でも試したいので GPS には頼らない
-    var latText by remember { mutableStateOf("35.9432") }
-    var lonText by remember { mutableStateOf("136.1846") }
+    // 観測地はスマホの測位から取る。取れないときだけ手入力（屋内で試すときの逃げ道）
+    var latText by remember { mutableStateOf("%.4f".format(DEFAULT_LAT)) }
+    var lonText by remember { mutableStateOf("%.4f".format(DEFAULT_LON)) }
+    var siteSource by remember { mutableStateOf("手入力（鯖江）") }
     val site = Site(latText.toDoubleOrNull() ?: DEFAULT_LAT, lonText.toDoubleOrNull() ?: DEFAULT_LON)
+
+    val locator = remember { Locator(context) }
+    var locateNow by remember { mutableStateOf(0) }
+
+    fun apply(located: Located?, how: String): Boolean {
+        if (located == null) return false
+        latText = "%.4f".format(located.site.latDeg)
+        lonText = "%.4f".format(located.site.lonDeg)
+        siteSource = "$how（${located.provider}）"
+        log("観測地 ${latText} / ${lonText} を $how から取った")
+        return true
+    }
+
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        if (granted.values.any { it }) locateNow++ else log("位置の許可が無いので手入力のまま", failed = true)
+    }
+
+    LaunchedEffect(locateNow) {
+        if (!locator.granted) {
+            askLocation.launch(
+                arrayOf(
+                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                    android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+            return@LaunchedEffect
+        }
+        // 直近の値をすぐ使い、測り直しはその裏でやる。1km ずれても星の位置は 0.01° も動かない
+        apply(locator.lastKnown(), "直近の測位")
+        val fresh = withTimeoutOrNull(LOCATE_TIMEOUT_MS) { locator.current() }
+        if (!apply(fresh, "測位") && siteSource.startsWith("手入力")) {
+            log("測位できない（屋内かも）。手入力のまま", failed = true)
+        }
+    }
 
     var headingOffset by remember { mutableStateOf(0.0) }
     var calibratedAt by remember { mutableStateOf<Long?>(null) }
@@ -136,6 +178,9 @@ fun StarMapScreen(client: GlassClient) {
     var renderMs by remember { mutableStateOf(0L) }
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1000L) }
+
+    /** 実際に待った時間。見積りとどれだけ違うかを見るために出す */
+    var waitMs by remember { mutableStateOf(0L) }
     var sending by remember { mutableStateOf(false) }
     var shownLabels by remember { mutableStateOf(0) }
 
@@ -146,12 +191,17 @@ fun StarMapScreen(client: GlassClient) {
     var phonePitch by remember { mutableStateOf<Double?>(null) }
     var compassAccuracy by remember { mutableStateOf("") }
 
+    // 6DoF のサンプルが着いた時刻。画像の転送中は BLE が埋まって届かなくなるので、
+    // 「また流れ出した ＝ 転送が終わった」の目印に使う
+    var lastImuAt by remember { mutableStateOf(0L) }
+
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
             commandManager.imuData.collect { data ->
                 glassYaw = data.yawDegrees.toDouble()
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
+                lastImuAt = System.currentTimeMillis()
             }
         }
         onDispose {
@@ -230,9 +280,21 @@ fun StarMapScreen(client: GlassClient) {
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
             )
             Log.d(TAG, "送信 ${map.width}x${map.height} 圧縮後=${compressed}B 使用=${used}B")
-            // 転送し切るまで次を積まない。プレビューに使った時間はもう待ったぶんとして差し引く
-            val waited = System.currentTimeMillis() - sendStarted
-            delay((transferMs + SETTLE_MS - waited).coerceAtLeast(0))
+            // 転送し切るまで次を積まない。ただし 30ms/パケットは実測からの見積りでしかないので、
+            // 6DoF が戻ってきたら（＝ BLE が空いたら）そこで待つのをやめる
+            val deadline = sendStarted + transferMs + SETTLE_MS
+            var freed = 0L
+            while (System.currentTimeMillis() < deadline) {
+                delay(50)
+                val elapsed = System.currentTimeMillis() - sendStarted
+                // 出だしは直前のサンプルが新しいので、半分は無条件に待つ
+                if (elapsed > transferMs / 2 && System.currentTimeMillis() - lastImuAt < IMU_FREE_MS) {
+                    freed = elapsed
+                    break
+                }
+            }
+            waitMs = if (freed > 0) freed else System.currentTimeMillis() - sendStarted
+            Log.d(TAG, "待ち ${waitMs}ms（見積り ${transferMs + SETTLE_MS}ms / 6DoF で打ち切り=${freed > 0}）")
         } catch (e: CancellationException) {
             // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
             throw e
@@ -478,10 +540,16 @@ fun StarMapScreen(client: GlassClient) {
                 Slider(value = limitMag, onValueChange = { limitMag = it }, valueRange = 2f..5f)
                 lastMap?.let {
                     Text(
-                        "${it.width}×${it.height} / 描画 $renderMs ms / 転送 約 $transferMs ms",
+                        "${it.width}×${it.height} / 描画 $renderMs ms / " +
+                            "転送 見積り $transferMs ms・実測 $waitMs ms",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                StatusRow("観測地", siteSource)
+                OutlinedButton(
+                    onClick = { locateNow++ },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("現在地を取り直す") }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = latText,
@@ -498,41 +566,6 @@ fun StarMapScreen(client: GlassClient) {
                     isError = lonText.toDoubleOrNull() == null,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            if (!sendGate.tryLock()) {
-                                log("まだ前の画像を送っている")
-                                return@launch
-                            }
-                            try {
-                                val w = imageSize.width
-                                val h = imageSize.height
-                                val gray = solidBlock(w, h)
-                                // 星図と同じ id に送って差し替える。経路だけを切り分けたいので位置も揃える
-                                commandManager.sendCanvasImage(
-                                    id = STAR_MAP_IMAGE_ID,
-                                    x = (PANEL_WIDTH - w) / 2,
-                                    y = (PANEL_HEIGHT - h) / 2,
-                                    width = w,
-                                    height = h,
-                                    grayscale = gray,
-                                )
-                                val wait = StarMap(w, h, gray, emptyList()).transferMillis()
-                                log("テスト画像 ${w}x$h（約 $wait ms）。出ないなら経路の問題")
-                                delay(wait + SETTLE_MS)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Throwable) {
-                                log("テスト画像で失敗: ${e.message}", failed = true)
-                            } finally {
-                                sendGate.unlock()
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("テスト画像（塗りつぶし）を送る") }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -597,6 +630,12 @@ private fun crossMarker(size: Int): ByteArray {
     }
     return gray
 }
+
+/** 6DoF がこれより新しく届いていれば、BLE は空いたとみなす */
+private const val IMU_FREE_MS = 300L
+
+/** 測位を待つ上限。屋内では返らないので、待ち続けない */
+private const val LOCATE_TIMEOUT_MS = 8_000L
 
 /** 観測地の既定。鯖江 */
 private const val DEFAULT_LAT = 35.9432
@@ -738,23 +777,12 @@ private fun List<CommandManager.CanvasElement>.batched(
     return batches
 }
 
-/** 中央に最大輝度の塊を置いただけの画像。見えるかどうかだけを確かめる */
-private fun solidBlock(w: Int, h: Int): ByteArray {
-    val gray = ByteArray(w * h)
-    for (y in h / 4 until h * 3 / 4) {
-        for (x in w / 4 until w * 3 / 4) gray[y * w + x] = 255.toByte()
-    }
-    return gray
-}
-
 /**
  * 画像の分割送信にかかるおおよその時間。
  *
  * SDK は 3bit RLE に圧縮してから 200 バイトずつ、10ms 間隔で送る。
  * 実測ではパケット 1 本あたり 30ms 程度かかっていたので、それで見積もる。
  */
-private fun StarMap.transferMillis(): Long = ((compressedBytes() + 199) / 200) * 30L
-
 /**
  * SDK が送るバイト数。3bit の値と 32 までの連長を 1 バイトに詰める形式で、
  * `r1` の実装（値 = 画素 >>> 5、`(値 shl 5) or (連長 - 1)`）と同じ数え方をしている。

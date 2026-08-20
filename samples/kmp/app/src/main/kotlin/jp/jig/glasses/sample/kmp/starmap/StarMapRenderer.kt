@@ -90,7 +90,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
             // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
             val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
-            dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt())
+            dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
         }
 
         return StarMap(width, height, gray, labels(precessed, lst, site, basis, k, width, height, maxLabels))
@@ -183,14 +183,26 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         maxLabels: Int,
     ): List<Label> {
         if (maxLabels <= 0) return emptyList()
+        val cx = width / 2.0
+        val cy = height / 2.0
+
+        fun screen(raDec: DoubleArray): DoubleArray? {
+            val aa = toAltAz(raDec[0], raDec[1], lst, site.latDeg)
+            val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: return null
+            return if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) null else q
+        }
+
         val found = ArrayList<Pair<Double, Label>>()
         for (i in catalog.constellations.indices) {
             val center = precessed.centers[i] ?: continue
-            val aa = toAltAz(center[0], center[1], lst, site.latDeg)
-            val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
-            // 名前の枠は画像の外（パネルの余白）にも置けるが、視野の外に出た星座には付けない
-            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
-            val dist = hypot(q[0] - width / 2.0, q[1] - height / 2.0)
+            // 大きい星座は半分だけ視野に入ることが多い。中心が外に出ているなら、
+            // 見えている頂点のうち視野中心にいちばん近いところに名前を置く
+            val q = screen(center) ?: precessed.lines[i]
+                .flatten()
+                .mapNotNull { screen(it) }
+                .minByOrNull { hypot(it[0] - cx, it[1] - cy) }
+                ?: continue
+            val dist = hypot(q[0] - cx, q[1] - cy)
             found += dist to Label(catalog.constellations[i].nameJa, q[0].roundToInt(), q[1].roundToInt())
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
@@ -251,11 +263,28 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
     }
 
-    private fun dot(gray: ByteArray, w: Int, h: Int, x: Double, y: Double, value: Int, radius: Int) {
+    /**
+     * 点を打つ。星は丸く（`round`）、線は四角のまま。
+     *
+     * 528px だと一番明るい星の半径が 8px になり、四角のままでは 17×17 の塊に見える。
+     * 丸にすると画素が 3 割減るので、見た目だけでなく転送量も下がる。
+     */
+    private fun dot(
+        gray: ByteArray,
+        w: Int,
+        h: Int,
+        x: Double,
+        y: Double,
+        value: Int,
+        radius: Int,
+        round: Boolean = false,
+    ) {
         val cx = x.roundToInt()
         val cy = y.roundToInt()
+        val r2 = radius * radius + radius
         for (oy in -radius..radius) {
             for (ox in -radius..radius) {
+                if (round && ox * ox + oy * oy > r2) continue
                 val px = cx + ox
                 val py = cy + oy
                 if (px < 0 || py < 0 || px >= w || py >= h) continue
