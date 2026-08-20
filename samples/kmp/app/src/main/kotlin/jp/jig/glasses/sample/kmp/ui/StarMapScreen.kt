@@ -33,6 +33,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -99,6 +100,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * 星図をグラスに出す画面。スマホ側はこの 1 枚だけで、役割は 3 つ。
@@ -133,6 +135,9 @@ fun StarMapScreen(
 
     // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
     var logBytes by remember { mutableStateOf(0L) }
+
+    // 生のヨーと比べられるように残す。既定は有効（静止中の 44°/分 が消える）
+    var useFusedYaw by remember { mutableStateOf(true) }
 
     fun log(text: String, failed: Boolean = false) {
         logs.add(0, LogLine(clock.format(Date()), text, failed))
@@ -297,6 +302,55 @@ fun StarMapScreen(
     var gyroZMin by remember { mutableStateOf(Double.NaN) }
     var gyroZMax by remember { mutableStateOf(Double.NaN) }
 
+    /**
+     * ジャイロを自前で積分した角度。**`yawDegrees` を置き換える候補。**
+     *
+     * 静止中の実測で、ヨーは 0.737°/秒 流れるのに `gyroZDps` の平均は 0.058°/秒 しかない。
+     * **報告されるジャイロのほうが 12 倍まともなので、自前で積分したほうが良い**。
+     *
+     * ただし**どの軸が鉛直に当たるかが未文書**（AGENTS.md の「グラス機体座標の軸定義」）。
+     * そこで 3 軸ぶん持って、回転のたびにヨーの変化と並べて出す。
+     * **一致した軸が鉛直で、一致の度合いがスケールの正しさ**になる。
+     */
+    /**
+     * 方位の本命。**動いている間だけ `yawDegrees` の変化を足し、静止中は何も足さない。**
+     *
+     * 実測でヨーは静止中も 44°/分（0.74°/秒）流れる。一方ジャイロを自前で積分すると
+     * 静止中はほぼ止まるが、**10Hz しか届かないので回転を 9% 取りこぼす**
+     * （90° 回して 84〜99%。一度も 100% を超えないので取りこぼしと確定）。
+     *
+     * 穴が逆なので組み合わせる。**回転のスケールはファームの融合値が正しく、
+     * ドリフトが効くのは静止中**なので、静止中を捨てれば両方の弱点が消える。
+     * 漏れるのは「動いている時間 × 0.74°/秒」だけで、2 秒の首振りなら 1.5°。
+     *
+     * 「動いているか」は**ジャイロの大きさ**で決める。ヨーとは独立なのでドリフトに騙されない。
+     */
+    var fusedYaw by remember { mutableStateOf<Double?>(null) }
+    var previousGlassYaw by remember { mutableStateOf<Double?>(null) }
+    var driftHeldDeg by remember { mutableStateOf(0.0) }
+
+    /**
+     * 静止中に測ったドリフト率[度/秒]。**動いている間はこれを引く。**
+     *
+     * 静止中を捨てるだけだと、漏れる量が「動いている時間 × 0.74°/秒」になり、
+     * **符号が一定なので右に振って左に戻しても打ち消さない**。動いた割合に比例して溜まる。
+     *
+     * ドリフト率は静止中にそのまま測れているので、動いている間も引けば比例分が消える。
+     * 追加のセンサーも校正も要らない。
+     */
+    var driftRateDps by remember { mutableStateOf(0.0) }
+    var stillYaw by remember { mutableStateOf<Double?>(null) }
+    var stillSinceMs by remember { mutableStateOf(0L) }
+
+    var gyroIntX by remember { mutableStateOf(0.0) }
+    var gyroIntY by remember { mutableStateOf(0.0) }
+    var gyroIntZ by remember { mutableStateOf(0.0) }
+    var lastImuTs by remember { mutableStateOf(0L) }
+    var droppedGaps by remember { mutableStateOf(0) }
+
+    // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
+    fun yawNow(): Double = if (useFusedYaw) fusedYaw ?: glassYaw else glassYaw
+
     // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
     val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
 
@@ -307,16 +361,66 @@ fun StarMapScreen(
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
-                lookHistory.lastOrNull()?.let {
-                    val step = abs(normalizeDeg(glassYaw - it.second))
-                    if (step > STILL_DEG) turnedDeg += step
+                // 間隔は受信時刻ではなく timestampMs から取る（BLE で順序と間隔が乱れる）
+                val dt = if (lastImuTs > 0L) (data.timestampMs - lastImuTs) / 1000.0 else 0.0
+                if (dt > 0.0 && dt < IMU_GAP_LIMIT_S) {
+                    gyroIntX += data.gyroXDps * dt
+                    gyroIntY += data.gyroYDps * dt
+                    gyroIntZ += data.gyroZDps * dt
+                } else if (lastImuTs > 0L) {
+                    // 転送でキューが詰まるとサンプルが落ちる。穴を積分に混ぜると角度が狂う
+                    droppedGaps++
                 }
+                lastImuTs = data.timestampMs
+
+                // 静止の判定はジャイロの大きさで行う。ヨーの変化で判定すると
+                // ドリフトそのものを「動いている」と読んでしまう
+                val gyroMag = sqrt(
+                    (data.gyroXDps.toDouble() * data.gyroXDps) +
+                        (data.gyroYDps.toDouble() * data.gyroYDps) +
+                        (data.gyroZDps.toDouble() * data.gyroZDps),
+                )
+                val step = normalizeDeg(glassYaw - (previousGlassYaw ?: glassYaw))
+                // 動きの目印。デッドバンドを入れないとサンプルごとの揺れが積もる
+                if (abs(step) > STILL_DEG) turnedDeg += abs(step)
+                if (gyroMag > GYRO_MOVING_DPS) {
+                    // 実測したドリフト率を引く。静止が続いていないうちは 0 なので素の差分になる
+                    val corrected = step - driftRateDps * dt.coerceIn(0.0, IMU_GAP_LIMIT_S)
+                    fusedYaw = normalizeDeg((fusedYaw ?: glassYaw) + corrected)
+                    stillYaw = null
+                } else {
+                    // 捨てた量を残す。どれだけドリフトを止められたかが分かる
+                    driftHeldDeg += step
+                    fusedYaw = fusedYaw ?: glassYaw
+                    // 静止が続いている間のヨーの動きが、そのままドリフト率
+                    val since = stillYaw
+                    if (since == null) {
+                        stillYaw = glassYaw
+                        stillSinceMs = data.timestampMs
+                    } else {
+                        val held = (data.timestampMs - stillSinceMs) / 1000.0
+                        if (held > DRIFT_ESTIMATE_S) {
+                            val measured = normalizeDeg(glassYaw - since) / held
+                            // 平滑化しておく。1 回の推定に引っぱられると動いた瞬間に飛ぶ
+                            driftRateDps = if (driftRateDps == 0.0) {
+                                measured
+                            } else {
+                                driftRateDps * (1 - DRIFT_ESTIMATE_GAIN) + measured * DRIFT_ESTIMATE_GAIN
+                            }
+                            stillYaw = glassYaw
+                            stillSinceMs = data.timestampMs
+                        }
+                    }
+                }
+                previousGlassYaw = glassYaw
+
                 val gyroZ = data.gyroZDps.toDouble()
                 gyroZSum += gyroZ
                 gyroZCount++
                 gyroZMin = if (gyroZMin.isNaN()) gyroZ else min(gyroZMin, gyroZ)
                 gyroZMax = if (gyroZMax.isNaN()) gyroZ else max(gyroZMax, gyroZ)
-                lookHistory.addLast(Triple(lastImuAt, glassYaw, glassPitch))
+                // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
+                lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
                     lookHistory.removeFirst()
                 }
@@ -362,7 +466,7 @@ fun StarMapScreen(
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
 
-    fun look(): Look = Look((normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0, glassPitch)
+    fun look(): Look = Look((normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0, glassPitch)
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
     fun latchedLook(): Look {
@@ -538,20 +642,27 @@ fun StarMapScreen(
         turnedDeg = 0.0
         log("ドリフト計測 開始 基準yaw=%.1f°".format(base))
         var previousYaw = base
+        var previousFused = yawNow()
         var previousAt = baseAt
         while (true) {
             delay(DRIFT_LOG_MS)
             val now = System.currentTimeMillis()
             // 前の行からの変化を出す。合計だけだと途中で速さが変わったのが分からない
-            val rate = normalizeDeg(glassYaw - previousYaw) / ((now - previousAt) / 60_000.0)
+            val minutes = (now - previousAt) / 60_000.0
+            val rate = normalizeDeg(glassYaw - previousYaw) / minutes
+            // 効いているかは「生のヨーが何度流れたか」と「方位が何度動いたか」の差で見る
+            val fusedRate = normalizeDeg(yawNow() - previousFused) / minutes
             log(
-                ("ドリフト計測 経過=%.1f分 yaw=%.1f° 基準から=%+.1f° この1分=%+.1f°/分 " +
-                    "累積回転=%.0f° 静止=%s 磁気方位=%s(%s)")
+                ("ドリフト計測 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 方位=%.1f°(%+.1f°/分) " +
+                    "止めた量=%.0f° 推定ドリフト=%+.3f°/秒 累積回転=%.0f° 静止=%s 磁気方位=%s(%s)")
                     .format(
                         (now - baseAt) / 60_000.0,
                         glassYaw,
-                        normalizeDeg(glassYaw - base),
                         rate,
+                        yawNow(),
+                        fusedRate,
+                        driftHeldDeg,
+                        driftRateDps,
                         turnedDeg,
                         if (settled) "はい" else "いいえ",
                         // phoneHeading は合わせている間しか更新しないので Compass を直に読む。
@@ -575,11 +686,49 @@ fun StarMapScreen(
                 )
             }
             previousYaw = glassYaw
+            previousFused = yawNow()
             previousAt = now
             gyroZSum = 0.0
             gyroZCount = 0
             gyroZMin = Double.NaN
             gyroZMax = Double.NaN
+        }
+    }
+
+    /**
+     * 回転が終わるたびにヨーと積分値を並べる。**軸の対応とスケールをこれで決める。**
+     *
+     * グラスを持って 90° ほど回して置く、を何回かやれば、
+     * **どの軸がヨーに一致するか**と**積分値が本物の回転量になっているか**が出る。
+     */
+    LaunchedEffect(Unit) {
+        var wasSettled = true
+        var yawAtStart = 0.0
+        var intAtStart = Triple(0.0, 0.0, 0.0)
+        while (true) {
+            delay(POLL_MS)
+            if (wasSettled && !settled) {
+                yawAtStart = glassYaw
+                intAtStart = Triple(gyroIntX, gyroIntY, gyroIntZ)
+            }
+            if (!wasSettled && settled) {
+                val movedYaw = normalizeDeg(glassYaw - yawAtStart)
+                // 小さすぎる動きはノイズと区別が付かない
+                if (abs(movedYaw) > ROTATION_LOG_DEG) {
+                    log(
+                        "回転 ヨー=%+.1f° 積分X=%+.1f° 積分Y=%+.1f° 積分Z=%+.1f° ピッチ=%.0f° 穴=%d"
+                            .format(
+                                movedYaw,
+                                gyroIntX - intAtStart.first,
+                                gyroIntY - intAtStart.second,
+                                gyroIntZ - intAtStart.third,
+                                glassPitch,
+                                droppedGaps,
+                            ),
+                    )
+                }
+            }
+            wasSettled = settled
         }
     }
 
@@ -1180,6 +1329,22 @@ fun StarMapScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.height(4.dp))
+                    // 生のヨーは静止中も 44°/分 流れる。既定は補正あり
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (useFusedYaw) "方位: ドリフト補正あり" else "方位: 生のヨー（44°/分 流れる）",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = useFusedYaw,
+                            onCheckedChange = {
+                                useFusedYaw = it
+                                log(if (it) "方位: ドリフト補正を入れた" else "方位: 生のヨーに戻した")
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
                     Row {
                         OutlinedButton(
                             onClick = {
@@ -1325,13 +1490,16 @@ private fun crossMarker(size: Int): ByteArray {
 }
 
 /**
- * 1 パケット（200 バイト）を書き出すのにかかる時間の初期値。
+ * 1 パケット（200 バイト）を書き出すのにかかる時間。
  *
- * もとは 30ms で見積もっていたが、根拠は以前の実測メモだけで、確かめ直せていない。
- * 短くしすぎても 0.6.0 の SDK が送信を直列化するので絵は壊れず、順番待ちが伸びるだけなので、
- * 画面のつまみで下げながら詰められるようにしてある。
+ * **実測は 8〜9ms**（528×330・圧縮後 6.1〜6.7KB を 12 回、実測 332〜390ms）。
+ * 20ms だと見積りが倍以上になり、そのぶん次の絵を無駄に待っていた。
+ *
+ * 実測より少し多めの 10ms にしてある。短くしすぎても 0.6.0 の SDK が送信を直列化するので
+ * 絵は壊れず順番待ちが伸びるだけだが、6DoF が再開したら待ちを打ち切る作りなので、
+ * 見積りが多すぎるほうが実害が大きい。
  */
-private const val PACKET_MS_DEFAULT = 20f
+private const val PACKET_MS_DEFAULT = 10f
 
 /**
  * 6DoF がこれより新しく届いていれば BLE は空いたとみなす、つもりの値。
@@ -1362,6 +1530,31 @@ private const val DRIFT_LOG_MS = 60_000L
 
 /** 記録の大きさを拾い直す間隔。設定パネルを開いている間だけ動く */
 private const val LOG_SIZE_POLL_MS = 2_000L
+
+/**
+ * これより長い間隔が空いたサンプルは積分に入れない。
+ *
+ * 転送でキューが詰まるとサンプルが落ちる。穴をそのまま掛けると、
+ * 落ちている間の角速度を最後の値で代表してしまい角度が狂う。
+ */
+private const val IMU_GAP_LIMIT_S = 0.5
+
+/** これ以下の回転は記録しない。ノイズと区別が付かない */
+private const val ROTATION_LOG_DEG = 10.0
+
+/**
+ * これを超えたら「動いている」とみなすジャイロの大きさ[dps]。
+ *
+ * 静止中の実測ノイズは 0.1°/秒、首振りは 10〜100°/秒 なので間は広い。
+ * **低すぎるとドリフトを拾い、高すぎるとゆっくりした首振りを取りこぼす。**
+ */
+private const val GYRO_MOVING_DPS = 2.0
+
+/** ドリフト率を測り直す最短の静止時間[秒]。短いとノイズを率として拾う */
+private const val DRIFT_ESTIMATE_S = 5.0
+
+/** ドリフト率の平滑化の強さ。1 回の推定に引っぱられると動いた瞬間に方位が飛ぶ */
+private const val DRIFT_ESTIMATE_GAIN = 0.3
 
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L
