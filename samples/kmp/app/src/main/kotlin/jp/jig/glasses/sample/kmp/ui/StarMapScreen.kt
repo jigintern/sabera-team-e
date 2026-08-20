@@ -49,6 +49,7 @@ import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
 import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -103,9 +104,10 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var fov by remember { mutableStateOf(35f) }
     var limitMag by remember { mutableStateOf(5f) }
     var drawLines by remember { mutableStateOf(true) }
-    var imageSize by remember { mutableStateOf(ImageSize.MEDIUM) }
-    // 星座名を送ると星図が消える疑いがあるので、既定では出さない
-    var showLabels by remember { mutableStateOf(false) }
+    var imageSize by remember { mutableStateOf(ImageSize.MAX) }
+    // 星座名を出すと星図が消えたのは 0.5.0 までの分割送信の割り込みが原因で、0.6.0 では起きない。
+    // 名前が無いと何座を見ているか分からないので、既定で出す
+    var showLabels by remember { mutableStateOf(true) }
     var showDetails by remember { mutableStateOf(false) }
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
@@ -115,9 +117,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1500L) }
     var status by remember { mutableStateOf("") }
-    // 差分更新なので、前のフレームで使った id を消すために覚えておく。
-    // 名前が変わらない限り送り直さない（テキストを送るたびに星図が消えるため）
-    var shownNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    // 差分更新なので、前のフレームで使った id を消すために枠の数だけ覚えておく
+    var shownLabels by remember { mutableStateOf(0) }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -127,7 +128,18 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                 glassPitch = -data.pitchDegrees.toDouble()
             }
         }
-        onDispose { job.cancel() }
+        onDispose {
+            job.cancel()
+            // 切断しない限りグラス側は送り続ける。画面を出るときに止めないと、
+            // 他の画面でも 10Hz のサンプルが BLE を流れ続ける
+            commandManager.stopImuData()
+        }
+    }
+
+    // 6DoF が要るのは追従のときだけ。星座を選ぶモードで流しっぱなしにすると、
+    // 画像の分割送信と帯域を食い合って 1 枚あたりが遅くなる
+    LaunchedEffect(followGlasses) {
+        if (followGlasses) commandManager.startImuData() else if (imuStarted) commandManager.stopImuData()
     }
 
     // 空に出ている星座は時間とともに変わるので、定期的に取り直す
@@ -160,8 +172,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         val r = renderer ?: return
         // 送信中なら捨てる。積んでも出るころには視線が変わっている
         if (!sendGate.tryLock()) return
-        // 描画で落ちても黙って消えないよう、送信まで含めて丸ごと拾う
-        runCatching {
+        try {
             val started = System.currentTimeMillis()
             val map = withContext(Dispatchers.Default) {
                 r.render(
@@ -178,18 +189,22 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             }
             renderMs = System.currentTimeMillis() - started
             lastMap = map
-            preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
+
+            // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
+            // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
+            val compressed = map.compressedBytes()
+            val used = map.width * map.height * 2 + compressed
+            transferMs = ((compressed + 199) / 200) * 30L
+            if (used > IMAGE_BUFFER_BYTES) {
+                preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
+                status = "バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。星図の大きさを 1 段下げる"
+                Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used 圧縮後=$compressed")
+                return
+            }
 
             val sendStarted = System.currentTimeMillis()
-            // 0.6.0 から SDK が分割送信を直列化するので、テキストと画像の順序は問わない。
-            // 名前を先にしているのは、画像の転送待ちのぶんラベルが早く出るため
-            val names = map.labels.map { it.text }
-            if (names != shownNames) {
-                for (batch in map.toElementBatches(shownNames.size)) {
-                    commandManager.sendCanvasElements(batch)
-                }
-                shownNames = names
-            }
+            // 画像を先に積み、星座名はその後ろに続ける。0.6.0 の直列化でチャンクは混ざらないので、
+            // 名前は画像が届き切った直後に載る。順番を逆にすると、1 秒近く名前だけが浮いて見える
             commandManager.sendCanvasImage(
                 id = STAR_MAP_IMAGE_ID,
                 x = (PANEL_WIDTH - map.width) / 2,
@@ -198,17 +213,36 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                 height = map.height,
                 grayscale = map.gray,
             )
-            transferMs = map.transferMillis()
+            // 名前が同じでも位置は視線とともに動くので毎フレーム送る。
+            // テキストを送ると星図が消えたのは 0.5.0 までの分割送信の割り込みが原因で、いまは起きない
+            val placed = map.toCanvasElements()
+            for (batch in placed.batched(shownLabels)) {
+                commandManager.sendCanvasElements(batch)
+            }
+            shownLabels = placed.size
             sendMs = System.currentTimeMillis() - sendStarted
             status = ""
-            Log.d(TAG, "送信 ${map.width}x${map.height} 名前=${names.size} 転送見積り=${transferMs}ms")
-            // 最後のパケットが出てグラスが描き終わるまで、次の送信を入れない
-            delay(transferMs + SETTLE_MS)
-        }.onFailure {
-            status = "失敗: ${it.message}"
-            Log.e(TAG, "drawAndSend で失敗", it)
+
+            // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
+            preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
+
+            Log.d(
+                TAG,
+                "送信 ${map.width}x${map.height} 名前=$shownLabels 描画=${renderMs}ms " +
+                    "圧縮後=${compressed}B 使用=${used}B 転送見積り=${transferMs}ms",
+            )
+            // 転送し切るまで次を積まない。プレビューに使った時間はもう待ったぶんとして差し引く
+            val waited = System.currentTimeMillis() - sendStarted
+            delay((transferMs + SETTLE_MS - waited).coerceAtLeast(0))
+        } catch (e: CancellationException) {
+            // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
+            throw e
+        } catch (e: Throwable) {
+            status = "失敗: ${e.message}"
+            Log.e(TAG, "drawAndSend で失敗", e)
+        } finally {
+            sendGate.unlock()
         }
-        sendGate.unlock()
     }
 
     // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
@@ -222,7 +256,6 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     // グラスの向きに追従するときだけ描き直し続ける。選んだ星座を見るときは 1 枚でいい
     LaunchedEffect(followGlasses, renderer) {
         if (!followGlasses) return@LaunchedEffect
-        if (!imuStarted) commandManager.startImuData()
         var drawn: Look? = null
         while (true) {
             val now = look()
@@ -443,13 +476,20 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 /**
  * 星図の大きさ。キャンバス（576×360）いっぱいには出せない。
  *
- * SDK が `width * height * 2 + 圧縮後サイズ <= 380,000` を要求するので、576×360 は
- * 画素だけで 414,720 になって必ず弾かれる。縦横比 16:10 のまま一回り小さくする。
+ * 0.6.0 の SDK が要求するのは `width * height * 2 + 圧縮後サイズ <= 380,000`
+ * （`r0` の分岐と例外文言を逆アセンブルして確認）。576×360 は画素だけで 414,720 になるので
+ * 必ず弾かれる。
+ *
+ * 圧縮後のサイズは向いている方角で変わる。空を 12 方位 × 高度 5 段 × 季節 4 点で回し、
+ * 5 等・星座線ありの最悪値で測ると、
+ * 544×340 は上限まで 2,055 バイトしか残らず、少しでも星が増えると弾かれる。
+ * 528×330 なら 23,899 バイト残るので、ここをパネルと同じ 16:10 での実用上の最大とする。
  *
  * 転送量は面積でほぼ決まる。3bit RLE は真っ黒でも 32 画素で 1 バイト使うので、
  * 面積 / 32 バイトが下限。大きいほど 1 枚あたりが遅くなる。
  */
 private enum class ImageSize(val width: Int, val height: Int, val label: String) {
+    MAX(528, 330, "最大 528×330"),
     LARGE(512, 320, "大 512×320"),
     MEDIUM(384, 240, "中 384×240"),
     SMALL(256, 160, "小 256×160"),
@@ -460,8 +500,13 @@ private const val TAG = "StarMap"
 /** これだけ視線が動いたら描き直す。止まっているのに送り直すと、そのたび画面が消えて点滅する */
 private const val REDRAW_DEG = 2.0
 
-/** 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕 */
-private const val SETTLE_MS = 600L
+/**
+ * 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕。
+ *
+ * 0.5.0 までは送信が重なるとどの画像も組み立てられなかったので厚めに取っていたが、
+ * 0.6.0 で SDK が直列化したため、次のフレームのパケットは後ろに並ぶだけになった。
+ */
+private const val SETTLE_MS = 200L
 
 /** 星図は 1 枚だけ置く。0.6.0 で 8 枚まで置けるが、id を固定すると送るたび同じ枠が差し替わる */
 private const val STAR_MAP_IMAGE_ID = 0
@@ -472,36 +517,69 @@ private const val CANVAS_TEXT_SLOTS = 8
 /** 1 パケットに載る内層 TLV の合計。分割送信できないので超えると SDK が弾く */
 private const val CANVAS_TEXT_BUDGET = 190
 
+/** 星座名 1 文字ぶんの幅。フォントの大きさは読み出せないので、全角が収まる側に多めに取る */
+private const val LABEL_CHAR_WIDTH = 28
+
+/** 矩形の左右の余白 */
+private const val LABEL_PADDING = 8
+
+/** 名前 1 行が縦に切れない高さ。上流のコード例も 40 を使っている */
+private const val LABEL_HEIGHT = 40
+
+/** グラスの画像バッファ。SDK は width * height * 2 + 圧縮後サイズ がこれを超えると弾く */
+private const val IMAGE_BUFFER_BYTES = 380_000
+
+/** 矩形が重なるか。重なった星座名は読めないので、後から来たほうを落とす */
+private infix fun CommandManager.CanvasElement.overlaps(o: CommandManager.CanvasElement): Boolean =
+    x < o.x + o.width && o.x < x + width && y < o.y + o.height && o.y < y + height
+
 /** 要素 1 個ぶんのバイト数。TLV ヘッダ 3 + id と矩形 9 + 本文 */
 private fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArray(Charsets.UTF_8).size
 
 /**
- * 星座名をキャンバスのテキスト要素にして、190 バイトずつの束に分ける。
+ * 星座名をキャンバスのテキスト要素にする。
  *
  * 座標は星図の中の位置なので、キャンバス上の置き場所へずらす。
- * sendCanvasElements は差分更新なので、前のフレームで使った id は空文字を送って消す。
+ * 矩形からあふれた文字は切られるので、幅は文字数から取る。
  */
-private fun StarMap.toElementBatches(previousCount: Int): List<List<CommandManager.CanvasElement>> {
+private fun StarMap.toCanvasElements(): List<CommandManager.CanvasElement> {
     val offsetX = (PANEL_WIDTH - width) / 2
     val offsetY = (PANEL_HEIGHT - height) / 2
-    val shown = labels.take(CANVAS_TEXT_SLOTS).mapIndexed { i, label ->
-        CommandManager.CanvasElement(
-            id = i,
-            x = (offsetX + label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
-            y = (offsetY + label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
-            width = 120,
-            height = 22,
+    val shown = ArrayList<CommandManager.CanvasElement>(CANVAS_TEXT_SLOTS)
+    for (label in labels) {
+        if (shown.size >= CANVAS_TEXT_SLOTS) break
+        // 「みなみのかんむり座」まで入る幅を取る。狭いと名前が途中で切れて読めない
+        val w = (label.text.length * LABEL_CHAR_WIDTH + LABEL_PADDING).coerceAtMost(PANEL_WIDTH)
+        val e = CommandManager.CanvasElement(
+            id = shown.size,
+            x = (offsetX + label.x - w / 2).coerceIn(0, PANEL_WIDTH - w),
+            y = (offsetY + label.y - LABEL_HEIGHT / 2).coerceIn(0, PANEL_HEIGHT - LABEL_HEIGHT),
+            width = w,
+            height = LABEL_HEIGHT,
             text = label.text,
         )
+        // 重なった名前は互いに潰し合って読めなくなる。labels は視野中心に近い順なので、先に置いたほうを残す
+        if (shown.any { it overlaps e }) continue
+        shown += e
     }
-    val cleared = (shown.size until previousCount.coerceAtMost(CANVAS_TEXT_SLOTS)).map { i ->
+    return shown
+}
+
+/**
+ * 190 バイトずつの束に分ける。
+ * sendCanvasElements は差分更新なので、前のフレームで使った id は空文字を送って消す。
+ */
+private fun List<CommandManager.CanvasElement>.batched(
+    previousCount: Int,
+): List<List<CommandManager.CanvasElement>> {
+    val cleared = (size until previousCount.coerceAtMost(CANVAS_TEXT_SLOTS)).map { i ->
         CommandManager.CanvasElement(id = i, x = 0, y = 0, width = 0, height = 0, text = "")
     }
 
     val batches = ArrayList<List<CommandManager.CanvasElement>>()
     var current = ArrayList<CommandManager.CanvasElement>()
     var used = 0
-    for (e in shown + cleared) {
+    for (e in this + cleared) {
         if (current.isNotEmpty() && used + e.byteSize() > CANVAS_TEXT_BUDGET) {
             batches += current
             current = ArrayList()
@@ -529,7 +607,14 @@ private fun solidBlock(w: Int, h: Int): ByteArray {
  * SDK は 3bit RLE に圧縮してから 200 バイトずつ、10ms 間隔で送る。
  * 実測ではパケット 1 本あたり 30ms 程度かかっていたので、それで見積もる。
  */
-private fun StarMap.transferMillis(): Long {
+private fun StarMap.transferMillis(): Long = ((compressedBytes() + 199) / 200) * 30L
+
+/**
+ * SDK が送るバイト数。3bit の値と 32 までの連長を 1 バイトに詰める形式で、
+ * `r1` の実装（値 = 画素 >>> 5、`(値 shl 5) or (連長 - 1)`）と同じ数え方をしている。
+ * バッファ上限の判定にも使うので、SDK の数え方からずらさない。
+ */
+private fun StarMap.compressedBytes(): Int {
     var bytes = 0
     var i = 0
     val count = width * height
@@ -540,7 +625,7 @@ private fun StarMap.transferMillis(): Long {
         bytes++
         i += run
     }
-    return ((bytes + 199) / 200) * 30L
+    return bytes
 }
 
 /** 実機で見える色に寄せた確認用。3bit へ落としてから緑に写す（順序を逆にすると階調が狂う） */

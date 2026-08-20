@@ -44,8 +44,11 @@ data class Aimed(val nameJa: String, val azDeg: Double, val altDeg: Double) {
 class StarMapRenderer(private val catalog: StarCatalog) {
 
     /** 歳差は 26 年で 0.36° なので毎フレーム引き直す必要はない。30 日ぶんまとめる */
+    @Volatile
     private var precessedKey = Long.MIN_VALUE
-    private var precessed: Array<DoubleArray> = emptyArray()
+
+    @Volatile
+    private var cache: Precessed? = null
 
     fun render(
         site: Site,
@@ -59,17 +62,17 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         maxLabels: Int = 8,
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
-        ensurePrecessed(d)
+        val precessed = precessed(d)
         val lst = localSiderealDeg(d, site.lonDeg)
         val basis = Basis(look.azDeg, look.altDeg)
         val k = projectionScale(width, fovDeg)
         val gray = ByteArray(width * height)
 
         if (drawLines) {
-            for (c in catalog.constellations) {
-                for (seg in c.lines) {
+            for (lines in precessed.lines) {
+                for (seg in lines) {
                     for (i in 0 until seg.size - 1) {
-                        drawGreatCircle(gray, width, height, seg[i], seg[i + 1], d, lst, site, basis, k)
+                        drawGreatCircle(gray, width, height, seg[i], seg[i + 1], lst, site, basis, k)
                     }
                 }
             }
@@ -78,7 +81,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         for (i in catalog.stars.indices) {
             val star = catalog.stars[i]
             if (star.magnitude > limitMagnitude) continue
-            val p = precessed[i]
+            val p = precessed.stars[i]
             val aa = toAltAz(p[0], p[1], lst, site.latDeg)
             val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
             if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
@@ -90,7 +93,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt())
         }
 
-        return StarMap(width, height, gray, labels(d, lst, site, basis, k, width, height, maxLabels))
+        return StarMap(width, height, gray, labels(precessed, lst, site, basis, k, width, height, maxLabels))
     }
 
     /**
@@ -100,48 +103,77 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     fun visibleConstellations(site: Site, epochMillis: Long, minAltDeg: Double = 10.0): List<Aimed> {
         val d = daysFromJ2000(epochMillis)
         val lst = localSiderealDeg(d, site.lonDeg)
+        val precessed = precessed(d)
         val found = ArrayList<Aimed>()
-        for (c in catalog.constellations) {
-            var sx = 0.0
-            var sy = 0.0
-            var sz = 0.0
-            var n = 0
-            for (seg in c.lines) {
-                for (pt in seg) {
-                    val p = precess(pt[0], pt[1], d)
-                    val aa = toAltAz(p[0], p[1], lst, site.latDeg)
-                    val v = enu(aa[0], aa[1])
-                    sx += v.x
-                    sy += v.y
-                    sz += v.z
-                    n++
-                }
-            }
-            if (n == 0) continue
-            val v = Vec3(sx, sy, sz)
-            if (hypot(hypot(v.x, v.y), v.z) < 1e-9) continue
-            val u = v.normalized()
-            val alt = Math.toDegrees(kotlin.math.asin(u.z.coerceIn(-1.0, 1.0)))
-            if (alt < minAltDeg) continue
-            val az = (Math.toDegrees(kotlin.math.atan2(u.x, u.y)) + 360.0) % 360.0
-            found += Aimed(c.nameJa, az, alt)
+        for (i in catalog.constellations.indices) {
+            val center = precessed.centers[i] ?: continue
+            val aa = toAltAz(center[0], center[1], lst, site.latDeg)
+            if (aa[1] < minAltDeg) continue
+            found += Aimed(catalog.constellations[i].nameJa, aa[0], aa[1])
         }
         return found.sortedByDescending { it.altDeg }
     }
 
-    private fun ensurePrecessed(d: Double) {
+    /**
+     * 30 日ぶんまとめて歳差をかけた星表。星・星座線・星座の中心をひとまとめに作り直す。
+     *
+     * 星座線と中心も毎フレーム引き直していたので、星より重い処理が描画のたびに走っていた。
+     * 追従中の描き直しが 1 秒に 1 枚しか出せない以上、ここは削れるだけ削る。
+     */
+    private class Precessed(
+        val stars: Array<DoubleArray>,
+        val lines: List<List<List<DoubleArray>>>,
+        val centers: Array<DoubleArray?>,
+    )
+
+    /** 空に出ている星座の一覧は描画と別のコルーチンから来るので、作り直しは 1 本に絞る */
+    @Synchronized
+    private fun precessed(d: Double): Precessed {
         val key = (d / 30.0).toLong()
-        if (key == precessedKey) return
-        precessedKey = key
-        precessed = Array(catalog.stars.size) { i ->
+        cache?.let { if (key == precessedKey) return it }
+        val stars = Array(catalog.stars.size) { i ->
             val s = catalog.stars[i]
             precess(s.raDeg, s.decDeg, d)
         }
+        val lines = catalog.constellations.map { c ->
+            c.lines.map { seg -> seg.map { precess(it[0], it[1], d) } }
+        }
+        val centers = Array(catalog.constellations.size) { i -> meanDirection(lines[i]) }
+        precessedKey = key
+        return Precessed(stars, lines, centers).also { cache = it }
+    }
+
+    /**
+     * 星座の中心方向を赤道座標のまま出す。
+     *
+     * 地平座標への変換は回転なので、頂点を全部回してから平均しても、平均してから回しても同じ。
+     * 先に平均しておけば、1 フレームあたり星座 1 個につき 1 回の変換で済む。
+     */
+    private fun meanDirection(lines: List<List<DoubleArray>>): DoubleArray? {
+        var sx = 0.0
+        var sy = 0.0
+        var sz = 0.0
+        var n = 0
+        for (seg in lines) {
+            for (p in seg) {
+                val v = enu(p[0], p[1])
+                sx += v.x
+                sy += v.y
+                sz += v.z
+                n++
+            }
+        }
+        if (n == 0) return null
+        if (hypot(hypot(sx, sy), sz) < 1e-9) return null
+        val u = Vec3(sx, sy, sz).normalized()
+        val dec = Math.toDegrees(kotlin.math.asin(u.z.coerceIn(-1.0, 1.0)))
+        val ra = (Math.toDegrees(kotlin.math.atan2(u.x, u.y)) + 360.0) % 360.0
+        return doubleArrayOf(ra, dec)
     }
 
     /** 星座名は画像に焼かず、視野中心に近い順に maxLabels 個だけ返す（sendCanvas は 8 要素まで） */
     private fun labels(
-        d: Double,
+        precessed: Precessed,
         lst: Double,
         site: Site,
         basis: Basis,
@@ -152,30 +184,14 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     ): List<Label> {
         if (maxLabels <= 0) return emptyList()
         val found = ArrayList<Pair<Double, Label>>()
-        for (c in catalog.constellations) {
-            var sx = 0.0
-            var sy = 0.0
-            var sz = 0.0
-            var n = 0
-            for (seg in c.lines) {
-                for (pt in seg) {
-                    val p = precess(pt[0], pt[1], d)
-                    val aa = toAltAz(p[0], p[1], lst, site.latDeg)
-                    val v = enu(aa[0], aa[1])
-                    sx += v.x
-                    sy += v.y
-                    sz += v.z
-                    n++
-                }
-            }
-            if (n == 0) continue
-            val center = Vec3(sx, sy, sz)
-            if (hypot(hypot(center.x, center.y), center.z) < 1e-9) continue
-            val q = project(center.normalized(), basis, k, width, height) ?: continue
-            // 端に寄った名前は切れて読めないので落とす
-            if (q[0] < 40 || q[1] < 12 || q[0] > width - 40 || q[1] > height - 12) continue
+        for (i in catalog.constellations.indices) {
+            val center = precessed.centers[i] ?: continue
+            val aa = toAltAz(center[0], center[1], lst, site.latDeg)
+            val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
+            // 名前の枠は画像の外（パネルの余白）にも置けるが、視野の外に出た星座には付けない
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
             val dist = hypot(q[0] - width / 2.0, q[1] - height / 2.0)
-            found += dist to Label(c.nameJa, q[0].roundToInt(), q[1].roundToInt())
+            found += dist to Label(catalog.constellations[i].nameJa, q[0].roundToInt(), q[1].roundToInt())
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
     }
@@ -190,14 +206,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         height: Int,
         from: DoubleArray,
         to: DoubleArray,
-        d: Double,
         lst: Double,
         site: Site,
         basis: Basis,
         k: Double,
     ) {
-        val a = precess(from[0], from[1], d).let { toAltAz(it[0], it[1], lst, site.latDeg) }
-        val b = precess(to[0], to[1], d).let { toAltAz(it[0], it[1], lst, site.latDeg) }
+        val a = toAltAz(from[0], from[1], lst, site.latDeg)
+        val b = toAltAz(to[0], to[1], lst, site.latDeg)
         val va = enu(a[0], a[1])
         val vb = enu(b[0], b[1])
         val ang = acos((va dot vb).coerceIn(-1.0, 1.0))
