@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -193,7 +194,11 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             transferMs = map.transferMillis()
             sendMs = System.currentTimeMillis() - sendStarted
             status = ""
-        }.onFailure { status = "失敗: ${it.message}" }
+            Log.d(TAG, "送信 ${map.width}x${map.height} 名前=${names.size} 転送見積り=${transferMs}ms")
+        }.onFailure {
+            status = "失敗: ${it.message}"
+            Log.e(TAG, "drawAndSend で失敗", it)
+        }
     }
 
     // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
@@ -239,6 +244,22 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             if (renderer == null) {
                 Text("星表を読み込み中…")
                 return@Column
+            }
+
+            CommandButton("テスト画像（塗りつぶし）") {
+                Log.d(TAG, "テスト画像ボタン")
+                runCatching {
+                    val w = imageSize.width
+                    val h = imageSize.height
+                    commandManager.sendCanvasImage(
+                        (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, solidBlock(w, h),
+                    )
+                    status = "テスト画像を送った。出ないなら星図の中身ではなく経路の問題"
+                    Log.d(TAG, "テスト画像を送った ${w}x$h")
+                }.onFailure {
+                    status = "テスト画像で失敗: ${it.message}"
+                    Log.e(TAG, "テスト画像で失敗", it)
+                }
             }
 
             Row {
@@ -344,16 +365,6 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             }
 
             Spacer(Modifier.height(12.dp))
-            CommandButton("テスト画像を出す（塗りつぶし）") {
-                runCatching {
-                    val w = imageSize.width
-                    val h = imageSize.height
-                    commandManager.sendCanvasImage(
-                        (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, solidBlock(w, h),
-                    )
-                    status = "テスト画像を送った。これが出ないなら星図の中身ではなく経路の問題"
-                }.onFailure { status = "テスト画像で失敗: ${it.message}" }
-            }
             Button(onClick = { commandManager.clearCanvas() }, modifier = Modifier.fillMaxWidth()) {
                 Text("グラスの表示を消す")
             }
@@ -419,6 +430,8 @@ private enum class ImageSize(val width: Int, val height: Int, val label: String)
     MEDIUM(384, 240, "中 384×240"),
     SMALL(256, 160, "小 256×160"),
 }
+
+private const val TAG = "StarMap"
 
 /** これだけ視線が動いたら描き直す。止まっているのに送り直すと、そのたび画面が消えて点滅する */
 private const val REDRAW_DEG = 2.0
