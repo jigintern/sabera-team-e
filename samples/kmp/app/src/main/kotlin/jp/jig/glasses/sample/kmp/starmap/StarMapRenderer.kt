@@ -322,7 +322,14 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
             // 日が当たっているものは塗り、影のものは輪郭。肉眼で見えるかどうかの区別
             val mark = if (track.sunlit) "●" else "○"
-            labels += Label(mark + track.name, q[0].roundToInt(), q[1].roundToInt())
+            // **「あと何分で最接近」を名前の後ろに足す。** 点だけでは待てばいいのか分からない。
+            // 近づいているときだけ出す（過ぎた機体に数字を出しても意味がない）。
+            // 文字数が増えるとラベルが重なって落ちるので、10 分以内に絞る
+            val soon = track.motion?.closestInMinutes
+                ?.takeIf { it > 0.0 && it <= LABEL_SOON_MIN }
+                ?.let { " ${max(1, ceil(it).toInt())}分" }
+                .orEmpty()
+            labels += Label(mark + track.name + soon, q[0].roundToInt(), q[1].roundToInt())
         }
         return labels
     }
@@ -517,6 +524,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** パネルの桟。外形と同じ明るさだと、96 画素では 1 枚の板に見える */
         const val FIGURE_INNER_VALUE = 120
+
+        /** ラベルに「あと何分」を出す上限。これより先の最接近は書かない */
+        const val LABEL_SOON_MIN = 10.0
 
         /** 輪郭を出す数。点のそばに置くので、多いと点と輪郭の対応が読めなくなる */
         const val FIGURE_SLOTS = 3

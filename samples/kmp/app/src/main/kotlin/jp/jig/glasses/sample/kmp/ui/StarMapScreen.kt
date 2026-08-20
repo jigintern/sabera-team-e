@@ -564,7 +564,16 @@ fun StarMapScreen(
                     // 名前つきだけ。スターリンクは名前を読み上げても意味がない
                     scene.tracksInView(
                         observer, System.currentTimeMillis(), latched, fov.toDouble(), maxStarlink = 0,
-                    ).map { SatellitePass(it.name, it.nowAzDeg, it.nowAltDeg, it.sunlit) }
+                    ).map {
+                        SatellitePass(
+                            name = it.name,
+                            azDeg = it.nowAzDeg,
+                            altDeg = it.nowAltDeg,
+                            sunlit = it.sunlit,
+                            closestInMinutes = it.motion?.closestInMinutes,
+                            stationary = it.motion?.stationary ?: false,
+                        )
+                    }
                 }
                 narrator.narrateSatellites(inView)
             }
@@ -881,6 +890,14 @@ fun StarMapScreen(
                             "${if (sighting.sunlit) "●" else "○"} ${sighting.name}　${sighting.where}",
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        // 「上昇中・最接近まで 3 分」。点の位置だけでは待つ価値が分からない
+                        if (sighting.timing.isNotEmpty()) {
+                            Text(
+                                "　　${sighting.timing}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     Text(
                         "● は日が当たっていて肉眼でも見える可能性がある。○ は地球の影",

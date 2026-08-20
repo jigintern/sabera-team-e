@@ -2,6 +2,7 @@ package jp.jig.glasses.sample.kmp.satellite
 
 import android.content.Context
 import jp.jig.glasses.sample.kmp.starmap.Look
+import jp.jig.glasses.sample.kmp.starmap.SkyMotion
 import jp.jig.glasses.sample.kmp.starmap.SkyTrack
 import jp.jig.glasses.sample.kmp.starmap.enu
 import kotlin.math.roundToInt
@@ -9,7 +10,7 @@ import kotlin.math.roundToInt
 /**
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。
  *
- * **名前つきの 16 機とスターリンクの群れでは扱いが違う。**
+ * **名前つきの 24 機とスターリンクの群れでは扱いが違う。**
  * 名前つきは 1 機ずつ名前と輪郭を出すが、スターリンクは数が多いので点だけ打つ
  * （点の数そのものが「こんなに飛んでいるのか」になる）。
  */
@@ -51,7 +52,28 @@ class SatelliteScene(
         val rangeKm: Double,
         val sunlit: Boolean,
         val named: Boolean,
+        val motion: SkyMotion? = null,
     ) {
+
+        /**
+         * 「上昇中・最接近まで 3 分」のような一言。
+         *
+         * **点だけ見せても「待てばいいのか」が分からない**ので、時間を出す。
+         */
+        val timing: String
+            get() {
+                val m = motion ?: return ""
+                if (m.stationary) return "ほぼ静止（同じ場所に見え続ける）"
+                val minutes = m.closestInMinutes
+                val direction = if (m.rising) "上昇中" else "下降中"
+                return when {
+                    minutes == null -> direction
+                    minutes > 0.5 -> "$direction・最接近まで ${kotlin.math.ceil(minutes).toInt()} 分"
+                    minutes > -0.5 -> "$direction・いま最接近"
+                    else -> "$direction・最接近は ${kotlin.math.ceil(-minutes).toInt()} 分前"
+                }
+            }
+
         /** 「南南西 高度 45° 720km」のような表示 */
         val where: String
             get() {
@@ -123,6 +145,7 @@ class SatelliteScene(
                 rangeKm = look.rangeKm,
                 sunlit = isSunlit(state, epochMillis),
                 named = true,
+                motion = motion(sgp4, observer, epochMillis),
             )
         }
         return sightings.sortedByDescending { it.altDeg }.take(limit)
@@ -154,10 +177,68 @@ class SatelliteScene(
             nowAltDeg = now.altDeg,
             sunlit = isSunlit(state, epochMillis),
             labelled = labelled,
+            // 名前を出さない機体では時間も出さないので、そのぶんの伝播を省く
+            motion = if (labelled) motion(sgp4, observer, epochMillis) else null,
+        )
+    }
+
+    /**
+     * 最接近までの時間と、上がっているか下がっているか。
+     *
+     * **前後の時刻を当たって、観測地からの距離がいちばん小さい点を探す**だけ。
+     * 低軌道の機体はそこがいちばん高く・いちばん明るい。
+     *
+     * 出せない場合を 2 つに分けている。
+     * - **静止軌道** — 距離がほとんど変わらない。数値のゆらぎで「あと 7 分」と出すと嘘になる
+     * - **窓の外** — 端が最小だった。本当の最小はもっと先（または前）にある
+     */
+    private fun motion(sgp4: Sgp4, observer: Observer, epochMillis: Long): SkyMotion? {
+        val steps = ((APPROACH_AHEAD_MIN - APPROACH_BACK_MIN) / APPROACH_STEP_MIN).toInt()
+        var bestStep = -1
+        var bestRange = Double.MAX_VALUE
+        var minRange = Double.MAX_VALUE
+        var maxRange = 0.0
+        var altNow = Double.NaN
+        var altNext = Double.NaN
+        for (i in 0..steps) {
+            val minutes = APPROACH_BACK_MIN + i * APPROACH_STEP_MIN
+            val at = epochMillis + (minutes * 60_000.0).toLong()
+            val state = sgp4.at(at) ?: return null
+            val look = observer.look(state, at)
+            if (look.rangeKm < bestRange) {
+                bestRange = look.rangeKm
+                bestStep = i
+            }
+            minRange = minOf(minRange, look.rangeKm)
+            maxRange = maxOf(maxRange, look.rangeKm)
+            // 上昇か下降かは「いま」と「その次」で見る
+            if (minutes == 0.0) altNow = look.altDeg
+            if (minutes == APPROACH_STEP_MIN) altNext = look.altDeg
+        }
+        if (bestStep < 0) return null
+        val rising = altNext > altNow
+        val stationary = (maxRange - minRange) / minRange < APPROACH_MIN_SPREAD
+        val outsideWindow = bestStep == 0 || bestStep == steps
+        return SkyMotion(
+            closestInMinutes = if (stationary || outsideWindow) {
+                null
+            } else {
+                APPROACH_BACK_MIN + bestStep * APPROACH_STEP_MIN
+            },
+            rising = rising,
+            stationary = stationary,
         )
     }
 
     companion object {
+        /** 最接近を探す窓。低軌道のパスは 10 分ほどで終わるので、これで足りる */
+        private const val APPROACH_BACK_MIN = -5.0
+        private const val APPROACH_AHEAD_MIN = 20.0
+        private const val APPROACH_STEP_MIN = 0.5
+
+        /** 距離の振れ幅がこれ未満なら「動いていない」とみなす */
+        private const val APPROACH_MIN_SPREAD = 0.005
+
         /** 名前を出す数。衛星モードでは星座名を出さないので、テキスト枠 8 個を丸ごと使える */
         const val MAX_NAMED = 8
 

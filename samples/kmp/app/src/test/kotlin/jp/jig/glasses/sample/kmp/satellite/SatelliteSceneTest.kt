@@ -168,6 +168,55 @@ class SatelliteSceneTest {
     }
 
     @Test
+    fun `静止軌道には最接近を出さない`() {
+        // 距離がほとんど変わらないので、数値のゆらぎで「あと 7 分」と出すと嘘になる
+        val scene = scene()
+        val now = System.currentTimeMillis()
+        val himawari = scene.aboveHorizon(observer, now, limit = 30).first { it.name == "ひまわり8" }
+        val motion = checkNotNull(himawari.motion) { "動きが出ていない" }
+        assertTrue("静止と判定できていない", motion.stationary)
+        assertTrue("静止なのに最接近を出している: ${motion.closestInMinutes}", motion.closestInMinutes == null)
+        println("ひまわり8: ${himawari.timing}")
+    }
+
+    @Test
+    fun `低軌道は最接近までの分を出す`() {
+        // ISS が空に出ている時刻を探してから見る（いつでも出ているわけではない）
+        val issTle = Tle.parseAll(File(dataDir, "satellites.tle").readText()).first { it.name == "ISS" }
+        val iss = Sgp4(issTle)
+        val start = System.currentTimeMillis()
+        var found = -1L
+        var step = 0L
+        while (step < 24 * 60) {
+            val at = start + step * 60_000L
+            val state = iss.at(at)
+            if (state != null && observer.look(state, at).altDeg > 30.0) {
+                found = at
+                break
+            }
+            step++
+        }
+        assertTrue("24 時間のあいだ ISS が 30° より上に来ない", found > 0)
+
+        val scene = SatelliteScene(named = listOf(iss), starlink = emptyList())
+        val sighting = scene.aboveHorizon(observer, found).first { it.name == "ISS" }
+        val motion = checkNotNull(sighting.motion)
+        assertTrue("静止と誤判定している", !motion.stationary)
+        val minutes = checkNotNull(motion.closestInMinutes) { "最接近が出ていない" }
+        assertTrue("窓の外を返している: $minutes", minutes in -5.0..20.0)
+
+        // 返した時刻のほうが本当に近いこと
+        val nowRange = observer.look(checkNotNull(iss.at(found)), found).rangeKm
+        val closestAt = found + (minutes * 60_000).toLong()
+        val closestRange = observer.look(checkNotNull(iss.at(closestAt)), closestAt).rangeKm
+        assertTrue("最接近のほうが遠い: $closestRange > $nowRange", closestRange <= nowRange + 0.1)
+        println(
+            "ISS: 高度 ${"%.0f".format(sighting.altDeg)}° / ${sighting.timing} / " +
+                "いま ${"%.0f".format(nowRange)}km → 最接近 ${"%.0f".format(closestRange)}km",
+        )
+    }
+
+    @Test
     fun `TLE の古さを日数で出せる`() {
         val scene = scene()
         // 同梱データには取得日を残してある

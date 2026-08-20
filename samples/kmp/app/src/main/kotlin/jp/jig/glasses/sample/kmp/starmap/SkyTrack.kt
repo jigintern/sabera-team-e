@@ -13,6 +13,21 @@ package jp.jig.glasses.sample.kmp.starmap
  *
  * 衛星の計算そのものは `satellite` パッケージにある。ここは描画の都合だけを持つ。
  */
+/**
+ * 動きの見せ方。**「いつ」が無いと、点を見ても待てばいいのか分からない。**
+ *
+ * 最接近は「観測地からの距離がいちばん小さくなる時刻」。低軌道の機体はここで
+ * いちばん高く・いちばん明るくなるので、**待つ価値があるかどうかがこれで決まる**。
+ */
+class SkyMotion(
+    /** 最接近までの分。マイナスなら過ぎている。**分からなければ null** */
+    val closestInMinutes: Double?,
+    /** いま高度が上がっているか */
+    val rising: Boolean,
+    /** 静止軌道のようにほとんど動かないか。**最接近という考え方が当てはまらない** */
+    val stationary: Boolean,
+)
+
 class SkyTrack(
     val name: String,
     /** いまの位置 */
@@ -22,4 +37,6 @@ class SkyTrack(
     val sunlit: Boolean,
     /** 名前と輪郭を出すか。スターリンクは数が多いので点だけにする */
     val labelled: Boolean,
+    /** 動きの見せ方。名前を出さない機体では計算しないので null */
+    val motion: SkyMotion? = null,
 )

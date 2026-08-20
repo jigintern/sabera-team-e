@@ -23,8 +23,14 @@ class NarratorTest {
 
     private fun narrator(voice: Voice) = Narrator(voice, client(), log = { _, _ -> })
 
-    private fun pass(name: String, az: Double, alt: Double, sunlit: Boolean) =
-        SatellitePass(name, az, alt, sunlit)
+    private fun pass(
+        name: String,
+        az: Double,
+        alt: Double,
+        sunlit: Boolean,
+        closestInMinutes: Double? = null,
+        stationary: Boolean = false,
+    ) = SatellitePass(name, az, alt, sunlit, closestInMinutes, stationary)
 
     @Test
     fun `衛星モードは端末の計算だけで喋る`() {
@@ -39,6 +45,33 @@ class NarratorTest {
         assertTrue("肉眼で見えることに触れていない: $said", "肉眼" in said)
         assertEquals(NarrationPhase.SPEAKING, narrator.state.value.phase)
         assertEquals("ISS", narrator.state.value.subject)
+    }
+
+    @Test
+    fun `いつがいちばん近いかを言う`() {
+        val voice = FakeVoice()
+        narrator(voice).narrateSatellites(
+            listOf(pass("ISS", 180.0, 45.0, sunlit = true, closestInMinutes = 3.2)),
+        )
+        assertTrue("残り時間を言っていない: ${voice.spoken}", "あと 4 分" in voice.spoken.single())
+    }
+
+    @Test
+    fun `最接近が過ぎたら遠ざかっていると言う`() {
+        val voice = FakeVoice()
+        narrator(voice).narrateSatellites(
+            listOf(pass("ISS", 180.0, 30.0, sunlit = true, closestInMinutes = -3.0)),
+        )
+        assertTrue("遠ざかっていることを言っていない", "遠ざかって" in voice.spoken.single())
+    }
+
+    @Test
+    fun `静止軌道は動かないと言う`() {
+        val voice = FakeVoice()
+        narrator(voice).narrateSatellites(
+            listOf(pass("ひまわり8", 172.0, 48.0, sunlit = true, stationary = true)),
+        )
+        assertTrue("同じ場所に見えることを言っていない", "同じ場所" in voice.spoken.single())
     }
 
     @Test

@@ -170,6 +170,28 @@ class StarMapRendererTest {
     }
 
     @Test
+    fun `近づいている機体はラベルに残り時間が付く`() {
+        // 点だけでは「待てばいいのか、過ぎたのか」が分からない
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        fun label(motion: SkyMotion?): String {
+            val track = SkyTrack(
+                name = "ISS", nowAzDeg = 180.0, nowAltDeg = 45.0,
+                sunlit = true, labelled = true, motion = motion,
+            )
+            return renderer.trackLabels(look, 35.0, PANEL_WIDTH, PANEL_HEIGHT, listOf(track)).single().text
+        }
+
+        assertEquals("●ISS 4分", label(SkyMotion(closestInMinutes = 3.2, rising = true, stationary = false)))
+        // 静止軌道と、遠い先の最接近には出さない（枠に入らず名前ごと消える）
+        assertEquals("●ISS", label(SkyMotion(closestInMinutes = null, rising = false, stationary = true)))
+        assertEquals("●ISS", label(SkyMotion(closestInMinutes = 30.0, rising = true, stationary = false)))
+        // 過ぎた機体に数字は出さない
+        assertEquals("●ISS", label(SkyMotion(closestInMinutes = -2.0, rising = false, stationary = false)))
+        assertEquals("●ISS", label(null))
+    }
+
+    @Test
     fun `衛星の名前から輪郭の形が決まる`() {
         assertEquals(SatelliteFigure.STATION, SatelliteFigure.of("ISS"))
         assertEquals(SatelliteFigure.STATION, SatelliteFigure.of("天宮"))

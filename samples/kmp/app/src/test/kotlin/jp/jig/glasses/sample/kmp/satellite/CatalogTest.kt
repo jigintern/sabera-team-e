@@ -23,7 +23,7 @@ class CatalogTest {
     @Test
     fun `名前つきの衛星を全部読める`() {
         val tles = load("satellites.tle")
-        assertEquals(16, tles.size)
+        assertEquals(24, tles.size)
         val names = tles.map { it.name }
         assertTrue("ISS が無い", names.any { it == "ISS" })
         // グラスの枠に入る長さか。1 文字 28px 見当で、印を足しても 576px に収まる必要がある
@@ -31,25 +31,32 @@ class CatalogTest {
         assertTrue("名前が長すぎる: $longest", longest.length <= 8)
         assertTrue("みちびきが無い", names.count { it.contains("みちびき") } == 5)
         assertTrue("ひまわりが無い", names.count { it.contains("ひまわり") } == 2)
+        // 日本のものばかりだと「有名な衛星」にならないので、世界の定番も入れてある
+        for (expected in listOf("ハッブル", "テラ", "アクア", "ランドサット9", "NOAA20", "GPS1", "ガリレオ", "天宮")) {
+            assertTrue("$expected が無い", names.any { it == expected })
+        }
     }
 
     @Test
-    fun `みちびきとひまわりは深宇宙の分岐に落ちる`() {
+    fun `高い軌道の機体は深宇宙の分岐に落ちる`() {
         val tles = load("satellites.tle")
         val deep = tles.filter { Sgp4(it).deepSpace }.map { it.name }
-        // 周期 225 分以上。準天頂と静止はここに入る
+        // 周期 225 分以上。準天頂・静止・GPS などの中軌道はここに入る
         assertTrue("みちびきが深宇宙扱いでない", deep.count { it.contains("みちびき") } == 5)
         assertTrue("ひまわりが深宇宙扱いでない", deep.count { it.contains("ひまわり") } == 2)
-        assertEquals("深宇宙はみちびき 5 とひまわり 2 だけのはず", 7, deep.size)
+        assertTrue("GPS が深宇宙扱いでない", deep.count { it.startsWith("GPS") } == 2)
+        assertTrue("ガリレオが深宇宙扱いでない", deep.contains("ガリレオ"))
+        assertEquals("深宇宙は みちびき5 ＋ ひまわり2 ＋ GPS2 ＋ ガリレオ1 のはず", 10, deep.size)
+        println("深宇宙の分岐: ${deep.joinToString("、")}")
     }
 
     @Test
-    fun `同梱した 16 機すべてを伝播できる`() {
+    fun `同梱した 24 機すべてを伝播できる`() {
         val now = System.currentTimeMillis()
         val sabae = Observer(35.9432, 136.1846)
         val results = load("satellites.tle")
             .mapNotNull { tle -> Sgp4(tle).at(now)?.let { tle to it } }
-        assertEquals("16 機すべて伝播できるはず", 16, results.size)
+        assertEquals("24 機すべて伝播できるはず", 24, results.size)
         for ((tle, state) in results) {
             val sub = Observer.subPoint(state, now)
             val look = sabae.look(state, now)

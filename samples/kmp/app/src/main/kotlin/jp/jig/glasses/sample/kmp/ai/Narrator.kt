@@ -46,6 +46,10 @@ class SatellitePass(
     val altDeg: Double,
     /** 日が当たっているか。当たっていなければ肉眼では見えない */
     val sunlit: Boolean,
+    /** 最接近までの分。マイナスなら過ぎている。分からなければ null */
+    val closestInMinutes: Double? = null,
+    /** 静止軌道のようにほとんど動かないか */
+    val stationary: Boolean = false,
 )
 
 /**
@@ -139,6 +143,8 @@ class Narrator(
             append("の空、高度 ")
             append(lead.altDeg.toInt())
             append(" 度あたりです。")
+            // **「いつ」を言う。** 点の位置だけでは、待てばいいのか過ぎたのかが分からない
+            append(timing(lead))
             append(
                 if (lead.sunlit) {
                     "日が当たっているので、動く光として肉眼でも見えるかもしれません。"
@@ -156,6 +162,17 @@ class Narrator(
         speaker.say(text)
         _state.value = NarrationState(NarrationPhase.SPEAKING, text, lead.name)
         log("衛星を案内: ${lead.name}（視野に ${inView.size} 機）", false)
+    }
+
+    /** 「あと 3 分で最接近します。」のような一言。言えることが無ければ空 */
+    private fun timing(pass: SatellitePass): String {
+        if (pass.stationary) return "ほとんど動かないので、しばらく同じ場所に見えます。"
+        val minutes = pass.closestInMinutes ?: return ""
+        return when {
+            minutes > 0.5 -> "あと ${kotlin.math.ceil(minutes).toInt()} 分でいちばん近づきます。"
+            minutes > -0.5 -> "いまがいちばん近いところです。"
+            else -> "いちばん近いところは過ぎて、遠ざかっています。"
+        }
     }
 
     fun stop() {
