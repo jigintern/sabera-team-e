@@ -161,6 +161,59 @@ class SatelliteSceneTest {
     }
 
     @Test
+    fun `印は画像を焼いた視線に対して置く`() {
+        val scene = scene()
+        val renderer = StarMapRenderer(catalog())
+        val now = System.currentTimeMillis()
+        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
+        val drawnLook = Look(target.azDeg, target.altDeg)
+        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = 35.0)
+
+        val map = renderer.render(
+            site = sabae, epochMillis = now, look = drawnLook, fovDeg = 35.0, limitMagnitude = 5.0,
+            width = 528, height = 330, drawLines = true, maxLabels = 8, tracks = tracks,
+        )
+        val fromRender = map.labels.filter { it.text.startsWith("●") || it.text.startsWith("○") }
+        val fromLabels = renderer.trackLabels(drawnLook, 35.0, 528, 330, tracks)
+        assertEquals("描画と印の数が合わない", fromRender.size, fromLabels.size)
+        for ((a, b) in fromRender.zip(fromLabels)) {
+            assertEquals("名前が違う", a.text, b.text)
+            assertEquals("x がずれる", a.x.toDouble(), b.x.toDouble(), 0.0)
+            assertEquals("y がずれる", a.y.toDouble(), b.y.toDouble(), 0.0)
+        }
+
+        // **別の視線で計算すると当然ずれる。** ここを取り違えると絵と印が食い違う
+        val otherLook = Look((drawnLook.azDeg + 10.0) % 360.0, drawnLook.altDeg)
+        val shifted = renderer.trackLabels(otherLook, 35.0, 528, 330, tracks)
+        if (fromLabels.isNotEmpty() && shifted.isNotEmpty()) {
+            assertTrue(
+                "視線を変えたのに印が動かない（画像を焼いた視線を使えていない疑い）",
+                shifted.first().x != fromLabels.first().x || shifted.first().y != fromLabels.first().y,
+            )
+        }
+    }
+
+    @Test
+    fun `印だけ動かすときはスターリンクを回さない`() {
+        val scene = scene()
+        val now = System.currentTimeMillis()
+        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
+        val look = Look(target.azDeg, target.altDeg)
+
+        val started = System.nanoTime()
+        val onlyNamed = scene.tracksInView(observer, now, look, fovDeg = 35.0, maxStarlink = 0)
+        val namedMs = (System.nanoTime() - started) / 1e6
+
+        val started2 = System.nanoTime()
+        scene.tracksInView(observer, now, look, fovDeg = 35.0)
+        val allMs = (System.nanoTime() - started2) / 1e6
+
+        assertTrue("スターリンクが混ざっている", onlyNamed.all { it.labelled })
+        println("印だけ ${"%.1f".format(namedMs)}ms / 全部 ${"%.1f".format(allMs)}ms")
+        assertTrue("印だけのほうが速くない", namedMs < allMs)
+    }
+
+    @Test
     fun `名前を出す数はテキスト枠を食い尽くさない`() {
         // キャンバスのテキストは 8 個。衛星に全部使うと星座名が出せなくなる
         assertTrue(SatelliteScene.MAX_NAMED <= 3)
