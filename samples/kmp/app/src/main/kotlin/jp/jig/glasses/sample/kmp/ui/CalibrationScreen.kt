@@ -182,21 +182,9 @@ fun CalibrationScreen(
         ) {
             Text("方位合わせ", style = MaterialTheme.typography.headlineMedium, color = Color.White)
             Text(
-                "スマホを顔の正面（腕の長さ）に持ち、背面を見ている方向へ向けます。" +
-                    "グラスの十字とスマホの中央を重ねてください",
+                "グラスの十字と、スマホの中央を重ねます",
                 modifier = Modifier.padding(top = 6.dp),
                 color = Color.White.copy(alpha = 0.72f),
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                // 「床に置いて下を向くのか」と聞かれたので明示する。
-                // 合わせているのは "スマホの背面が向いている方向" と "グラスの視線" なので、
-                // スマホは視線の上に来ていないと意味がない
-                "床に置く必要はありません。真上（天頂）付近は方位が定まらないので、" +
-                    "地平線から 45° くらいの高さで合わせてください",
-                modifier = Modifier.padding(top = 4.dp),
-                color = Color.White.copy(alpha = 0.55f),
-                style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
             )
 
@@ -221,29 +209,9 @@ fun CalibrationScreen(
                             facingReady = facingReady,
                         ),
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (ready) SaberaGreen else Color.White,
+                        color = if (ready) SABERA_GREEN else Color.White,
                         textAlign = TextAlign.Center,
                     )
-                    Text(
-                        // **保存されるのはボタンを押した瞬間の値だけ。**
-                        // それまでは姿勢を保つ必要があり、押したあとは動いてよい
-                        if (ready) {
-                            "ボタンを押すまでこの姿勢のまま。押したあとは自由に動かせます"
-                        } else {
-                            "条件がそろうとボタンが押せます"
-                        },
-                        modifier = Modifier.padding(top = 6.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.6f),
-                        textAlign = TextAlign.Center,
-                    )
-                    if (!imuFresh || siteStatus.endsWith("中")) {
-                        Spacer(Modifier.height(8.dp))
-                        LoadingLine(
-                            if (!imuFresh) "グラスの 6DoF を待っています" else siteStatus,
-                            color = SaberaGreen,
-                        )
-                    }
                 }
             }
 
@@ -312,9 +280,9 @@ fun CalibrationScreen(
                 enabled = ready,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = SaberaGreen,
+                    containerColor = SABERA_GREEN,
                     contentColor = Color(0xFF052010),
-                    disabledContainerColor = SaberaGreen.copy(alpha = 0.30f),
+                    disabledContainerColor = SABERA_GREEN.copy(alpha = 0.30f),
                     disabledContentColor = Color.White.copy(alpha = 0.55f),
                 ),
             ) {
@@ -322,7 +290,7 @@ fun CalibrationScreen(
             }
             TextButton(
                 onClick = onHome,
-                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
+                colors = ButtonDefaults.textButtonColors(contentColor = SABERA_GREEN),
             ) {
                 Text("ホーム")
             }
@@ -382,7 +350,7 @@ private fun CompassDial(
                     cap = StrokeCap.Round,
                 )
                 drawLine(
-                    color = if (ready) SaberaGreen else Color(0xFFFFC66D),
+                    color = if (ready) SABERA_GREEN else Color(0xFFFFC66D),
                     start = center,
                     end = northTip,
                     strokeWidth = 4.dp.toPx(),
@@ -407,7 +375,7 @@ private fun CompassDial(
                     )
                     close()
                 }
-                drawPath(arrow, if (ready) SaberaGreen else Color(0xFFFFC66D))
+                drawPath(arrow, if (ready) SABERA_GREEN else Color(0xFFFFC66D))
                 drawCircle(Color.White, radius = 3.dp.toPx(), center = center)
             }
         }
@@ -438,7 +406,7 @@ private fun AlignmentTarget(
 ) {
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val color = if (ready) SaberaGreen else Color.White.copy(alpha = 0.86f)
+        val color = if (ready) SABERA_GREEN else Color.White.copy(alpha = 0.86f)
         drawCircle(color.copy(alpha = 0.28f), radius = 82.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
         drawCircle(color, radius = 28.dp.toPx(), center = center, style = Stroke(3.dp.toPx()))
         drawLine(color, Offset(center.x - 55.dp.toPx(), center.y), Offset(center.x - 34.dp.toPx(), center.y), 3.dp.toPx())
@@ -480,7 +448,7 @@ private fun PrecisionRow(
         Text(
             if (ready) "✓" else "—",
             modifier = Modifier.weight(0.10f),
-            color = if (ready) SaberaGreen else Color.White.copy(alpha = 0.45f),
+            color = if (ready) SABERA_GREEN else Color.White.copy(alpha = 0.45f),
             fontSize = 13.sp,
             maxLines = 1,
             textAlign = TextAlign.End,
@@ -538,6 +506,7 @@ private fun calibrationCrossMarker(size: Int): ByteArray {
     return gray
 }
 
+private val SABERA_GREEN = Color(0xFF75E6A3)
 private const val CALIBRATION_MARKER_ID = 1
 private const val CALIBRATION_MARKER_SIZE = 128
 private const val CALIBRATION_MARKER_THICKNESS = 2

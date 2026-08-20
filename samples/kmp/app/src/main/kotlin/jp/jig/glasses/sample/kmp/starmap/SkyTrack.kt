@@ -26,6 +26,14 @@ class SkyMotion(
     val rising: Boolean,
     /** 静止軌道のようにほとんど動かないか。**最接近という考え方が当てはまらない** */
     val stationary: Boolean,
+    /**
+     * 30 秒後の位置[度]。**進行方向の矢印を描くために持つ。**
+     *
+     * 軌跡の線はやめたので、動いていることを見せる手段がこれしかない
+     * （静止軌道はいまと同じ位置になるので、矢印は出ない）。
+     */
+    val nextAzDeg: Double? = null,
+    val nextAltDeg: Double? = null,
 )
 
 class SkyTrack(

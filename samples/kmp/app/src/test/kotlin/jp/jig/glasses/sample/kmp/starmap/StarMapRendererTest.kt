@@ -181,6 +181,40 @@ class StarMapRendererTest {
     }
 
     @Test
+    fun `名前つきと群れを描き分け、動いているものに矢印を付ける`() {
+        // 同じ大きさの点を並べると「点々」にしか見えない。3 つ描き分けているかを見る
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        fun lit(vararg tracks: SkyTrack): Int {
+            val map = renderer.render(
+                site = site, epochMillis = epoch, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
+                drawLines = false, tracks = tracks.toList(), drawStars = false, drawFigures = false,
+            )
+            return map.gray.count { (it.toInt() and 0xFF) > 0 }
+        }
+
+        val crowd = lit(SkyTrack("STARLINK-1", 180.0, 45.0, sunlit = true, labelled = false))
+        val stationary = lit(
+            SkyTrack(
+                "ひまわり8", 180.0, 45.0, sunlit = true, labelled = true,
+                motion = SkyMotion(closestInMinutes = null, rising = false, stationary = true),
+            ),
+        )
+        val moving = lit(
+            SkyTrack(
+                "ISS", 180.0, 45.0, sunlit = true, labelled = true,
+                motion = SkyMotion(
+                    closestInMinutes = 3.0, rising = true, stationary = false,
+                    nextAzDeg = 180.6, nextAltDeg = 45.3,
+                ),
+            ),
+        )
+        println("画素数 群れ $crowd / 静止 $stationary / 動いている $moving")
+        assertTrue("群れの点が名前つきと同じ大きさ", stationary > crowd * 2)
+        assertTrue("動いていても矢印が出ていない", moving > stationary + 20)
+    }
+
+    @Test
     fun `近づいている機体はラベルに残り時間が付く`() {
         // 点だけでは「待てばいいのか、過ぎたのか」が分からない
         val renderer = StarMapRenderer(catalog())

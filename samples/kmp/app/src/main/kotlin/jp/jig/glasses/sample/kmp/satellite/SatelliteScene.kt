@@ -200,6 +200,7 @@ class SatelliteScene(
         var maxRange = 0.0
         var altNow = Double.NaN
         var altNext = Double.NaN
+        var azNext = Double.NaN
         for (i in 0..steps) {
             val minutes = APPROACH_BACK_MIN + i * APPROACH_STEP_MIN
             val at = epochMillis + (minutes * 60_000.0).toLong()
@@ -211,9 +212,12 @@ class SatelliteScene(
             }
             minRange = minOf(minRange, look.rangeKm)
             maxRange = maxOf(maxRange, look.rangeKm)
-            // 上昇か下降かは「いま」と「その次」で見る
+            // 上昇か下降かは「いま」と「その次」で見る。次の位置は矢印にも使う
             if (minutes == 0.0) altNow = look.altDeg
-            if (minutes == APPROACH_STEP_MIN) altNext = look.altDeg
+            if (minutes == APPROACH_STEP_MIN) {
+                altNext = look.altDeg
+                azNext = look.azDeg
+            }
         }
         if (bestStep < 0) return null
         val rising = altNext > altNow
@@ -227,6 +231,8 @@ class SatelliteScene(
             },
             rising = rising,
             stationary = stationary,
+            nextAzDeg = azNext.takeIf { !it.isNaN() },
+            nextAltDeg = altNext.takeIf { !it.isNaN() },
         )
     }
 

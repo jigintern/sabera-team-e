@@ -22,8 +22,11 @@ data class NarrationState(
     val phase: NarrationPhase = NarrationPhase.IDLE,
     /** 直近に喋った内容。画面にはこれを出す（音が使えない環境ではテキストが主役になる） */
     val text: String = "",
-    /** 何について喋ったか。星座モードなら星座名、人工衛星モードなら機体名 */
-    val subject: String = "",
+    /**
+     * 何について喋ったか。星座モードなら星座名、**人工衛星モードなら機体名**。
+     * 名前は星座モードのときのままにしてある（画面側のコードを触らずに済むため）。
+     */
+    val constellation: String = "",
 )
 
 /** 解説を頼むときに画面から渡すもの */

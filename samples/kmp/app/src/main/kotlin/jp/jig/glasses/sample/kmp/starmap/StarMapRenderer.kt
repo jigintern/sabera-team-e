@@ -102,12 +102,30 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
 
         // **衛星は「大体どの辺にいるか」の点だけ。軌跡の線は描かない**（決定。satellites.md）。
-        // 線を引くと画面が線で埋まるだけで、どれが衛星かが読めなかった
+        // 線を引くと画面が線で埋まるだけで、どれが衛星かが読めなかった。
+        // ただし点を同じ大きさで並べると「点々」にしか見えないので、3 つ描き分ける。
+        // **名前つき＝大きい点＋輪・スターリンク＝小さい点・動いているもの＝進行方向の矢印**
+        val namedRadius = (3.0 * width / 196.0).roundToInt()
+        val crowdRadius = (1.5 * width / 196.0).roundToInt().coerceAtLeast(1)
         for (track in tracks) {
             val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
-            if (q[0] >= 0 && q[1] >= 0 && q[0] <= width && q[1] <= height) {
-                dot(gray, width, height, q[0], q[1], 255, (3.0 * width / 196.0).roundToInt(), round = true)
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
+            if (!track.labelled) {
+                // スターリンクは群れ。小さく暗くしておくと、名前つきが埋もれない
+                dot(gray, width, height, q[0], q[1], CROWD_VALUE, crowdRadius, round = true)
+                continue
             }
+            dot(gray, width, height, q[0], q[1], 255, namedRadius, round = true)
+            // 輪を回すと「主役」に見える。点だけだと星と同じ扱いに見えてしまう
+            ring(gray, width, height, q, namedRadius + width * RING_GAP, RING_VALUE)
+            // 30 秒後の位置へ向けた矢印。**静止軌道は動かないので矢印が出ない**（それも情報）
+            val motion = track.motion
+            val next = if (motion?.nextAzDeg != null && motion.nextAltDeg != null) {
+                project(enu(motion.nextAzDeg, motion.nextAltDeg), basis, k, width, height)
+            } else {
+                null
+            }
+            if (next != null) arrow(gray, width, height, q, next, namedRadius + width * RING_GAP)
         }
         // 点 → 引き出し線 → 枠つきアイコン。名前はキャンバスのテキストで枠の上に重なる
         val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()
@@ -430,6 +448,53 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return out
     }
 
+    /** 点を囲む輪。折れ線で十分（半径 10px の円に精度は要らない） */
+    private fun ring(gray: ByteArray, width: Int, height: Int, at: DoubleArray, r: Double, value: Int) {
+        var prev: DoubleArray? = null
+        for (i in 0..RING_STEPS) {
+            val a = i * (360.0 / RING_STEPS) * RAD
+            val p = doubleArrayOf(at[0] + r * kotlin.math.cos(a), at[1] + r * sin(a))
+            prev?.let { line(gray, width, height, it, p, value, 0) }
+            prev = p
+        }
+    }
+
+    /**
+     * 進行方向の矢印。**輪の外から描き始める**（点に重ねると位置が読めない）。
+     *
+     * 長さは画面の中で一定にする。30 秒ぶんの実際の移動量をそのまま描くと、
+     * 高いところを通る機体だけ極端に長くなって、向きが読み取りにくい。
+     */
+    private fun arrow(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        at: DoubleArray,
+        toward: DoubleArray,
+        skip: Double,
+    ) {
+        val dx = toward[0] - at[0]
+        val dy = toward[1] - at[1]
+        val len = hypot(dx, dy)
+        // 30 秒でほとんど動かないなら向きが定まらない。静止軌道はここで帰る
+        if (len < ARROW_MIN_MOVE) return
+        val ux = dx / len
+        val uy = dy / len
+        val from = doubleArrayOf(at[0] + ux * skip, at[1] + uy * skip)
+        val tip = doubleArrayOf(at[0] + ux * (skip + width * ARROW_LENGTH), at[1] + uy * (skip + width * ARROW_LENGTH))
+        line(gray, width, height, from, tip, ARROW_VALUE, 0)
+        // かえし。左右に 30° 開く
+        val head = width * ARROW_HEAD
+        for (sign in intArrayOf(1, -1)) {
+            val a = kotlin.math.atan2(uy, ux) + sign * 150.0 * RAD
+            line(
+                gray, width, height, tip,
+                doubleArrayOf(tip[0] + head * kotlin.math.cos(a), tip[1] + head * sin(a)),
+                ARROW_VALUE, 0,
+            )
+        }
+    }
+
     private fun overlaps(a: DoubleArray, b: DoubleArray, size: Int): Boolean =
         a[0] < b[0] + size && b[0] < a[0] + size && a[1] < b[1] + size && b[1] < a[1] + size
 
@@ -593,6 +658,24 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     private companion object {
         /** 星座線は星より暗く。転送量の半分以上を占めるので、間に合わないときはここを間引く */
         const val LINE_VALUE = 110
+
+        /** スターリンクの点。名前つきより暗くして、群れとして見せる */
+        const val CROWD_VALUE = 170
+
+        /** 名前つきの点を囲む輪 */
+        const val RING_VALUE = 200
+        const val RING_STEPS = 16
+
+        /** 点の縁から輪までの距離（画像の幅に対する比） */
+        const val RING_GAP = 0.012
+
+        /** 進行方向の矢印 */
+        const val ARROW_VALUE = 210
+        const val ARROW_LENGTH = 0.055
+        const val ARROW_HEAD = 0.016
+
+        /** 30 秒ぶんの移動がこれ未満なら矢印を出さない[画素]。静止軌道はここで落ちる */
+        const val ARROW_MIN_MOVE = 3.0
 
         /** 輪郭の外形。いちばん明るくして「これは実景ではない」と分かるようにする */
         const val FIGURE_VALUE = 255

@@ -44,7 +44,7 @@ class NarratorTest {
         assertTrue("高度が入っていない: $said", "45" in said)
         assertTrue("肉眼で見えることに触れていない: $said", "肉眼" in said)
         assertEquals(NarrationPhase.SPEAKING, narrator.state.value.phase)
-        assertEquals("ISS", narrator.state.value.subject)
+        assertEquals("ISS", narrator.state.value.constellation)
     }
 
     @Test
