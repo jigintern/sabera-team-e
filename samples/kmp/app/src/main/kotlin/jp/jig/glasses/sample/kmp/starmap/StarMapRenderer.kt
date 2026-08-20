@@ -84,9 +84,10 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
             // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
             val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
-            val value = (255.0 * (0.35 + 0.65 * t)).roundToInt()
-            val radius = if (t < 0.35) 0 else if (t < 0.7) 1 else 2
-            dot(gray, width, height, q[0], q[1], value, radius)
+            val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
+            // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
+            val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
+            dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt())
         }
 
         return StarMap(width, height, gray, labels(d, lst, site, basis, k, width, height, maxLabels))
@@ -217,19 +218,21 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 prev = null
                 continue
             }
-            prev?.let { line(gray, width, height, it, q, LINE_VALUE) }
+            prev?.let { line(gray, width, height, it, q, LINE_VALUE, lineRadius(width)) }
             prev = q
         }
     }
 
-    private fun line(gray: ByteArray, w: Int, h: Int, a: DoubleArray, b: DoubleArray, value: Int) {
+    private fun lineRadius(width: Int): Int = if (width >= 400) 1 else 0
+
+    private fun line(gray: ByteArray, w: Int, h: Int, a: DoubleArray, b: DoubleArray, value: Int, radius: Int) {
         val dx = b[0] - a[0]
         val dy = b[1] - a[1]
         val steps = max(1, ceil(max(kotlin.math.abs(dx), kotlin.math.abs(dy))).toInt())
         if (steps > 4 * (w + h)) return // 視野の裏側へ回り込んだ線分は捨てる
         for (i in 0..steps) {
             val f = i.toDouble() / steps
-            dot(gray, w, h, a[0] + dx * f, a[1] + dy * f, value, 0)
+            dot(gray, w, h, a[0] + dx * f, a[1] + dy * f, value, radius)
         }
     }
 
@@ -250,6 +253,6 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
     private companion object {
         /** 星座線は星より暗く。転送量の半分以上を占めるので、間に合わないときはここを間引く */
-        const val LINE_VALUE = 96
+        const val LINE_VALUE = 110
     }
 }

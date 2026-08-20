@@ -59,4 +59,6 @@ dependencies {
 
     // 座標変換は実機に載せる前に手元で検算する
     testImplementation("junit:junit:4.13.2")
+    // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
+    testImplementation("org.json:json:20240303")
 }

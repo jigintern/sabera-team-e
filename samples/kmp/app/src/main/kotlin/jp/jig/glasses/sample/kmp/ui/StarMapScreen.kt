@@ -298,6 +298,42 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             }
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            SectionTitle("出ないときの切り分け")
+            Text(
+                "上から順に押す。どこまで出るかで原因が分かる",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            CommandButton("① 文字だけ出す（要 2.1.0）") {
+                runCatching {
+                    commandManager.sendCanvas(
+                        listOf(
+                            CommandManager.CanvasElement(
+                                id = 0, x = 40, y = 150, width = 480, height = 60, text = "テスト",
+                            ),
+                        ),
+                    )
+                    status = "① を送った。文字が出なければキャンバス自体が使えない"
+                }.onFailure { status = "① で例外: ${it.message}" }
+            }
+            CommandButton("② テスト画像を出す（要 2.2.0）") {
+                runCatching {
+                    commandManager.sendCanvasImage(
+                        x = 0, y = 0, width = PANEL_WIDTH, height = PANEL_HEIGHT,
+                        grayscale = testPattern(PANEL_WIDTH, PANEL_HEIGHT),
+                    )
+                    status = "② を送った。①が出て②が出なければファームが 2.2.0 未満"
+                }.onFailure { status = "② で例外: ${it.message}" }
+            }
+            CommandButton("③ 画像表示ページで出す（バージョン要件なし）") {
+                runCatching {
+                    commandManager.enterImageDisplayPage()
+                    commandManager.sendImage(196, 196, testPattern(196, 196))
+                    status = "③ を送った。これも出なければ接続かファームそのものを疑う"
+                }.onFailure { status = "③ で例外: ${it.message}" }
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
             Row {
                 Checkbox(checked = showDetails, onCheckedChange = { showDetails = it })
                 Text("細かい設定を出す", Modifier.padding(top = 14.dp))
@@ -336,6 +372,22 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+/** 見落としようのない図形。枠と対角線と中央の塗りつぶしを最大輝度で描く */
+private fun testPattern(w: Int, h: Int): ByteArray {
+    val gray = ByteArray(w * h)
+    val thickness = 6
+    for (y in 0 until h) {
+        for (x in 0 until w) {
+            val onFrame = x < thickness || y < thickness || x >= w - thickness || y >= h - thickness
+            val onDiagonal = kotlin.math.abs(x * h - y * w) < thickness * h ||
+                kotlin.math.abs((w - 1 - x) * h - y * w) < thickness * h
+            val inCenter = kotlin.math.abs(x - w / 2) < w / 8 && kotlin.math.abs(y - h / 2) < h / 8
+            if (onFrame || onDiagonal || inCenter) gray[y * w + x] = 255.toByte()
+        }
+    }
+    return gray
 }
 
 /** 実機で見える色に寄せた確認用。3bit へ落としてから緑に写す（順序を逆にすると階調が狂う） */
