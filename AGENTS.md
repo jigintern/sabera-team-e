@@ -43,6 +43,26 @@
 - team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
 - `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
 
+### SDK には `sources.jar` が付いている（逆アセンブルより先にこれを読む）
+
+**バイナリ配布だが中身は読める。** Gradle Module Metadata に
+`releaseSourcesElements-published` が正式なバリアントとして宣言されているので、
+**`read:packages` の PAT があれば誰でも取れる**（0.0.10 以降のどの版にもある）。
+
+```bash
+cd ~/.gradle/caches/modules-2/files-2.1/jp.jig.sabera.app.sdk/sabera-app-core-android/0.6.0
+unzip -o */*-sources.jar -d /tmp/sabera-src && ls /tmp/sabera-src/commonMain/app/jigglass/glass
+```
+
+- 中身は**実装ごと入った Kotlin ソース**。`PacketCommandUtils.kt` は 1,937 行あり、
+  **電文の組み立てが全部読める**（コマンド表・TLV・分割送信）
+- Android Studio なら依存に付いているので、そのまま定義へ飛べる
+- **`javap` や逆アセンブルは要らない。** キャンバス画像の制限も `SettingKey` の一覧も、
+  もとは AAR を読んで拾ったものだが、いまはソースに書いてある（結論は変わらない）
+- **まだソースを読み直していない `要確認` がいくつも残っている** —
+  `cancelPendingPackets` の実体、`parseResponse` の応答をどこで受け取るのか、
+  `FEATURE_VERSION` の読み出し経路。**まとめて調べる価値が高い**
+
 上流を取り込み直すとき：
 
 ```bash
@@ -242,7 +262,7 @@ fun closeCanvas()
 - 渡し方は `sendImage` と同じ（1 画素 1 バイトのグレースケール。量子化と圧縮は SDK 側）
 - **`x + width` は 576、`y + height` は 360 まで**
 - **id は 0..7 の 8 枚まで。** 同じ id に送ると座標ごと差し替わる。消すのは `removeCanvasImage(id)`
-- 0.6.0 の AAR を逆アセンブルして分かった、SDK が弾く条件（例外は `IllegalArgumentException`）：
+- 0.6.0 のソースで確認した、SDK が弾く条件（例外は `IllegalArgumentException`）：
   `0 <= id < 8` / `width > 0` / `height > 0` / `x >= 0` / `y >= 0` /
   `x + width <= 576` / `y + height <= 360` / **`width * height * 2 + 圧縮後サイズ <= 380,000`**
 - 圧縮は **1 バイトに `(値3bit shl 5) or (連長 - 1)`**、連長は 32 まで、値は画素の上位 3bit。
@@ -311,8 +331,10 @@ val micStreaming: StateFlow<Boolean>
     （`closeCanvas` / `closeLayout` の説明）。**閉じられたことに気づけないまま**
     出しっぱなしの画面が消えるので、送り直せる作りにしておく
 - **逃げ道 — `GlassClient.sendCommand(ByteArray)` / `sendCommandList` / `sendText`**
-  - `CommandManager` に無い操作が要るときの生の経路。**上流の本文は未執筆で、電文の仕様も非公開**
-  - **使う前に SDK チームに聞く。** 自力で電文を組み立てない
+  - `CommandManager` に無い操作が要るときの生の経路。上流のドキュメント本文は未執筆だが、
+    **電文の仕様は `sources.jar` の `PacketCommandUtils` で読める**（上記）
+  - **読めることと、勝手に投げてよいことは別。使う前に SDK チームに聞く。**
+    公開 API に無い電文はファーム側の想定外で、壊し方が分からない
 - **`GlassClient.cancelPendingPackets()` — 送信待ちのパケットを捨てる**
   - 上流の本文は未執筆だが、名前のとおりなら**古い星図フレームを積ませずに捨てられる**
   - 首を振ったときに前のフレームが順番待ちで残る問題への手当てになる
@@ -326,7 +348,7 @@ fun sendSetting(name: String, value: Int)      // Boolean / String / ByteArray �
 fun requestSettingSync()                        // 全設定値の送信を要求。応答は parseResponse
 ```
 
-**上流ドキュメントに設定キーの一覧が無い。** 以下は AAR を `javap` で読んで拾った
+**上流ドキュメントに設定キーの一覧が無い。** 以下は `sources.jar` から拾った
 `CommandManager.SettingKey` の 17 個（値は定数名と同じ。`NOTIFICATION_CONTENT_MASK` だけ
 実値が `NOTIF_CONTENT_MASK`）。**0.6.0 の AAR でも 17 個のまま変わっていない**。
 
@@ -388,7 +410,21 @@ fun sendNaviCourse(courseDegrees: Double)
 ### 取れないもの（0.6.0 時点）
 
 - **カメラ映像** — グラスから画像は取れない
-- **音声出力** — `startMicStreaming` / `openGlassMic` はいずれも入力のみ。**音を鳴らす API は無い**
+- **音声出力** — **グラスから音は出せない。API が無いのではなく、ハードにスピーカーが無い**
+
+  「SDK に API が無いだけで将来足されるかも」と読めてしまうので、根拠を残す。
+  4 層すべてで道が無いことを確認済み（2026-08-20）：
+
+  | 層 | 確認したこと |
+  |---|---|
+  | コマンド表 | `PacketCommandUtils.CMDKey` の全 opcode に**音声出力の命令が無い**。`MIC_COMMAND 0x09` は入力専用 |
+  | BLE サービス | `AUDIO_SERVICE_UUID` にあるのは `AUDIO_NOTIFY_UUID` だけ。**WRITE 特性が無い**ので書き込めない |
+  | 同梱ネイティブ | `jni/*/libopus.so` と `libopusdecoder.so` の**デコーダのみ**。エンコーダが無い |
+  | 実機 | 公開するのは**バッテリーサービスだけ**。A2DP / HFP / LE Audio のどれにも現れず、デバイスクラスは `0x001F00`（uncategorized＝音響機器ではない） |
+
+  - **実機にスピーカーが無いことは team-e が現物で確認した。** 鳴らす先が存在しない
+  - **音はスマホから鳴らす。** 夜の屋外でスピーカーなら同伴者にも聞こえる
+  - スマホに繋いだ Bluetooth イヤホンへ回す案は**見送った**（体験は近いが、機材が増える）
 - **絶対方位** — 6DoF に磁力計は無く、ヨーは起動基準の相対値でドリフトする
   - ただし**外から方位を入れる口は `sendNaviCourse` にある**（上記）。値を作る工程は残る
 
@@ -438,7 +474,7 @@ fun sendNaviCourse(courseDegrees: Double)
     配布先のグラスが同じとは限らないので、**退路（196x196 の画像表示ページ）は残す**
 - `sendNaviCourse` を**方位問題の解決として扱わない**。値を作る工程は残る（上記）
 - **画素数と画角を混同しない。** パネルが 576×360 と分かっても、視野の何度を占めるかは別に確かめる
-- **`SettingKey` の一覧は AAR から読み取ったもの**で、上流ドキュメントには無い。
+- **`SettingKey` の一覧は `sources.jar` から読み取ったもの**で、上流ドキュメントには無い。
   **値の意味と範囲は未確認なので、動作を断定しない**
 
 ## ドキュメントサイトの仕組みと CI の落とし穴
@@ -504,6 +540,9 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
   - **最初の一言「〇〇座ですね」は LLM を待たずに喋る。** 生成の 1〜3 秒はこれで埋まる
   - **タップして無反応が一番よくない。** 未キャリブレーション・地面向き・圏外・キー未設定の
     どの経路でも必ず何か喋る
+- **音の鳴らし先 = スマホのスピーカー。** グラスから鳴らす案は
+  **ハードにスピーカーが無いので不可能**と確定した（根拠は「取れないもの」の節）。
+  スマホに繋いだ Bluetooth イヤホンへ回す案も見送った
 - **解説文の表示先** — グラスには出さない（190 バイトに入らず、星図に重ねると星が読めない）。
   **スマホ画面と音声**に逃がす
 - **API キー** — リポジトリ直下の `.env`（`.gitignore` 済み。テンプレートは追跡している `.env.example`）。
