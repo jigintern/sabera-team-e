@@ -97,6 +97,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -137,6 +138,9 @@ fun StarMapScreen(
         logs.add(0, LogLine(clock.format(Date()), text, failed))
         while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
         sessionLog.append(if (failed) "失敗  " + text else text)
+        // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
+        // 書き出しは屋外用で、机の上では logcat のほうが早い
+        if (failed) Log.w(TAG, text) else Log.d(TAG, text)
     }
 
     LaunchedEffect(Unit) {
@@ -271,10 +275,27 @@ fun StarMapScreen(
     var lastImuAt by remember { mutableStateOf(0L) }
 
     // ドリフト計測の材料。ヨーのずれは「頭を回した」と区別が付かないので、
-    // 合わせた時点の yaw と、そこから振った累積量を両方持っておく。
-    // 机に置いたまま測れば累積量がほぼ 0 になり、yaw の変化がそのままドリフトになる
+    // 合わせた時点の yaw と、そこから振った累積量を両方持っておく
     var yawAtCalibration by remember { mutableStateOf<Double?>(null) }
+
+    // 累積回転には STILL_DEG のデッドバンドを入れる。入れないとサンプルごとの
+    // 揺れ（±0.5° ほど）が積もって、実測で 300°/分 になり動きの目印にならなかった
     var turnedDeg by remember { mutableStateOf(0.0) }
+
+    /**
+     * 静止中のジャイロ。**ドリフトの正体がジャイロバイアスかを確かめるための材料。**
+     *
+     * ヨーのドリフトが実測 0.73°/秒 だったので、`gyroZDps` の平均がこれと一致すれば
+     * 「yaw はジャイロの素の積分」で、引けば直る。一致しなければファームが別の処理を
+     * しているので対策が変わる。
+     *
+     * 幅（最小〜最大）も持つ。**グラスを動かしたかどうかはこれで分かる**
+     * （動かした分ぶんは平均に混ざるので、幅が大きい区間は捨てる）。
+     */
+    var gyroZSum by remember { mutableStateOf(0.0) }
+    var gyroZCount by remember { mutableStateOf(0) }
+    var gyroZMin by remember { mutableStateOf(Double.NaN) }
+    var gyroZMax by remember { mutableStateOf(Double.NaN) }
 
     // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
     val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
@@ -286,7 +307,15 @@ fun StarMapScreen(
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
-                lookHistory.lastOrNull()?.let { turnedDeg += abs(normalizeDeg(glassYaw - it.second)) }
+                lookHistory.lastOrNull()?.let {
+                    val step = abs(normalizeDeg(glassYaw - it.second))
+                    if (step > STILL_DEG) turnedDeg += step
+                }
+                val gyroZ = data.gyroZDps.toDouble()
+                gyroZSum += gyroZ
+                gyroZCount++
+                gyroZMin = if (gyroZMin.isNaN()) gyroZ else min(gyroZMin, gyroZ)
+                gyroZMax = if (gyroZMax.isNaN()) gyroZ else max(gyroZMax, gyroZ)
                 lookHistory.addLast(Triple(lastImuAt, glassYaw, glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
                     lookHistory.removeFirst()
@@ -508,24 +537,49 @@ fun StarMapScreen(
         val baseAt = System.currentTimeMillis()
         turnedDeg = 0.0
         log("ドリフト計測 開始 基準yaw=%.1f°".format(base))
+        var previousYaw = base
+        var previousAt = baseAt
         while (true) {
             delay(DRIFT_LOG_MS)
+            val now = System.currentTimeMillis()
+            // 前の行からの変化を出す。合計だけだと途中で速さが変わったのが分からない
+            val rate = normalizeDeg(glassYaw - previousYaw) / ((now - previousAt) / 60_000.0)
             log(
-                "ドリフト計測 経過=%.1f分 yaw=%.1f° 基準から=%+.1f° 累積回転=%.0f° 静止=%s 磁気方位=%s(%s)"
+                ("ドリフト計測 経過=%.1f分 yaw=%.1f° 基準から=%+.1f° この1分=%+.1f°/分 " +
+                    "累積回転=%.0f° 静止=%s 磁気方位=%s(%s)")
                     .format(
-                        (System.currentTimeMillis() - baseAt) / 60_000.0,
+                        (now - baseAt) / 60_000.0,
                         glassYaw,
                         normalizeDeg(glassYaw - base),
+                        rate,
                         turnedDeg,
                         if (settled) "はい" else "いいえ",
                         // phoneHeading は合わせている間しか更新しないので Compass を直に読む。
                         // スマホを動かせば当然変わる値だが、置いたまま測るときは
                         // 「本当に動いていないか」の裏取りになる
-                        compass.trueHeadingDeg(site, System.currentTimeMillis())
-                            ?.let { "%.1f°".format(it) } ?: "—",
+                        compass.trueHeadingDeg(site, now)?.let { "%.1f°".format(it) } ?: "—",
                         compass.accuracyText(),
                     ),
             )
+            // ジャイロの平均がヨーのドリフト率（度/秒）と一致すれば、バイアスを引けば直る。
+            // 幅が大きい区間はグラスを動かしているので捨てる
+            if (gyroZCount > 0) {
+                log(
+                    "  ジャイロZ 平均=%+.3f°/秒 幅=%.2f°/秒 n=%d（ヨーの実測は %+.3f°/秒）"
+                        .format(
+                            gyroZSum / gyroZCount,
+                            gyroZMax - gyroZMin,
+                            gyroZCount,
+                            rate / 60.0,
+                        ),
+                )
+            }
+            previousYaw = glassYaw
+            previousAt = now
+            gyroZSum = 0.0
+            gyroZCount = 0
+            gyroZMin = Double.NaN
+            gyroZMax = Double.NaN
         }
     }
 
