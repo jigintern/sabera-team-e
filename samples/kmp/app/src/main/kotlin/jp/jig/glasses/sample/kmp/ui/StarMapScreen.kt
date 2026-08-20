@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.darkColorScheme
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -61,8 +63,12 @@ import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.NarrationPhase
 import jp.jig.glasses.sample.kmp.ai.Narrator
 import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
+import jp.jig.glasses.sample.kmp.satellite.Observer
+import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.Compass
+import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
@@ -71,8 +77,10 @@ import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.Site
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
+import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
 import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
+import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -199,7 +207,33 @@ fun StarMapScreen(
     val imageSize = ImageSize.MAX
     val showLabels = true
     var showDetails by remember { mutableStateOf(false) }
+
+    // 星座モードと人工衛星モードを行き来する。切り替えは上のボタンとグラスのダブルタップ
     var satelliteMode by remember { mutableStateOf(false) }
+    var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
+    var satellitesAbove by remember { mutableStateOf(0) }
+    var starlinkAbove by remember { mutableStateOf(0) }
+    var sightings by remember { mutableStateOf<List<SatelliteScene.Sighting>>(emptyList()) }
+    var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
+
+    // 衛星の輪郭。実物大ではないアイコンなので、邪魔なら切れるようにしておく
+    var showFigures by remember { mutableStateOf(true) }
+
+    // いま出ている画像を「どの視線・どの画角で焼いたか」。印だけ動かすときにこの座標系へ乗せる
+    var drawnLook by remember { mutableStateOf<Look?>(null) }
+    var drawnFov by remember { mutableStateOf(0.0) }
+
+    // 10,748 機ぶんあるので IO で読む。読み終わるまで衛星モードには入れない
+    LaunchedEffect(Unit) {
+        val loaded = withContext(Dispatchers.IO) { SatelliteScene.load(context) }
+        satellites = loaded
+        if (loaded.loaded) {
+            log("人工衛星の軌道要素を読んだ")
+        } else {
+            // assets に TLE が入っていない。data/ を assets に足す設定が外れると起きる
+            log("人工衛星の軌道要素が読めない（data/satellites.tle が無い）", failed = true)
+        }
+    }
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
@@ -247,10 +281,36 @@ fun StarMapScreen(
             // 切断しない限りグラス側は送り続ける。画面を出るときに止めないと、
             // 他の画面でも 10Hz のサンプルが BLE を流れ続ける
             commandManager.stopImuData()
+            // 戻るキー・切断・アプリ終了で抜けたときに古い星図が出たままになる。
+            // 閉じる手段はリモコンの戻るだけなので、ここで閉じる
+            runCatching { commandManager.closeCanvas() }
         }
     }
 
     LaunchedEffect(Unit) { commandManager.startImuData() }
+
+    // スマホ側の一覧。衛星モードなら 3 秒、星座モードなら 15 秒ごとに作り直す
+    LaunchedEffect(satellites, satelliteMode, latText, lonText) {
+        val scene = satellites ?: return@LaunchedEffect
+        while (true) {
+            val now = System.currentTimeMillis()
+            val observer = Observer(site.latDeg, site.lonDeg)
+            val computed = withContext(Dispatchers.Default) {
+                Triple(
+                    scene.aboveHorizon(observer, now),
+                    // 星座モードでは出さない値なので数えない。10,748 機の伝播が丸ごと浮く
+                    if (satelliteMode) scene.starlinkAboveHorizon(observer, now) else 0,
+                    sunAltitudeDeg(site, now),
+                )
+            }
+            sightings = computed.first
+            satellitesAbove = computed.first.size
+            starlinkAbove = computed.second
+            skyDarkness = SkyDarkness.of(computed.third)
+            // 10,748 機を数え直すので、毎秒はやりすぎ。衛星の位置は 3 秒で 3° ほどしか動かない
+            delay(if (satelliteMode) 3_000 else 15_000)
+        }
+    }
 
     // 送信は呼び出しから見ると積むだけで終わる。転送しきる前に次を入れると順番待ちが伸びるので、
     // 見積り時間ぶんは次を入れずに捨てる
@@ -265,23 +325,40 @@ fun StarMapScreen(
         return Look((normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0, entry.third)
     }
 
-    suspend fun drawAndSend() {
-        val r = renderer ?: return
-        if (!sendGate.tryLock()) return
+    /** 送れたら true。送らずに帰ったときに「描いた視線」を進めると、次の描き直しが止まる */
+    suspend fun drawAndSend(): Boolean {
+        val r = renderer ?: return false
+        if (!sendGate.tryLock()) return false
         sending = true
         try {
             val started = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            val scene = satellites
+            // 衛星モードのときだけ位置を出す。10,748 機を回しても数十 ms で終わる
+            val tracks = if (satelliteMode && scene != null) {
+                withContext(Dispatchers.Default) {
+                    val observer = Observer(site.latDeg, site.lonDeg)
+                    scene.tracksInView(observer, now, look(), fov.toDouble())
+                }
+            } else {
+                emptyList()
+            }
             val map = withContext(Dispatchers.Default) {
                 r.render(
                     site = site,
-                    epochMillis = System.currentTimeMillis(),
+                    epochMillis = now,
                     look = look(),
                     fovDeg = fov.toDouble(),
                     limitMagnitude = limitMag.toDouble(),
                     width = imageSize.width,
                     height = imageSize.height,
-                    drawLines = drawLines,
+                    // 衛星モードでは星も星座線も出さない。同じ緑 8 階調なので、
+                    // 星を残すと衛星の点がその中に紛れて「どれが衛星か」が読めない
+                    drawLines = drawLines && !satelliteMode,
                     maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
+                    tracks = tracks,
+                    drawStars = !satelliteMode,
+                    drawFigures = showFigures,
                 )
             }
             renderMs = System.currentTimeMillis() - started
@@ -296,7 +373,7 @@ fun StarMapScreen(
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
                 log("バッファ超過 $used > $IMAGE_BUFFER_BYTES バイト。大きさを 1 段下げる", failed = true)
                 Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used")
-                return
+                return false
             }
 
             val sendStarted = System.currentTimeMillis()
@@ -310,11 +387,21 @@ fun StarMapScreen(
                 height = map.height,
                 grayscale = map.gray,
             )
-            val placed = map.toCanvasElements()
+            // 衛星モードで視野に 1 機も無いと真っ黒な絵だけが出る。
+            // 切り替わったのか壊れたのか見分けが付かないので、そのことを書いておく
+            val shown = if (satelliteMode && tracks.isEmpty()) {
+                StarMap(map.width, map.height, map.gray, listOf(Label("衛星なし", map.width / 2, map.height / 2)))
+            } else {
+                map
+            }
+            val placed = shown.toCanvasElements()
             for (batch in placed.batched(shownLabels)) {
                 commandManager.sendCanvasElements(batch)
             }
             shownLabels = placed.size
+            // 印だけ動かすために、この画像を焼いた条件を覚えておく
+            drawnLook = look()
+            drawnFov = fov.toDouble()
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
@@ -322,6 +409,7 @@ fun StarMapScreen(
             val l = look()
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
+                    (if (satelliteMode) "衛星${tracks.size}機 " else "") +
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
             )
             Log.d(TAG, "送信 ${map.width}x${map.height} 圧縮後=${compressed}B 使用=${used}B")
@@ -340,12 +428,14 @@ fun StarMapScreen(
             }
             waitMs = if (freed > 0) freed else System.currentTimeMillis() - sendStarted
             Log.d(TAG, "待ち ${waitMs}ms（見積り ${transferMs + SETTLE_MS}ms / 6DoF で打ち切り=${freed > 0}）")
+            return true
         } catch (e: CancellationException) {
             // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
             log("失敗: ${e.message}", failed = true)
             Log.e(TAG, "drawAndSend で失敗", e)
+            return false
         } finally {
             sending = false
             sendGate.unlock()
@@ -360,8 +450,8 @@ fun StarMapScreen(
      * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
      */
     var settled by remember { mutableStateOf(true) }
-    LaunchedEffect(renderer, imageSize, fov, limitMag, drawLines, showLabels, calibrating, satelliteMode) {
-        if (renderer == null || calibrating || satelliteMode) return@LaunchedEffect
+    LaunchedEffect(renderer, calibrating, satelliteMode, showFigures) {
+        if (renderer == null || calibrating) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
@@ -375,8 +465,9 @@ fun StarMapScreen(
                 max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
             } ?: Double.MAX_VALUE
             if (settled && drift > REDRAW_DEG) {
-                drawAndSend()
-                drawn = look()
+                // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
+                // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
+                if (drawAndSend()) drawn = look()
             }
             delay(POLL_MS)
         }
@@ -414,6 +505,57 @@ fun StarMapScreen(
         }
     }
 
+    /**
+     * 衛星の印だけ送り直す。
+     *
+     * **衛星は 1 秒に 1° 動くのに、画像は 1 枚 0.5 秒かかって、その間グラスは前の絵を消す。**
+     * 首が止まっている間じゅう画像を送り直すと点滅するだけなので、
+     * 位置が変わるテキスト要素（1 パケット・数十 ms）だけを送る。
+     */
+    suspend fun moveMarkers() {
+        val r = renderer ?: return
+        val scene = satellites ?: return
+        val baseLook = drawnLook ?: return
+        val map = lastMap ?: return
+        if (!satelliteMode || calibrating) return
+        // 画像を送っている最中なら邪魔しない。次の機会に送ればよい
+        if (!sendGate.tryLock()) return
+        try {
+            val now = System.currentTimeMillis()
+            val moved = withContext(Dispatchers.Default) {
+                val observer = Observer(site.latDeg, site.lonDeg)
+                // 輪郭は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
+                // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない。
+                // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）
+                val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
+                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh, showFigures)
+            }
+            if (moved.isEmpty()) return
+            // 衛星モードは星座名を出さないので、送り直すのは印だけ。
+            // 前のフレームより数が減ったぶんは batched が空文字で消す
+            val elements = StarMap(map.width, map.height, map.gray, moved).toCanvasElements()
+            for (batch in elements.batched(shownLabels)) {
+                commandManager.sendCanvasElements(batch)
+            }
+            shownLabels = elements.size
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            log("印の更新で失敗: ${e.message}", failed = true)
+        } finally {
+            sendGate.unlock()
+        }
+    }
+
+    // 衛星モードのあいだ、印だけを動かし続ける
+    LaunchedEffect(satelliteMode, calibrating) {
+        if (!satelliteMode || calibrating) return@LaunchedEffect
+        while (true) {
+            delay(MARKER_INTERVAL_MS)
+            moveMarkers()
+        }
+    }
+
     // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない
     val speaker = remember { Speaker(context) }
     DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
@@ -427,6 +569,7 @@ fun StarMapScreen(
     }
     val narration by narrator.state.collectAsState()
     val speaking by speaker.speaking.collectAsState()
+    val ttsAvailable by speaker.available.collectAsState()
 
     // 読み上げが終わったら待機に戻す。TextToSpeech の完了通知は Speaker が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
@@ -435,6 +578,11 @@ fun StarMapScreen(
         if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
             log("OPENAI_API_KEY が設定されていない（.env を作る）", failed = true)
         }
+    }
+
+    LaunchedEffect(ttsAvailable) {
+        // 黙っている理由が分からないのがいちばん困る。使えないなら言う
+        if (ttsAvailable == false) log("読み上げが使えない（日本語の音声データが無い）", failed = true)
     }
 
     var narrationJob by remember { mutableStateOf<Job?>(null) }
@@ -447,6 +595,37 @@ fun StarMapScreen(
             return
         }
         val latched = latchedLook()
+
+        // **衛星モードでは星座を喋らない。** グラスに出ているのは衛星の点と輪郭で、
+        // 星は 1 つも描いていない。星座の解説を返すと、見えているものと食い違う
+        if (satelliteMode) {
+            val scene = satellites
+            if (scene == null || !scene.loaded) {
+                log("軌道要素が読めていない", failed = scene != null)
+                return
+            }
+            narrationJob = scope.launch {
+                val inView = withContext(Dispatchers.Default) {
+                    val observer = Observer(site.latDeg, site.lonDeg)
+                    // 名前つきだけ。スターリンクは名前を読み上げても意味がない
+                    scene.tracksInView(
+                        observer, System.currentTimeMillis(), latched, fov.toDouble(), maxStarlink = 0,
+                    ).map {
+                        SatellitePass(
+                            name = it.name,
+                            azDeg = it.nowAzDeg,
+                            altDeg = it.nowAltDeg,
+                            sunlit = it.sunlit,
+                            closestInMinutes = it.motion?.closestInMinutes,
+                            stationary = it.motion?.stationary ?: false,
+                        )
+                    }
+                }
+                narrator.narrateSatellites(inView)
+            }
+            return
+        }
+
         narrationJob = scope.launch {
             val names = withContext(Dispatchers.Default) {
                 r.constellationsNear(site, System.currentTimeMillis(), latched)
@@ -475,6 +654,21 @@ fun StarMapScreen(
         log("解説を止めた")
     }
 
+    /** モードの切り替え。上のボタンとグラスのダブルタップで同じことをする */
+    fun toggleSatelliteMode() {
+        val scene = satellites
+        if (scene == null || !scene.loaded) {
+            log("軌道要素が読めていない", failed = scene != null)
+            return
+        }
+        satelliteMode = !satelliteMode
+        // 切り替えの準備中に前のモードの絵を残すと、切り替わったように見えない
+        commandManager.clearCanvas()
+        shownLabels = 0
+        drawnLook = null
+        log(if (satelliteMode) "人工衛星モードへ" else "星座モードへ")
+    }
+
     /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
     fun toggleNarration() {
         if (narrator.busy || speaking) stopNarration() else startNarration()
@@ -486,7 +680,24 @@ fun StarMapScreen(
             commandManager.gestureEvents.collect { gesture ->
                 when (gesture) {
                     GestureType.SINGLE_TAP -> toggleNarration()
-                    // DOUBLE_TAP（もっと詳しく）と HOLD（方位合わせ）は仕様にあるが未実装
+
+                    // 「もっと詳しく」に当てていた枠。人工衛星モードとの切り替えに使う
+                    GestureType.DOUBLE_TAP -> {
+                        if (calibrating) {
+                            // 合わせている間に切り替えると、十字を消したあとに
+                            // 思っていないモードの星図が出てくる
+                            log("方位合わせ中はモードを切り替えない")
+                        } else {
+                            toggleSatelliteMode()
+                        }
+                    }
+
+                    // 仕様どおり長押しは方位合わせ。いつでも呼べる必要がある
+                    GestureType.HOLD -> {
+                        calibrating = true
+                        log("方位合わせへ（長押し）")
+                    }
+
                     else -> log("ジェスチャー ${gesture.name}（未割り当て）")
                 }
             }
@@ -527,14 +738,7 @@ fun StarMapScreen(
                 actions = {
                     if (!showDetails) {
                         TextButton(
-                            onClick = {
-                                satelliteMode = !satelliteMode
-                                if (satelliteMode) {
-                                    // 衛星画面の準備中に星図を残すと切り替わったように見えないため消す
-                                    commandManager.clearCanvas()
-                                    shownLabels = 0
-                                }
-                            },
+                            onClick = { toggleSatelliteMode() },
                             colors = ButtonDefaults.textButtonColors(
                                 containerColor = if (satelliteMode) Color(0xFF2D6A4F) else Color.Transparent,
                             ),
@@ -554,16 +758,142 @@ fun StarMapScreen(
         ) {
             if (!showDetails) {
             if (satelliteMode) {
-                Card(
-                    Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+            // **星座モードと同じ並びにする**（見出し → プレビュー → 一言 → カード → ボタン 2 つ）。
+            // 中身だけ衛星に差し替える
+            if (satellites == null) {
+                LoadingLine("人工衛星の軌道要素を読み込み中", color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(12.dp))
+            }
+
+            Text("グラスに表示している人工衛星", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(4.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Color.Black)) {
+                val shot = preview
+                Box(Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())) {
+                    if (shot != null) {
+                        Image(
+                            bitmap = shot.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxWidth().background(Color.Black),
+                        )
+                    } else {
+                        LoadingPanel(
+                            text = if (sending) "1 枚目を送信中（約 $transferMs ms）" else "送信を待っている",
+                            hint = "首を止めると送ります（0.4 秒じっとする）",
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    if (sending && shot != null) {
+                        // 転送中はグラスから絵が消える。プレビューは前の絵なので、その食い違いを出す
+                        SendingChip(
+                            "送信中（グラスは一時的に消える）",
+                            Modifier.align(Alignment.TopStart).padding(8.dp),
+                        )
+                    }
+                }
+            }
+            Text(
+                // 星座モードと同じ 1 行に畳む。**見えない理由（昼・影）はここで先に伝える**
+                "点が位置、枠のアイコンが機体。向きを止めると更新します" +
+                    "（頭上：名前つき $satellitesAbove 機 / スターリンク $starlinkAbove 機・" +
+                    when (skyDarkness) {
+                        SkyDarkness.DAY -> "昼なので肉眼では見えない）"
+                        SkyDarkness.CIVIL -> "薄明。明るいものだけ見える）"
+                        SkyDarkness.NIGHT -> "夜）"
+                    },
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Text("いま空に出ている", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState()).padding(12.dp),
                 ) {
+                    if (sightings.isEmpty()) {
+                        Text("名前つきの衛星が空に出ていない", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    for (sighting in sightings) {
+                        Text(
+                            "${if (sighting.sunlit) "●" else "○"} ${sighting.name}　${sighting.where}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        // 「上昇中・最接近まで 3 分」。点の位置だけでは待つ価値が分からない
+                        if (sighting.timing.isNotEmpty()) {
+                            Text(
+                                "　　${sighting.timing}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "衛星モードは準備中です",
-                        modifier = Modifier.padding(24.dp),
-                        style = MaterialTheme.typography.titleMedium,
+                        "● は日が当たっていて肉眼でも見える可能性がある。○ は地球の影",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            Text("衛星の案内", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+            ) {
+                Column(Modifier.padding(12.dp)) {
+                    Text(
+                        when {
+                            narration.phase == NarrationPhase.SPEAKING || speaking -> "読み上げています"
+                            ttsAvailable == false -> "読み上げが使えません（日本語の音声データが無い）"
+                            // 端末の計算だけで案内するので、AI のキーが無くても喋れる
+                            else -> "グラスのツルを1回タップすると、視野の衛星を案内します"
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (narration.constellation.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(narration.constellation, style = MaterialTheme.typography.titleLarge)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        narration.text,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 160.dp)
+                            .verticalScroll(rememberScrollState()),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (narration.phase == NarrationPhase.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = { toggleNarration() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = Color(0xFF07140D),
+                ),
+            ) {
+                Text(if (narrator.busy || speaking) "案内を止める" else "この空の衛星を案内する")
+            }
+            OutlinedButton(
+                onClick = onRecalibrate,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("方位を合わせ直す") }
             } else {
             if (renderer == null) {
                 Text("星表を読み込み中…")
@@ -887,6 +1217,14 @@ private const val LATCH_MS = 500L
 
 /** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
 private const val HISTORY_MS = 3_000L
+
+/**
+ * 衛星の印を動かす間隔。
+ *
+ * 天頂を通る衛星は 1 秒に 1°（画面では 15 画素）動く。
+ * 1.5 秒ごとなら 20 画素ほどの遅れで、テキストは 1 パケットなので転送も邪魔しない。
+ */
+private const val MARKER_INTERVAL_MS = 1_500L
 
 /** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
 private const val STILL_DEG = 1.0

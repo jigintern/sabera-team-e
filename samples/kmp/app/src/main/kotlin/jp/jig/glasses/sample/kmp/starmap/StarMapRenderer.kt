@@ -60,6 +60,12 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         height: Int = PANEL_HEIGHT,
         drawLines: Boolean = true,
         maxLabels: Int = 8,
+        tracks: List<SkyTrack> = emptyList(),
+        // 人工衛星モードでは星を出さない。星と衛星の点が同じ緑 8 階調なので、
+        // 重ねると「どれが衛星か」が分からなくなる（星座モードは逆に衛星を渡さない）
+        drawStars: Boolean = true,
+        // 主役 1 機の輪郭を出すか。実機で読めるかを確かめられるよう切れるようにしてある
+        drawFigures: Boolean = true,
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -78,22 +84,72 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             }
         }
 
-        for (i in catalog.stars.indices) {
-            val star = catalog.stars[i]
-            if (star.magnitude > limitMagnitude) continue
-            val p = precessed.stars[i]
-            val aa = toAltAz(p[0], p[1], lst, site.latDeg)
-            val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
-            if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
-            // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
-            val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
-            val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
-            // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
-            val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
-            dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+        if (drawStars) {
+            for (i in catalog.stars.indices) {
+                val star = catalog.stars[i]
+                if (star.magnitude > limitMagnitude) continue
+                val p = precessed.stars[i]
+                val aa = toAltAz(p[0], p[1], lst, site.latDeg)
+                val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
+                if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
+                // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
+                val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
+                val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
+                // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
+                val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
+                dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+            }
         }
 
-        return StarMap(width, height, gray, labels(precessed, lst, site, basis, k, width, height, maxLabels))
+        // **衛星は「大体どの辺にいるか」の点だけ。軌跡の線は描かない**（決定。satellites.md）。
+        // 線を引くと画面が線で埋まるだけで、どれが衛星かが読めなかった。
+        // ただし点を同じ大きさで並べると「点々」にしか見えないので、3 つ描き分ける。
+        // **名前つき＝大きい点＋輪・スターリンク＝小さい点・動いているもの＝進行方向の矢印**
+        val namedRadius = (3.0 * width / 196.0).roundToInt()
+        val crowdRadius = (1.5 * width / 196.0).roundToInt().coerceAtLeast(1)
+        for (track in tracks) {
+            val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
+            if (!track.labelled) {
+                // スターリンクは群れ。小さく暗くしておくと、名前つきが埋もれない
+                dot(gray, width, height, q[0], q[1], CROWD_VALUE, crowdRadius, round = true)
+                continue
+            }
+            dot(gray, width, height, q[0], q[1], 255, namedRadius, round = true)
+            // 輪を回すと「主役」に見える。点だけだと星と同じ扱いに見えてしまう
+            ring(gray, width, height, q, namedRadius + width * RING_GAP, RING_VALUE)
+            // 30 秒後の位置へ向けた矢印。**静止軌道は動かないので矢印が出ない**（それも情報）
+            val motion = track.motion
+            val next = if (motion?.nextAzDeg != null && motion.nextAltDeg != null) {
+                project(enu(motion.nextAzDeg, motion.nextAltDeg), basis, k, width, height)
+            } else {
+                null
+            }
+            if (next != null) arrow(gray, width, height, q, next, namedRadius + width * RING_GAP)
+        }
+        // 点 → 引き出し線 → 枠つきアイコン。名前はキャンバスのテキストで枠の上に重なる
+        val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()
+        for (callout in callouts) {
+            leader(gray, width, height, callout)
+            frame(gray, width, height, callout.box, callout.size)
+            drawFigure(
+                gray, width, height, SatelliteFigure.of(callout.track.name),
+                doubleArrayOf(callout.box[0] + callout.size * ICON_PAD, callout.box[1] + callout.size * ICON_PAD),
+                (callout.size * (1.0 - 2 * ICON_PAD)).roundToInt(),
+            )
+        }
+
+        // 名前の置き場所は上で決めた吹き出しに合わせる（同じ引数なので同じ答えになる）
+        val trackLabels = trackLabels(look, fovDeg, width, height, tracks, drawFigures)
+
+        val starLabels = if (drawStars) {
+            labels(precessed, lst, site, basis, k, width, height, maxLabels)
+        } else {
+            emptyList()
+        }
+        // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
+        val merged = (trackLabels + starLabels).take(maxLabels.coerceAtLeast(trackLabels.size))
+        return StarMap(width, height, gray, merged)
     }
 
     /**
@@ -269,6 +325,250 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     /**
+     * 衛星のいまの位置を、画像の上のどこに置くかだけ出す。
+     *
+     * **画像を焼き直さずにテキストだけ送るため**に切り出してある。
+     * 衛星は 1 秒に 1° 動くのに画像は 1 枚 0.5 秒かかるので、
+     * 首が止まっている間はここだけを送り直す。
+     *
+     * `look` は**画像を描いたときの視線**を渡す。いまの視線ではない
+     * （画像がその向きで焼かれているので、印もその座標系に乗せる必要がある）。
+     */
+    fun trackLabels(
+        look: Look,
+        fovDeg: Double,
+        width: Int,
+        height: Int,
+        tracks: List<SkyTrack>,
+        drawFigures: Boolean = true,
+    ): List<Label> {
+        val basis = Basis(look.azDeg, look.altDeg)
+        val k = projectionScale(width, fovDeg)
+        // 吹き出しを出す機体は、名前も枠の上に置く。**同じ計算を使わないと絵と名前がずれる**
+        val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()
+        val labels = ArrayList<Label>()
+        for (track in tracks) {
+            if (!track.labelled) continue
+            val callout = callouts.firstOrNull { it.track === track }
+            // **吹き出しが無い機体には名前を出さない。** 枠の上に出る名前と、点のところに出る
+            // 名前が近くに並ぶと、重なったほうが落ちて「枠だけ・名前だけ」になる。
+            // 輪郭を切っているときは、名前は点のところに出す（それしか手が無い）
+            if (drawFigures && callout == null) continue
+            val at = callout?.label
+                ?: project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height)
+                ?: continue
+            if (at[0] < 0 || at[1] < 0 || at[0] > width || at[1] > height) continue
+            // 日が当たっているものは塗り、影のものは輪郭。肉眼で見えるかどうかの区別
+            val mark = if (track.sunlit) "●" else "○"
+            // **「あと何分で最接近」を名前の後ろに足す。** 点だけでは待てばいいのか分からない。
+            // 近づいているときだけ出す（過ぎた機体に数字を出しても意味がない）。
+            // 文字数が増えるとラベルが重なって落ちるので、10 分以内に絞る
+            val soon = track.motion?.closestInMinutes
+                ?.takeIf { it > 0.0 && it <= LABEL_SOON_MIN }
+                ?.let { " ${max(1, ceil(it).toInt())}分" }
+                .orEmpty()
+            labels += Label(mark + track.name + soon, at[0].roundToInt(), at[1].roundToInt())
+        }
+        return labels
+    }
+
+    /**
+     * 名前つき衛星 1 機ぶんの吹き出し。
+     *
+     * **点 →（斜め ＋ 横の）引き出し線 → 枠つきアイコン、その上に名前**の並び
+     * （手描きのデザインどおり）。名前は画像に焼かずキャンバスのテキストで重ねるので、
+     * ここでは**名前を置く点**だけ返す。
+     */
+    private class Callout(
+        val track: SkyTrack,
+        /** 衛星の位置。ここが「大体どの辺にいるか」 */
+        val dot: DoubleArray,
+        /** アイコンの枠。左上の座標 */
+        val box: DoubleArray,
+        val size: Int,
+        /** 名前を置く点（枠の上、中央） */
+        val label: DoubleArray,
+    )
+
+    /**
+     * 吹き出しの置き場所を決める。**描画とラベルで同じ答えが要る**ので、
+     * [render] と [trackLabels] の両方からこれを呼ぶ（別々に決めると絵と名前がずれる）。
+     *
+     * 斜め 4 方向を順に試して、名前ごと画像に収まる最初の場所を取る。
+     * すでに置いた吹き出しや、ほかの機体の点に重なるなら諦める
+     * （無理に出すより出さないほうがよい）。
+     */
+    private fun callouts(
+        basis: Basis,
+        k: Double,
+        width: Int,
+        height: Int,
+        tracks: List<SkyTrack>,
+    ): List<Callout> {
+        val cx = width / 2.0
+        val cy = height / 2.0
+        // 視野中心に近い順。混み合ったときに残すのは真ん中の機体
+        val candidates = tracks.asSequence()
+            .filter { it.labelled }
+            .mapNotNull { track ->
+                val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height)
+                if (q == null || q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) null else track to q
+            }
+            .sortedBy { (_, q) -> hypot(q[0] - cx, q[1] - cy) }
+            .toList()
+
+        val size = (width * 0.13).roundToInt().coerceIn(32, 76)
+        val diagonal = size * ELBOW_DIAGONAL
+        val stem = size * ELBOW_STEM
+        val out = ArrayList<Callout>()
+        for ((track, dot) in candidates) {
+            if (out.size >= FIGURE_SLOTS) break
+            // 1 機目と 2 機目で最初に試す向きを変える。同じ側に寄せると名前が重なる
+            val sides = if (out.size % 2 == 0) ELBOW_SIDES else ELBOW_SIDES.drop(1) + ELBOW_SIDES.first()
+            for ((sx, sy) in sides) {
+                // 引き出し線の折れ点までの伸び。横は枠の手前まで
+                val endX = dot[0] + sx * (LEADER_GAP + diagonal + stem)
+                val endY = dot[1] + sy * (LEADER_GAP + diagonal)
+                val box = doubleArrayOf(if (sx > 0) endX else endX - size, endY - size / 2.0)
+                // 名前は枠の上に出るので、そのぶんの余白も要る
+                if (box[0] < 2.0 || box[0] + size > width - 2) continue
+                if (box[1] - LABEL_BOX_HEIGHT < 2.0 || box[1] + size > height - 2) continue
+                if (out.any { overlaps(it.box, box, size) }) continue
+                if (candidates.any { (_, other) -> other !== dot && covers(box, size, other) }) continue
+                out += Callout(
+                    track = track,
+                    dot = dot,
+                    box = box,
+                    size = size,
+                    label = doubleArrayOf(box[0] + size / 2.0, box[1] - LABEL_BOX_HEIGHT / 2.0 - 2.0),
+                )
+                break
+            }
+        }
+        return out
+    }
+
+    /** 点を囲む輪。折れ線で十分（半径 10px の円に精度は要らない） */
+    private fun ring(gray: ByteArray, width: Int, height: Int, at: DoubleArray, r: Double, value: Int) {
+        var prev: DoubleArray? = null
+        for (i in 0..RING_STEPS) {
+            val a = i * (360.0 / RING_STEPS) * RAD
+            val p = doubleArrayOf(at[0] + r * kotlin.math.cos(a), at[1] + r * sin(a))
+            prev?.let { line(gray, width, height, it, p, value, 0) }
+            prev = p
+        }
+    }
+
+    /**
+     * 進行方向の矢印。**輪の外から描き始める**（点に重ねると位置が読めない）。
+     *
+     * 長さは画面の中で一定にする。30 秒ぶんの実際の移動量をそのまま描くと、
+     * 高いところを通る機体だけ極端に長くなって、向きが読み取りにくい。
+     */
+    private fun arrow(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        at: DoubleArray,
+        toward: DoubleArray,
+        skip: Double,
+    ) {
+        val dx = toward[0] - at[0]
+        val dy = toward[1] - at[1]
+        val len = hypot(dx, dy)
+        // 30 秒でほとんど動かないなら向きが定まらない。静止軌道はここで帰る
+        if (len < ARROW_MIN_MOVE) return
+        val ux = dx / len
+        val uy = dy / len
+        val from = doubleArrayOf(at[0] + ux * skip, at[1] + uy * skip)
+        val tip = doubleArrayOf(at[0] + ux * (skip + width * ARROW_LENGTH), at[1] + uy * (skip + width * ARROW_LENGTH))
+        line(gray, width, height, from, tip, ARROW_VALUE, 0)
+        // かえし。左右に 30° 開く
+        val head = width * ARROW_HEAD
+        for (sign in intArrayOf(1, -1)) {
+            val a = kotlin.math.atan2(uy, ux) + sign * 150.0 * RAD
+            line(
+                gray, width, height, tip,
+                doubleArrayOf(tip[0] + head * kotlin.math.cos(a), tip[1] + head * sin(a)),
+                ARROW_VALUE, 0,
+            )
+        }
+    }
+
+    private fun overlaps(a: DoubleArray, b: DoubleArray, size: Int): Boolean =
+        a[0] < b[0] + size && b[0] < a[0] + size && a[1] < b[1] + size && b[1] < a[1] + size
+
+    private fun covers(box: DoubleArray, size: Int, point: DoubleArray): Boolean =
+        point[0] >= box[0] && point[0] <= box[0] + size && point[1] >= box[1] && point[1] <= box[1] + size
+
+    /** 点から枠へ。**斜めに離してから横に振る**（手描きのデザインどおり） */
+    private fun leader(gray: ByteArray, width: Int, height: Int, callout: Callout) {
+        val dot = callout.dot
+        val toRight = callout.box[0] > dot[0]
+        val nearX = if (toRight) callout.box[0] else callout.box[0] + callout.size
+        val endY = callout.box[1] + callout.size / 2.0
+        val sx = if (toRight) 1.0 else -1.0
+        val sy = if (endY < dot[1]) -1.0 else 1.0
+        val diagonal = callout.size * ELBOW_DIAGONAL
+        val from = doubleArrayOf(dot[0] + sx * LEADER_GAP, dot[1] + sy * LEADER_GAP)
+        val corner = doubleArrayOf(dot[0] + sx * (LEADER_GAP + diagonal), dot[1] + sy * (LEADER_GAP + diagonal))
+        line(gray, width, height, from, corner, LEADER_VALUE, 0)
+        line(gray, width, height, corner, doubleArrayOf(nearX, corner[1]), LEADER_VALUE, 0)
+    }
+
+    /** アイコンを囲む角丸の枠。枠があると「これは実景ではない」と一目で分かる */
+    private fun frame(gray: ByteArray, width: Int, height: Int, box: DoubleArray, size: Int) {
+        val r = size * BOX_RADIUS
+        val x0 = box[0]
+        val y0 = box[1]
+        val x1 = box[0] + size
+        val y1 = box[1] + size
+        line(gray, width, height, doubleArrayOf(x0 + r, y0), doubleArrayOf(x1 - r, y0), FRAME_VALUE, 0)
+        line(gray, width, height, doubleArrayOf(x0 + r, y1), doubleArrayOf(x1 - r, y1), FRAME_VALUE, 0)
+        line(gray, width, height, doubleArrayOf(x0, y0 + r), doubleArrayOf(x0, y1 - r), FRAME_VALUE, 0)
+        line(gray, width, height, doubleArrayOf(x1, y0 + r), doubleArrayOf(x1, y1 - r), FRAME_VALUE, 0)
+        // 角は 4 分割の折れ線で十分。半径 14px の円弧に精度は要らない
+        val corners = listOf(
+            Triple(x0 + r, y0 + r, 180.0),
+            Triple(x1 - r, y0 + r, 270.0),
+            Triple(x1 - r, y1 - r, 0.0),
+            Triple(x0 + r, y1 - r, 90.0),
+        )
+        for ((ccx, ccy, from) in corners) {
+            var prev: DoubleArray? = null
+            for (i in 0..4) {
+                val a = (from + i * 22.5) * RAD
+                val p = doubleArrayOf(ccx + r * kotlin.math.cos(a), ccy + r * sin(a))
+                prev?.let { line(gray, width, height, it, p, FRAME_VALUE, 0) }
+                prev = p
+            }
+        }
+    }
+
+    private fun drawFigure(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        figure: SatelliteFigure,
+        box: DoubleArray,
+        size: Int,
+    ) {
+        // 外形だけ太くする。桟まで太くすると 96 画素では潰れる
+        val thick = if (size >= 80) 1 else 0
+        for (stroke in figure.strokes) {
+            val value = if (stroke.strong) FIGURE_VALUE else FIGURE_INNER_VALUE
+            val radius = if (stroke.strong) thick else 0
+            val pts = stroke.points.map { doubleArrayOf(box[0] + it[0] * size, box[1] + it[1] * size) }
+            for (i in 0 until pts.size - 1) {
+                line(gray, width, height, pts[i], pts[i + 1], value, radius)
+            }
+            if (stroke.closed && pts.size > 2) {
+                line(gray, width, height, pts.last(), pts.first(), value, radius)
+            }
+        }
+    }
+
+    /**
      * 星座線は投影後の直線ではなく大円。ステレオ投影では円弧になるので
      * 3° ごとの折れ線に割って描く（仕様どおり、実用上の差は無い）。
      */
@@ -358,5 +658,73 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     private companion object {
         /** 星座線は星より暗く。転送量の半分以上を占めるので、間に合わないときはここを間引く */
         const val LINE_VALUE = 110
+
+        /** スターリンクの点。名前つきより暗くして、群れとして見せる */
+        const val CROWD_VALUE = 170
+
+        /** 名前つきの点を囲む輪 */
+        const val RING_VALUE = 200
+        const val RING_STEPS = 16
+
+        /** 点の縁から輪までの距離（画像の幅に対する比） */
+        const val RING_GAP = 0.012
+
+        /** 進行方向の矢印 */
+        const val ARROW_VALUE = 210
+        const val ARROW_LENGTH = 0.055
+        const val ARROW_HEAD = 0.016
+
+        /** 30 秒ぶんの移動がこれ未満なら矢印を出さない[画素]。静止軌道はここで落ちる */
+        const val ARROW_MIN_MOVE = 3.0
+
+        /** 輪郭の外形。いちばん明るくして「これは実景ではない」と分かるようにする */
+        const val FIGURE_VALUE = 255
+
+        /** パネルの桟。外形と同じ明るさだと、96 画素では 1 枚の板に見える */
+        const val FIGURE_INNER_VALUE = 120
+
+        /** 引き出し線を点から離す距離[画素]。点（半径 8px）に線がくっつくと位置が読めない */
+        const val LEADER_GAP = 14.0
+
+        /** 引き出し線の斜めと横の長さ（枠の一辺に対する比） */
+        const val ELBOW_DIAGONAL = 0.45
+        const val ELBOW_STEM = 0.35
+
+        /** 引き出し線と枠。輪郭より暗くして、輪郭が主役に見えるようにする */
+        const val LEADER_VALUE = 150
+        const val FRAME_VALUE = 170
+
+        /** 枠の角の丸み（一辺に対する比） */
+        const val BOX_RADIUS = 0.2
+
+        /** 枠の内側の余白（一辺に対する比）。輪郭が枠に触ると読めない */
+        const val ICON_PAD = 0.16
+
+        /**
+         * 名前 1 行の高さ[画素]。**`StarMapScreen` の `LABEL_HEIGHT` と揃える。**
+         * 名前はキャンバスのテキストとして枠の上に出るので、そのぶんの余白を空けて置く
+         */
+        const val LABEL_BOX_HEIGHT = 40.0
+
+        /** 引き出し線を出す向き。上→下、右→左の順に試す */
+        val ELBOW_SIDES = listOf(
+            1.0 to -1.0,
+            -1.0 to -1.0,
+            1.0 to 1.0,
+            -1.0 to 1.0,
+        )
+
+        /** ラベルに「あと何分」を出す上限。これより先の最接近は書かない */
+        const val LABEL_SOON_MIN = 10.0
+
+        /**
+         * 吹き出しを出す数。
+         *
+         * **名前は枠の上に出るので、枠が近いと名前どうしが重なって片方が消える**
+         * （キャンバスのテキストは重なったほうを落とす）。2 つに絞ると collision がほぼ起きない。
+         * 3 機目以降は名前だけを点のところに出す。
+         */
+        const val FIGURE_SLOTS = 2
+
     }
 }
