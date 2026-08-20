@@ -25,7 +25,8 @@ private enum class ConnectedScreen {
 @Composable
 fun GlassesApp(manager: GlassManager) {
     val client by manager.connectedDevice.collectAsState(initial = null)
-    var screen by remember { mutableStateOf(ConnectedScreen.COMMAND) }
+    // 星図を試すのが目的なので、繋がったらそのまま星図に入る。他のサンプルは「戻る」の先にある
+    var screen by remember { mutableStateOf(ConnectedScreen.STAR_MAP) }
 
     val currentClient = client
     if (currentClient == null) {

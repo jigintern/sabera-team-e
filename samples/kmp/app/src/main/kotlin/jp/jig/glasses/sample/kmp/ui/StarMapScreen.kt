@@ -168,6 +168,14 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         sendMs = System.currentTimeMillis() - sendStarted
     }
 
+    // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
+    var autoSent by remember { mutableStateOf(false) }
+    LaunchedEffect(aimed, followGlasses) {
+        if (autoSent || followGlasses || aimed == null) return@LaunchedEffect
+        autoSent = true
+        drawAndSend()
+    }
+
     // グラスの向きに追従するときだけ描き直し続ける。選んだ星座を見るときは 1 枚でいい
     LaunchedEffect(followGlasses, renderer) {
         if (!followGlasses) return@LaunchedEffect
