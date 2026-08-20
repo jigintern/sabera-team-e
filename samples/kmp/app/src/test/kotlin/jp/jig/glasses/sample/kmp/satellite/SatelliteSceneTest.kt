@@ -78,7 +78,7 @@ class SatelliteSceneTest {
     }
 
     @Test
-    fun `いちばん高い衛星を向くと軌跡が出る`() {
+    fun `いちばん高い衛星を向くとその機体が視野に入る`() {
         val scene = scene()
         val now = System.currentTimeMillis()
         val target = scene.aboveHorizon(observer, now).firstOrNull()
@@ -88,15 +88,16 @@ class SatelliteSceneTest {
         assertTrue("視野に何も入らない", tracks.isNotEmpty())
         val named = tracks.filter { it.labelled }
         assertTrue("狙った衛星が入っていない", named.any { it.name == target.name })
-        assertTrue("軌跡が短すぎる", named.first().points.size >= 2)
+        // 位置がそのまま出てくること。軌跡の線はもう持たない
+        assertTrue("地平線より下を拾っている", tracks.all { it.nowAltDeg > 0.0 })
         println(
-            "${target.name}（${target.where}）を向くと 軌跡 ${tracks.size} 本" +
+            "${target.name}（${target.where}）を向くと ${tracks.size} 機" +
                 "（名前つき ${named.size} / スターリンク ${tracks.size - named.size}）",
         )
     }
 
     @Test
-    fun `軌跡を焼いてもグラスのバッファに収まる`() {
+    fun `衛星を焼いてもグラスのバッファに収まる`() {
         val scene = scene()
         val renderer = StarMapRenderer(catalog())
         val now = System.currentTimeMillis()
@@ -111,7 +112,7 @@ class SatelliteSceneTest {
             width = width, height = height, drawLines = true, maxLabels = 8, tracks = tracks,
         )
         val used = width * height * 2 + compressedBytes(map.gray, width, height)
-        println("衛星 ${tracks.size} 本を焼いた 528×330: バッファ使用 $used バイト（上限 380,000）")
+        println("衛星 ${tracks.size} 機を焼いた 528×330: バッファ使用 $used バイト（上限 380,000）")
         assertTrue("バッファを超える: $used", used <= 380_000)
         assertTrue("衛星の名前が出ていない", map.labels.any { it.text.startsWith("●") || it.text.startsWith("○") })
 
@@ -132,7 +133,7 @@ class SatelliteSceneTest {
     }
 
     @Test
-    fun `スターリンクは軌跡だけで名前を出さない`() {
+    fun `スターリンクは点だけで名前を出さない`() {
         val scene = scene()
         val now = System.currentTimeMillis()
         // 天頂を向く。スターリンクは全天にいるので、たいてい何本か入る

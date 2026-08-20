@@ -10,8 +10,8 @@ import kotlin.math.roundToInt
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。
  *
  * **名前つきの 16 機とスターリンクの群れでは扱いが違う。**
- * 名前つきは 1 機ずつ名前を出すが、スターリンクは数が多いので軌跡だけ描く
- * （線の本数そのものが「こんなに飛んでいるのか」になる）。
+ * 名前つきは 1 機ずつ名前と輪郭を出すが、スターリンクは数が多いので点だけ打つ
+ * （点の数そのものが「こんなに飛んでいるのか」になる）。
  */
 class SatelliteScene(
     private val named: List<Sgp4>,
@@ -64,7 +64,7 @@ class SatelliteScene(
             }
     }
 
-    /** 視野に入っている衛星を、軌跡つきで返す */
+    /** 視野に入っている衛星を返す */
     fun tracksInView(
         observer: Observer,
         epochMillis: Long,
@@ -76,7 +76,7 @@ class SatelliteScene(
         val forward = enu(look.azDeg, look.altDeg)
         // **fovDeg は視野の「横幅」なので、視線からの角度は半分で見る。**
         // 画像は 16:10 なので対角の半分は横の半分の約 1.18 倍。
-        // 画面の端から軌跡が入ってくるのを見せたいので、さらに 1.3 倍の余裕を取る
+        // 画面の端に入ってくる機体も拾いたいので、さらに 1.3 倍の余裕を取る
         val radiusDeg = fovDeg * 0.5 * 1.18 * 1.3
         val cosLimit = kotlin.math.cos(radiusDeg * (Math.PI / 180.0))
 
@@ -138,27 +138,18 @@ class SatelliteScene(
             observer.look(state, epochMillis).altDeg > 0.0
         }
 
+    /**
+     * 1 機ぶんの見え方。
+     *
+     * **軌跡の線をやめたので、伝播するのは「いま」の 1 点だけ。**
+     * 以前は前後 3 分ぶんを 10 秒刻みで 19 回伝播していた（線を引くため）。
+     */
     private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): SkyTrack? {
         val state = sgp4.at(epochMillis) ?: return null
         val now = observer.look(state, epochMillis)
         if (now.altDeg <= 0.0) return null
-
-        val points = ArrayList<DoubleArray>()
-        var t = -TRACK_BACK_MS
-        while (t <= TRACK_AHEAD_MS) {
-            val at = epochMillis + t
-            val s = sgp4.at(at)
-            if (s != null) {
-                val look = observer.look(s, at)
-                // 地平線より下は描かない。地面の下を通る線が出ると混乱する
-                if (look.altDeg > 0.0) points += doubleArrayOf(look.azDeg, look.altDeg)
-            }
-            t += TRACK_STEP_MS
-        }
-
         return SkyTrack(
             name = sgp4.tle.name,
-            points = points,
             nowAzDeg = now.azDeg,
             nowAltDeg = now.altDeg,
             sunlit = isSunlit(state, epochMillis),
@@ -170,12 +161,8 @@ class SatelliteScene(
         /** 名前を出す数。衛星モードでは星座名を出さないので、テキスト枠 8 個を丸ごと使える */
         const val MAX_NAMED = 8
 
-        /** 軌跡だけ描くスターリンクの数。多すぎると星図が線で埋まる */
+        /** 点だけ打つスターリンクの数。多すぎると星図が点で埋まる */
         const val MAX_STARLINK = 8
-
-        private const val TRACK_BACK_MS = 30_000L
-        private const val TRACK_AHEAD_MS = 150_000L
-        private const val TRACK_STEP_MS = 10_000L
 
         /** 同梱した TLE を読む。**10,748 機ぶんあるので IO スレッドで呼ぶこと** */
         fun load(context: Context): SatelliteScene {

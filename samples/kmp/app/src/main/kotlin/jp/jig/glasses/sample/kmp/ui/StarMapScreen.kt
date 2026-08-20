@@ -336,7 +336,7 @@ fun StarMapScreen(
             val started = System.currentTimeMillis()
             val now = System.currentTimeMillis()
             val scene = satellites
-            // 衛星モードのときだけ軌跡を作る。10,748 機を回しても数十 ms で終わる
+            // 衛星モードのときだけ位置を出す。10,748 機を回しても数十 ms で終わる
             val tracks = if (satelliteMode && scene != null) {
                 withContext(Dispatchers.Default) {
                     val observer = Observer(site.latDeg, site.lonDeg)
@@ -355,7 +355,7 @@ fun StarMapScreen(
                     width = imageSize.width,
                     height = imageSize.height,
                     // 衛星モードでは星も星座線も出さない。同じ緑 8 階調なので、
-                    // 星を残すと軌跡がその中に紛れて「どれが衛星か」が読めない
+                    // 星を残すと衛星の点がその中に紛れて「どれが衛星か」が読めない
                     drawLines = drawLines && !satelliteMode,
                     maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
                     tracks = tracks,
@@ -629,7 +629,7 @@ fun StarMapScreen(
             val now = System.currentTimeMillis()
             val moved = withContext(Dispatchers.Default) {
                 val observer = Observer(site.latDeg, site.lonDeg)
-                // 軌跡は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
+                // 輪郭は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
                 // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない
                 // 画角も焼いたときの値を使う。つまみを動かした直後に今の画角で投影すると、
                 // 絵は前の画角のままなので印だけがずれる
@@ -736,7 +736,7 @@ fun StarMapScreen(
             }
             Text(
                 if (satelliteMode) {
-                    "衛星の軌跡は画像に焼き、いまの位置と名前はグラス側のテキストで重ねる（ここには出ない）"
+                    "衛星の点と輪郭は画像に焼き、名前はグラス側のテキストで重ねる（ここには出ない）"
                 } else {
                     "星座名は画像に焼かず、グラス側のテキストとして手前に重なる（ここには出ない）"
                 },

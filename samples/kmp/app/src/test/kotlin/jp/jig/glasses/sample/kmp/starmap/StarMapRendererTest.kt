@@ -103,7 +103,6 @@ class StarMapRendererTest {
 
         val track = SkyTrack(
             name = "テスト衛星",
-            points = (-5..5).map { doubleArrayOf(180.0 + it, 45.0) },
             nowAzDeg = 180.0,
             nowAltDeg = 45.0,
             sunlit = true,
@@ -121,19 +120,18 @@ class StarMapRendererTest {
         )
         val lit = withTrack.gray.count { (it.toInt() and 0xFF) > 0 }
         println("衛星モードで光った画素 $lit / ${withTrack.gray.size}、ラベル ${withTrack.labels.map { it.text }}")
-        assertTrue("軌跡が描かれていない（$lit 画素）", lit > 100)
+        assertTrue("点も輪郭も描かれていない（$lit 画素）", lit > 100)
         assertTrue("衛星以外の名前が出ている", withTrack.labels.all { it.text.startsWith("●") })
     }
 
     @Test
-    fun `輪郭は印に重ならず、引き出し線でつながる`() {
+    fun `輪郭は点のすぐ近くに置くが、点には重ならない`() {
         // 実物大なら 0.24 画素しかないので、輪郭は「位置」ではなく「正体」を出すもの。
-        // 印の上に重ねると位置が読めなくなるため、離して置けているかを見る
+        // 点の上に重ねると位置が読めなくなるので、縦に逃がして置けているかを見る
         val renderer = StarMapRenderer(catalog())
         val look = Look(180.0, 45.0)
         val track = SkyTrack(
             name = "ISS",
-            points = listOf(doubleArrayOf(180.0, 45.0)),
             nowAzDeg = 180.0,
             nowAltDeg = 45.0,
             sunlit = true,
@@ -149,19 +147,26 @@ class StarMapRendererTest {
         val added = with.gray.indices.count { i ->
             (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
         }
-        println("輪郭と引き出し線で増えた画素 $added")
+        println("輪郭で増えた画素 $added")
         assertTrue("輪郭が描かれていない（増えた画素 $added）", added > 200)
 
-        // 印のまわり（半径 6 画素）には何も足されていないこと
+        // 点のまわり（半径 12 画素）には何も足されていないこと。名前のテキストもここに出る
         val cx = PANEL_WIDTH / 2
         val cy = PANEL_HEIGHT / 2
-        for (dy in -6..6) {
-            for (dx in -6..6) {
+        for (dy in -12..12) {
+            for (dx in -12..12) {
                 val i = (cy + dy) * PANEL_WIDTH + (cx + dx)
                 val addedHere = (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
-                assertTrue("印のすぐ横に輪郭が乗っている", !addedHere)
+                assertTrue("点のすぐ横に輪郭が乗っている", !addedHere)
             }
         }
+
+        // ただし遠くへ飛ばしてもいない。輪郭は 1 個ぶんの高さ ＋ 名前ぶんの余白に収まる
+        val far = with.gray.indices.filter { i ->
+            (with.gray[i].toInt() and 0xFF) > 0 && (without.gray[i].toInt() and 0xFF) == 0
+        }.map { i -> Math.abs(i / PANEL_WIDTH - cy) }
+        val reach = (PANEL_WIDTH * 0.13).toInt() + 26 + 4
+        assertTrue("輪郭が点から離れすぎている（最遠 ${far.max()} 画素）", far.max() <= reach)
     }
 
     @Test
