@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ai
 
 import android.content.Context
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -23,25 +24,44 @@ interface Voice {
 }
 
 /**
+ * 読み上げの状態。**画面に出すためだけ**にある。
+ *
+ * [Voice] と分けているのは、JVM テストの差し替え（[Narrator] の検算）に状態が要らないから。
+ */
+interface VoiceStatus {
+    val speaking: StateFlow<Boolean>
+
+    /** 喋れるか。**使えないまま黙るのがいちばん困る**ので、分からない間は null */
+    val available: StateFlow<Boolean?>
+}
+
+/**
  * 読み上げ。SDK に音声出力 API が無いので、音はスマホから鳴らす。
  *
  * 夜の屋外でスピーカーから鳴らせば、グラスをかけていない同伴者にも聞こえる。
  * 星を見に行くのは複数人のことが多く、グラスは 1 人しかかけられない（app-flow.md）。
  */
-class Speaker(context: Context) : Voice {
+class Speaker(context: Context) : Voice, VoiceStatus {
 
     /** 初期化が終わる前に来た発話。捨てるとタップ直後の「〇〇座ですね」が消える */
     private val pending = ArrayList<String>()
+
+    /**
+     * 読み上げの音量 0..1。設定パネルのつまみから来る。
+     *
+     * `TextToSpeech` に音量の持ち合わせは無く、**発話ごとに Bundle で渡す**しかない。
+     */
+    @Volatile
+    var volume: Float = 1.0f
 
     @Volatile
     private var ready = false
 
     private val _speaking = MutableStateFlow(false)
-    val speaking: StateFlow<Boolean> = _speaking
+    override val speaking: StateFlow<Boolean> = _speaking
 
-    /** 読み上げが使えるか。**使えないまま黙るのがいちばん困る**ので、画面に出すために持つ */
     private val _available = MutableStateFlow<Boolean?>(null)
-    val available: StateFlow<Boolean?> = _available
+    override val available: StateFlow<Boolean?> = _available
 
     /**
      * 型を明記しているのは、初期化のコールバックが `tts` 自身を触るため
@@ -120,8 +140,11 @@ class Speaker(context: Context) : Voice {
 
     private fun enqueue(text: String, flush: Boolean) {
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f))
+        }
         _speaking.value = true
-        tts.speak(text, mode, null, "sabera-${text.hashCode()}")
+        tts.speak(text, mode, params, "sabera-${text.hashCode()}")
     }
 
     override fun stop() {

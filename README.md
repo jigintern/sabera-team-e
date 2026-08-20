@@ -1,129 +1,90 @@
 # SABERA team-e
 
-> jig.jp サマーインターン SABERAコース
+> jig.jp サマーインターン SABERA コース
 
-## 作るもの
+## 概要
 
-- **空にかざすと視界と星座が重なり、AI に頼むと今見えている星座を解説してくれるアプリ**
-  - スマホのセンサー（方位・傾き・位置・時刻）から視野内の星座を割り出す
-  - グラスに星図と解説を出す
-  - 「あれ何の星座？」と聞けば、その場で解説が返ってくる
+**空にかざすと視界と星座が重なり、AI に頼むと今見えている星座を解説してくれるアプリ**
 
-## いまの状況
+- スマホのセンサーとグラスの 6DoF から視野内の星座を割り出す
+- グラスに星図と星座名を出す
+- ツルを 1 回タップすると、その星座の解説が返ってきて読み上げられる
+- **人工衛星モード**に切り替えると、いま空を通っている衛星を同じ座標で出す
 
-- **仕様策定フェーズ。** チームでドキュメントと仕様書を詰めている段階で、アプリの実装はまだ始まっていない
-- SDK 0.0.11 で **画像送信 API**（`enterImageDisplayPage` / `sendImage`）が追加され、**星図をグラスに出す道が開いた**
-  - **0.0.12 で簡素化**され、1 画素 1 バイトのグレースケールを渡すだけでよくなった（量子化と圧縮は SDK 側）
-  - ただしサイズ上限 **196x196**、**緑単色の 3bit（8 階調）**という制約は変わらない
-- **SDK 0.1.0 で 6DoF が解放された** — `startImuData` / `imuData` でグラスのピッチ・ヨー・加速度・角速度が取れる
-  - ピッチとロールは重力基準で絶対値が取れるが、**磁力計が無いのでヨーはドリフトする**
-  - **スマホのコンパスでは代替できない**（頭とスマホの相対姿勢が未知）。方位は別途キャリブレーションで埋める
-  - 方位をグラスへ**渡す**口は `sendNaviCourse` にある。ただし値を作る工程は残る
-- **0.0.13 でナビページが増えた** — `sendNaviLargeImage` はもう少し大きい画像（上流サンプルは 240x240）を送れる
-- **0.0.14 は破壊的** — ファームが対応していない `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された
-- **0.1.1 / 0.2.0 でテキストの置き場が広がった** — 分割レイアウト（`sendLayout`）と
-  **576×360 の自由配置キャンバス**（`sendCanvas`）。送るだけで画面が切り替わる
-  - 8 要素まで・テキスト合計 190 バイトまで・`FEATURE_VERSION 2.1.0` 以上
-- **0.3.0 でグラスのマイクが使いやすくなった** — `startMicStreaming` / `micAudio` で
-  **PCM16 / 16kHz / モノラル**が流れる（Opus のデコードは SDK 側）
-- **0.4.0 でキャンバスに画像が置ける** — `sendCanvasImage`。**星図とラベルを同じ画面に出せる**
-  - テキストは画像の手前に描かれる。ナビ表示中は使えない・`FEATURE_VERSION 2.2.0` 以上
-  - **画像バッファは 380,000 バイトまで。** 576×360 は画素だけで 414,720 になるので入らない
-  - **「画像とテキストは排他」という前提が崩れた。** team-e の仕様は全面的に見直した
-- **0.5.0 は破壊的** — アプリ本体に実装が無いメソッドが撤去された
-  （`sendMeeting` / `sendAIContent` ほか、**電源・リモコンのイベントリスナー4つ**）
-- **0.6.0 でキャンバス画像が複数枚になった** — `sendCanvasImage` に `id` が増えて **8 枚まで**。
-  `removeCanvasImage` で 1 枚ずつ消せる。**0.5.0 までとは互換が無い**
-  - あわせて **SDK が分割送信を直列化**し、続けて送ってもチャンクが混ざらなくなった
-- 上流 SDK は **0.6.0 まで取り込み済み**
-- 詳細 → [AGENTS.md](AGENTS.md#グラスに何を出せるか)
+## 進捗状況
 
-## プロトタイプ
+- 実装は `samples/kmp/app`
+- 仕様は [docs/team-e/](docs/team-e/)
 
-**グラスに星図を出して、首の向きに合わせて描き直すところまで動いている**（`samples/kmp/app`）。
+| | 状態 |
+|---|---|
+| 星図をグラスに出す | **実機で確認済み。** キャンバスに 528×330、星座名はテキストで手前に重ねる |
+| 首の向きに追従する | **実機で確認済み。** 首が止まってから 1 枚（転送中は前の絵が消える） |
+| 方位合わせ | **実機で確認済み。** グラスの十字とスマホのマーカーを重ねる |
+| 観測地の測位 | **実機で確認済み。** 融合 → GPS → 基地局。取れなければ手入力 |
+| AI 解説と読み上げ | **実機で確認済み。** 星図画像＋星座名を OpenAI へ → `TextToSpeech` |
+| 衛星の軌道計算（SGP4 / SDP4） | **JVM テストのみ。** 参照実装と 4mm 差。24 機＋スターリンク 10,748 機を同梱 |
+| 衛星の描画とモード切り替え | **実機未確認** |
 
-- キャンバスに **528×330** の星図を置き、星座名をテキストで手前に重ねる
-- 向きはグラスの 6DoF。絶対方位は**グラスの十字とスマホのマーカーを重ねて**合わせる
-- 観測地はスマホの測位から取る
-- **首が止まってから 1 枚送る。** 転送中は前の絵が消えるので、動きに追従させると点滅になる
-- スマホ側は 1 画面（プレビュー・方位合わせ・ログ）
-
-仕様は [docs/team-e/](docs/team-e/) にある。
-
-**人工衛星モードを作っている。** 星座と `DOUBLE_TAP` で切り替えて、ISS・みちびき・ひまわり・
-スターリンクを星図と同じ座標で出す（**星座とは排他。** 緑 8 階調では星と混ざって読めないので、
-衛星モードでは星を描かない。出すのは**位置の点と、そのそばに置く輪郭**だけ）（[調査と実装](docs/team-e/satellites.md) /
-[issue #9](https://github.com/jigintern/sabera-team-e/issues/9)）。
-
-- 軌道計算（SGP4 / SDP4）は参照実装と 4mm 差で一致。**24 機＋スターリンク 10,748 機を同梱**
-  （ISS・天宮・ハッブル・GPS・ガリレオ・ひまわり・みちびき・だいち・NOAA・ランドサット…）
-- **「あと何分でいちばん近づくか」を出す。** 点だけでは待つ価値が分からない
-- 全機の伝播と視線計算で 7ms。地平線より上にはスターリンクが常時 450 機ほどいる
-- **実機での見え方はまだ確認していない**
-
-## はじめかた
+## 開発の仕方
 
 1. [CONTRIBUTING.md](CONTRIBUTING.md) を読む
-2. GitHub PAT を設定する（**これが無いとビルドが通らない**）
-3. Android 実機を用意する（BLE 必須。エミュレータでは動かない）
+2. **GitHub PAT を設定する**（これが無いとビルドが通らない → [docs/github-pat.md](docs/github-pat.md)）
+3. **Android 実機**を用意する（BLE 必須。エミュレータでは動かない）
 
 ```bash
 cd samples/kmp
 ./gradlew :app:installDebug
 ```
 
+- AI 解説を使うなら `cp .env.example .env` して `OPENAI_API_KEY` を書く（**無くてもビルドは通る**）
+
 ## リポジトリの歩き方
 
 | パス | 中身 |
 |---|---|
 | [AGENTS.md](AGENTS.md) | 技術的な前提・SDK の制約・未決定事項。AI エージェント向けだが人間が読んでもよい |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 環境構築、進め方、コミット規約、仕様書の置き場所、困ったとき |
-| `samples/kmp/app/` | team-e の実装ベース（Kotlin + Compose） |
-| `samples/kmp/snippets/` | ドキュメント用のコード例。アプリではない |
-| `samples/flutter/` | Flutter からの利用サンプル。team-e では使わない |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 環境構築・進め方・コミット規約・困ったとき |
+| [docs/team-e/](docs/team-e/) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
+| `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
+| `samples/kmp/snippets/` | ドキュメント用のコード例。**アプリではない**（壊すと CI が落ちる） |
+| `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
+| `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
 | `docs/` | SDK のドキュメントサイト（公開はせず手元で読む） |
 
 ## SDK について
 
 - このアプリは **Sabera App SDK**（`jp.jig.sabera.app.sdk:sabera-app-core`）の上に作る
-- 上流リポジトリ → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)
+- 上流 → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk) /
+- 公開ドキュメント → **<https://jig-sabera.github.io/sabera-sdk/>**
 
-上流が公開しているドキュメントサイト → **<https://jig-sabera.github.io/sabera-sdk/>**
-（このリポジトリの `docs/` をビルドしたもの）
+- **0.6.0 まで取り込み済み**
+- team-e が使っている主な API — `sendCanvasImage`（星図）/ `sendCanvasElements`（星座名）/
+  `imuData`（6DoF）/ `gestureEvents`（ツルの操作）
+- **グラスから音は鳴らせない**（スピーカーが無い）。読み上げはスマホから
+- 制約の詳細 → [グラス出力の制約](docs/team-e/glass-output.md)
 
-手元のファイル（0.6.0 時点）：
-
-- [Getting Started](docs/getting-started.md) — セットアップと接続の流れ
-- [API リファレンス](docs/api/) — 公開 API の一覧
-- [メソッドの追加履歴](docs/api-history.md) — どのメソッドがどのバージョンから使えるか
-- [GitHub PAT の作り方](docs/github-pat.md) — SDK 取得に必要な認証情報
+手元のファイル：[Getting Started](docs/getting-started.md) /
+[API リファレンス](docs/api/) / [メソッドの追加履歴](docs/api-history.md) /
+[GitHub PAT の作り方](docs/github-pat.md)
 
 ### SDK の取得設定
 
-SDK は private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている。
-
-Android — `~/.gradle/gradle.properties` に `read:packages` スコープの PAT を書く：
+private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている。
+**`read:packages` スコープの PAT が要る。** `~/.gradle/gradle.properties` に置く：
 
 ```properties
 GitHubPackagesUsername=<GitHubのユーザー名>
 GitHubPackagesPassword=<read:packages を持つ PAT>
 ```
 
-iOS — Swift Package Manager で取得する。XCFramework の実体は GitHub Packages にあり、
-**SPM は Authorization ヘッダを付けられない**ため `~/.netrc` に認証情報が要る：
-
-```
-machine maven.pkg.github.com
-  login <GitHubのユーザー名>
-  password <read:packages を持つ PAT>
-```
+**Android 実機のみを対象にしている。** iOS 向けの SPM 定義（`Package.swift`）は
+上流でも SDK 0.0.10 のまま追従していないので、team-e では撤去した。
 
 ## ライセンス
 
-- このリポジトリのサンプル・ラッパーコードは [Apache License 2.0](LICENSE)
-- **SDK 本体（`jp.jig.sabera.app.sdk:*`）はこのライセンスの対象外**。GitHub Packages から配布されるバイナリで、利用には別途 SDK 利用規約が適用される
-
 | 対象 | ライセンス |
 |---|---|
-| このリポジトリのサンプル・ラッパーコード | Apache License 2.0 |
-| Sabera App SDK 本体（AAR / XCFramework） | SDK 利用規約 |
+| このリポジトリのサンプル・ラッパーコード | [Apache License 2.0](LICENSE) |
+| Sabera App SDK 本体（AAR / XCFramework） | **SDK 利用規約**（Apache 2.0 の対象外） |
+| 同梱の星表データ（d3-celestial / XHIP） | BSD-3-Clause。帰属は [NOTICE](NOTICE) |

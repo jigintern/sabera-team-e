@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
@@ -32,6 +33,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -61,8 +64,10 @@ import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
 import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.NarrationPhase
+import jp.jig.glasses.sample.kmp.ai.CloudVoice
 import jp.jig.glasses.sample.kmp.ai.Narrator
 import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
 import jp.jig.glasses.sample.kmp.satellite.Observer
@@ -74,9 +79,12 @@ import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.starmap.SessionLog
 import jp.jig.glasses.sample.kmp.starmap.Site
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
+import jp.jig.glasses.sample.kmp.sound.Bgm
+import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
 import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
@@ -95,7 +103,9 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * 星図をグラスに出す画面。スマホ側はこの 1 枚だけで、役割は 3 つ。
@@ -124,9 +134,23 @@ fun StarMapScreen(
     val logs = remember { mutableStateListOf<LogLine>() }
     val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
 
+    // 画面のログは 40 行で、画面を出ると消える。ドリフト率のような長い計測が取れないので
+    // 同じ行をファイルにも残す（docs/team-e/coordinate-system.md の「実測しないと決められないこと」）
+    val sessionLog = remember { SessionLog(context, scope) }
+
+    // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
+    var logBytes by remember { mutableStateOf(0L) }
+
+    // 生のヨーと比べられるように残す。既定は有効（静止中の 44°/分 が消える）
+    var useFusedYaw by remember { mutableStateOf(true) }
+
     fun log(text: String, failed: Boolean = false) {
         logs.add(0, LogLine(clock.format(Date()), text, failed))
         while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
+        sessionLog.append(if (failed) "失敗  " + text else text)
+        // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
+        // 書き出しは屋外用で、机の上では logcat のほうが早い
+        if (failed) Log.w(TAG, text) else Log.d(TAG, text)
     }
 
     LaunchedEffect(Unit) {
@@ -260,6 +284,78 @@ fun StarMapScreen(
     // 「また流れ出した ＝ 転送が終わった」の目印に使う
     var lastImuAt by remember { mutableStateOf(0L) }
 
+    // ドリフト計測の材料。ヨーのずれは「頭を回した」と区別が付かないので、
+    // 合わせた時点の yaw と、そこから振った累積量を両方持っておく
+    var yawAtCalibration by remember { mutableStateOf<Double?>(null) }
+
+    // 累積回転には STILL_DEG のデッドバンドを入れる。入れないとサンプルごとの
+    // 揺れ（±0.5° ほど）が積もって、実測で 300°/分 になり動きの目印にならなかった
+    var turnedDeg by remember { mutableStateOf(0.0) }
+
+    /**
+     * 静止中のジャイロ。**ドリフトの正体がジャイロバイアスかを確かめるための材料。**
+     *
+     * ヨーのドリフトが実測 0.73°/秒 だったので、`gyroZDps` の平均がこれと一致すれば
+     * 「yaw はジャイロの素の積分」で、引けば直る。一致しなければファームが別の処理を
+     * しているので対策が変わる。
+     *
+     * 幅（最小〜最大）も持つ。**グラスを動かしたかどうかはこれで分かる**
+     * （動かした分ぶんは平均に混ざるので、幅が大きい区間は捨てる）。
+     */
+    var gyroZSum by remember { mutableStateOf(0.0) }
+    var gyroZCount by remember { mutableStateOf(0) }
+    var gyroZMin by remember { mutableStateOf(Double.NaN) }
+    var gyroZMax by remember { mutableStateOf(Double.NaN) }
+
+    /**
+     * ジャイロを自前で積分した角度。**`yawDegrees` を置き換える候補。**
+     *
+     * 静止中の実測で、ヨーは 0.737°/秒 流れるのに `gyroZDps` の平均は 0.058°/秒 しかない。
+     * **報告されるジャイロのほうが 12 倍まともなので、自前で積分したほうが良い**。
+     *
+     * ただし**どの軸が鉛直に当たるかが未文書**（AGENTS.md の「グラス機体座標の軸定義」）。
+     * そこで 3 軸ぶん持って、回転のたびにヨーの変化と並べて出す。
+     * **一致した軸が鉛直で、一致の度合いがスケールの正しさ**になる。
+     */
+    /**
+     * 方位の本命。**動いている間だけ `yawDegrees` の変化を足し、静止中は何も足さない。**
+     *
+     * 実測でヨーは静止中も 44°/分（0.74°/秒）流れる。一方ジャイロを自前で積分すると
+     * 静止中はほぼ止まるが、**10Hz しか届かないので回転を 9% 取りこぼす**
+     * （90° 回して 84〜99%。一度も 100% を超えないので取りこぼしと確定）。
+     *
+     * 穴が逆なので組み合わせる。**回転のスケールはファームの融合値が正しく、
+     * ドリフトが効くのは静止中**なので、静止中を捨てれば両方の弱点が消える。
+     * 漏れるのは「動いている時間 × 0.74°/秒」だけで、2 秒の首振りなら 1.5°。
+     *
+     * 「動いているか」は**ジャイロの大きさ**で決める。ヨーとは独立なのでドリフトに騙されない。
+     */
+    var fusedYaw by remember { mutableStateOf<Double?>(null) }
+    var previousGlassYaw by remember { mutableStateOf<Double?>(null) }
+    var driftHeldDeg by remember { mutableStateOf(0.0) }
+
+    /**
+     * 静止中に測ったドリフト率[度/秒]。**動いている間はこれを引く。**
+     *
+     * 静止中を捨てるだけだと、漏れる量が「動いている時間 × 0.74°/秒」になり、
+     * **符号が一定なので右に振って左に戻しても打ち消さない**。動いた割合に比例して溜まる。
+     *
+     * ドリフト率は静止中にそのまま測れているので、動いている間も引けば比例分が消える。
+     * 追加のセンサーも校正も要らない。
+     */
+    var driftRateDps by remember { mutableStateOf(0.0) }
+    var stillYaw by remember { mutableStateOf<Double?>(null) }
+    var stillSinceMs by remember { mutableStateOf(0L) }
+
+    var gyroIntX by remember { mutableStateOf(0.0) }
+    var gyroIntY by remember { mutableStateOf(0.0) }
+    var gyroIntZ by remember { mutableStateOf(0.0) }
+    var lastImuTs by remember { mutableStateOf(0L) }
+    var droppedGaps by remember { mutableStateOf(0) }
+
+    // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
+    fun yawNow(): Double = if (useFusedYaw) fusedYaw ?: glassYaw else glassYaw
+
     // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
     val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
 
@@ -270,7 +366,66 @@ fun StarMapScreen(
                 // ピッチは取付補正済みで上向きが負
                 glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
-                lookHistory.addLast(Triple(lastImuAt, glassYaw, glassPitch))
+                // 間隔は受信時刻ではなく timestampMs から取る（BLE で順序と間隔が乱れる）
+                val dt = if (lastImuTs > 0L) (data.timestampMs - lastImuTs) / 1000.0 else 0.0
+                if (dt > 0.0 && dt < IMU_GAP_LIMIT_S) {
+                    gyroIntX += data.gyroXDps * dt
+                    gyroIntY += data.gyroYDps * dt
+                    gyroIntZ += data.gyroZDps * dt
+                } else if (lastImuTs > 0L) {
+                    // 転送でキューが詰まるとサンプルが落ちる。穴を積分に混ぜると角度が狂う
+                    droppedGaps++
+                }
+                lastImuTs = data.timestampMs
+
+                // 静止の判定はジャイロの大きさで行う。ヨーの変化で判定すると
+                // ドリフトそのものを「動いている」と読んでしまう
+                val gyroMag = sqrt(
+                    (data.gyroXDps.toDouble() * data.gyroXDps) +
+                        (data.gyroYDps.toDouble() * data.gyroYDps) +
+                        (data.gyroZDps.toDouble() * data.gyroZDps),
+                )
+                val step = normalizeDeg(glassYaw - (previousGlassYaw ?: glassYaw))
+                // 動きの目印。デッドバンドを入れないとサンプルごとの揺れが積もる
+                if (abs(step) > STILL_DEG) turnedDeg += abs(step)
+                if (gyroMag > GYRO_MOVING_DPS) {
+                    // 実測したドリフト率を引く。静止が続いていないうちは 0 なので素の差分になる
+                    val corrected = step - driftRateDps * dt.coerceIn(0.0, IMU_GAP_LIMIT_S)
+                    fusedYaw = normalizeDeg((fusedYaw ?: glassYaw) + corrected)
+                    stillYaw = null
+                } else {
+                    // 捨てた量を残す。どれだけドリフトを止められたかが分かる
+                    driftHeldDeg += step
+                    fusedYaw = fusedYaw ?: glassYaw
+                    // 静止が続いている間のヨーの動きが、そのままドリフト率
+                    val since = stillYaw
+                    if (since == null) {
+                        stillYaw = glassYaw
+                        stillSinceMs = data.timestampMs
+                    } else {
+                        val held = (data.timestampMs - stillSinceMs) / 1000.0
+                        if (held > DRIFT_ESTIMATE_S) {
+                            val measured = normalizeDeg(glassYaw - since) / held
+                            // 平滑化しておく。1 回の推定に引っぱられると動いた瞬間に飛ぶ
+                            driftRateDps = if (driftRateDps == 0.0) {
+                                measured
+                            } else {
+                                driftRateDps * (1 - DRIFT_ESTIMATE_GAIN) + measured * DRIFT_ESTIMATE_GAIN
+                            }
+                            stillYaw = glassYaw
+                            stillSinceMs = data.timestampMs
+                        }
+                    }
+                }
+                previousGlassYaw = glassYaw
+
+                val gyroZ = data.gyroZDps.toDouble()
+                gyroZSum += gyroZ
+                gyroZCount++
+                gyroZMin = if (gyroZMin.isNaN()) gyroZ else min(gyroZMin, gyroZ)
+                gyroZMax = if (gyroZMax.isNaN()) gyroZ else max(gyroZMax, gyroZ)
+                // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
+                lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
                     lookHistory.removeFirst()
                 }
@@ -316,7 +471,7 @@ fun StarMapScreen(
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
 
-    fun look(): Look = Look((normalizeDeg(glassYaw + headingOffset) + 360.0) % 360.0, glassPitch)
+    fun look(): Look = Look((normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0, glassPitch)
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
     fun latchedLook(): Look {
@@ -473,6 +628,122 @@ fun StarMapScreen(
         }
     }
 
+    /**
+     * ドリフト計測。**ずれた量そのものは記録できない。**
+     *
+     * グラスの yaw がずれていく量なので、yaw を見ても「頭を回した」のか
+     * 「ジャイロがドリフトした」のか区別が付かない。区別する情報が機体内に無い。
+     * そこで**判断はせず材料だけ残す** — 累積回転がほぼ 0 の区間（机に置いた・じっとしていた）を
+     * あとから拾えば、そこの yaw の変化がドリフトそのものになる。
+     */
+    LaunchedEffect(calibratedAt) {
+        if (calibratedAt == null) return@LaunchedEffect
+        // yaw が届く前に基準を取ると 0° を掴む
+        while (lastImuAt == 0L) delay(POLL_MS)
+        // 前の画面で合わせたときは基準を持っていないので、画面に入った時点を基準にする。
+        // ドリフトは変化量なので基準はどこでもよく、いつ取ったかが分かれば足りる
+        val base = yawAtCalibration ?: glassYaw
+        val baseAt = System.currentTimeMillis()
+        turnedDeg = 0.0
+        log("ドリフト計測 開始 基準yaw=%.1f°".format(base))
+        var previousYaw = base
+        var previousFused = yawNow()
+        var previousAt = baseAt
+        while (true) {
+            delay(DRIFT_LOG_MS)
+            val now = System.currentTimeMillis()
+            // 前の行からの変化を出す。合計だけだと途中で速さが変わったのが分からない
+            val minutes = (now - previousAt) / 60_000.0
+            val rate = normalizeDeg(glassYaw - previousYaw) / minutes
+            // 効いているかは「生のヨーが何度流れたか」と「方位が何度動いたか」の差で見る
+            val fusedRate = normalizeDeg(yawNow() - previousFused) / minutes
+            log(
+                ("ドリフト計測 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 方位=%.1f°(%+.1f°/分) " +
+                    "止めた量=%.0f° 推定ドリフト=%+.3f°/秒 累積回転=%.0f° 静止=%s 磁気方位=%s(%s)")
+                    .format(
+                        (now - baseAt) / 60_000.0,
+                        glassYaw,
+                        rate,
+                        yawNow(),
+                        fusedRate,
+                        driftHeldDeg,
+                        driftRateDps,
+                        turnedDeg,
+                        if (settled) "はい" else "いいえ",
+                        // phoneHeading は合わせている間しか更新しないので Compass を直に読む。
+                        // スマホを動かせば当然変わる値だが、置いたまま測るときは
+                        // 「本当に動いていないか」の裏取りになる
+                        compass.trueHeadingDeg(site, now)?.let { "%.1f°".format(it) } ?: "—",
+                        compass.accuracyText(),
+                    ),
+            )
+            // ジャイロの平均がヨーのドリフト率（度/秒）と一致すれば、バイアスを引けば直る。
+            // 幅が大きい区間はグラスを動かしているので捨てる
+            if (gyroZCount > 0) {
+                log(
+                    "  ジャイロZ 平均=%+.3f°/秒 幅=%.2f°/秒 n=%d（ヨーの実測は %+.3f°/秒）"
+                        .format(
+                            gyroZSum / gyroZCount,
+                            gyroZMax - gyroZMin,
+                            gyroZCount,
+                            rate / 60.0,
+                        ),
+                )
+            }
+            previousYaw = glassYaw
+            previousFused = yawNow()
+            previousAt = now
+            gyroZSum = 0.0
+            gyroZCount = 0
+            gyroZMin = Double.NaN
+            gyroZMax = Double.NaN
+        }
+    }
+
+    /**
+     * 回転が終わるたびにヨーと積分値を並べる。**軸の対応とスケールをこれで決める。**
+     *
+     * グラスを持って 90° ほど回して置く、を何回かやれば、
+     * **どの軸がヨーに一致するか**と**積分値が本物の回転量になっているか**が出る。
+     */
+    LaunchedEffect(Unit) {
+        var wasSettled = true
+        var yawAtStart = 0.0
+        var intAtStart = Triple(0.0, 0.0, 0.0)
+        while (true) {
+            delay(POLL_MS)
+            if (wasSettled && !settled) {
+                yawAtStart = glassYaw
+                intAtStart = Triple(gyroIntX, gyroIntY, gyroIntZ)
+            }
+            if (!wasSettled && settled) {
+                val movedYaw = normalizeDeg(glassYaw - yawAtStart)
+                // 小さすぎる動きはノイズと区別が付かない
+                if (abs(movedYaw) > ROTATION_LOG_DEG) {
+                    log(
+                        "回転 ヨー=%+.1f° 積分X=%+.1f° 積分Y=%+.1f° 積分Z=%+.1f° ピッチ=%.0f° 穴=%d"
+                            .format(
+                                movedYaw,
+                                gyroIntX - intAtStart.first,
+                                gyroIntY - intAtStart.second,
+                                gyroIntZ - intAtStart.third,
+                                glassPitch,
+                                droppedGaps,
+                            ),
+                    )
+                }
+            }
+            wasSettled = settled
+        }
+    }
+
+    LaunchedEffect(showDetails) {
+        while (showDetails) {
+            logBytes = sessionLog.bytes
+            delay(LOG_SIZE_POLL_MS)
+        }
+    }
+
     // 十字はキャンバスの別 id に置く（0.6.0 から画像を並べられる）。
     // ただしバッファは全画像の合計で見るので、星図を消してから出す
     LaunchedEffect(calibrating) {
@@ -556,13 +827,29 @@ fun StarMapScreen(
         }
     }
 
-    // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない
+    // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない。
+    // 端末の TextToSpeech は棒読みで**プラネタリウムの雰囲気を壊す**ので、
+    // 普段は AI 音声で喋り、作れないときだけ端末の読み上げに落ちる（CloudVoice）
     val speaker = remember { Speaker(context) }
-    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    val voice = remember(speaker) {
+        CloudVoice(
+            context = context,
+            speech = OpenAiSpeech(
+                apiKey = BuildConfig.OPENAI_API_KEY,
+                voice = BuildConfig.OPENAI_TTS_VOICE,
+                model = BuildConfig.OPENAI_TTS_MODEL,
+            ),
+            fallback = speaker,
+            scope = scope,
+            log = { text, failed -> log(text, failed) },
+        )
+    }
+    var aiVoice by remember { mutableStateOf(true) }
+    DisposableEffect(voice) { onDispose { voice.shutdown(); speaker.shutdown() } }
 
-    val narrator = remember(speaker) {
+    val narrator = remember(voice) {
         Narrator(
-            speaker = speaker,
+            speaker = voice,
             client = OpenAiClient(
                 apiKey = BuildConfig.OPENAI_API_KEY,
                 model = BuildConfig.OPENAI_MODEL,
@@ -572,11 +859,39 @@ fun StarMapScreen(
         )
     }
     val narration by narrator.state.collectAsState()
-    val speaking by speaker.speaking.collectAsState()
-    val ttsAvailable by speaker.available.collectAsState()
+    val speaking by voice.speaking.collectAsState()
+    val ttsAvailable by voice.available.collectAsState()
 
-    // 読み上げが終わったら待機に戻す。TextToSpeech の完了通知は Speaker が拾っている
+    // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
+
+    // BGM は解説していない間も鳴らす。**プラネタリウムの雰囲気は無音では出ない**
+    val soundPrefs = remember { SoundPrefs(context) }
+    var voiceVolume by remember { mutableStateOf(soundPrefs.voiceVolume) }
+    var bgmVolume by remember { mutableStateOf(soundPrefs.bgmVolume) }
+    var bgmOn by remember { mutableStateOf(soundPrefs.bgmEnabled) }
+    val bgm = remember { Bgm(context, scope) { text, failed -> log(text, failed) } }
+    val bgmTrack by bgm.track.collectAsState()
+    DisposableEffect(bgm) { onDispose { bgm.release() } }
+
+    // 曲は太陽高度で決める。時計だと同じ 19 時が夏と冬で違う空になる
+    LaunchedEffect(skyDarkness, bgmOn) {
+        bgm.enabled = bgmOn
+        bgm.follow(skyDarkness)
+    }
+    // 解説が始まったら絞る。同じ音量のままだと言葉が埋もれる
+    LaunchedEffect(speaking) { bgm.duck(speaking) }
+    LaunchedEffect(voiceVolume) { voice.volume = voiceVolume }
+    LaunchedEffect(bgmVolume) { bgm.volume = bgmVolume }
+
+    // タップした瞬間に最初の一言を返すため、いま視野にある星座の分だけ先に作っておく。
+    // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
+    // 星図の 1 番目のラベルと解説の主役がずれることはあるが、外れてもキャッシュが当たらないだけ
+    LaunchedEffect(lastMap, satelliteMode) {
+        if (satelliteMode) return@LaunchedEffect
+        val name = lastMap?.labels?.firstOrNull()?.text ?: return@LaunchedEffect
+        voice.warm(Narrator.opening(name))
+    }
 
     LaunchedEffect(Unit) {
         if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
@@ -1023,6 +1338,8 @@ fun StarMapScreen(
                     } else {
                         headingOffset = normalizeDeg(trueHeading - glassYaw)
                         calibratedAt = System.currentTimeMillis()
+                        yawAtCalibration = glassYaw
+                        turnedDeg = 0.0
                         log(
                             "方位合わせ: スマホ ${trueHeading.roundToInt()}° / " +
                                 "グラス ${glassYaw.roundToInt()}° / 仰角差 ${tilt?.roundToInt() ?: "—"}° / " +
@@ -1058,6 +1375,114 @@ fun StarMapScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(8.dp)) {
                     Text("ログ", style = MaterialTheme.typography.titleMedium)
+                    // 画面に出るのは直近 40 行だけ。長い計測はファイルに残っているので、
+                    // 何バイト溜まっているかを出して書き出しと消去へ導く
+                    Text(
+                        "記録 %.1f KB（画面は直近 %d 行）".format(logBytes / 1024.0, LOG_LINES),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    // 生のヨーは静止中も 44°/分 流れる。既定は補正あり
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (useFusedYaw) "方位: ドリフト補正あり" else "方位: 生のヨー（44°/分 流れる）",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = useFusedYaw,
+                            onCheckedChange = {
+                                useFusedYaw = it
+                                log(if (it) "方位: ドリフト補正を入れた" else "方位: 生のヨーに戻した")
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
+                    // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (aiVoice) "声: AI 音声（落ち着いた解説員）" else "声: 端末の読み上げ",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = aiVoice,
+                            onCheckedChange = {
+                                aiVoice = it
+                                voice.enabled = it
+                                voice.stop()
+                                log(if (it) "声: AI 音声にした" else "声: 端末の読み上げに戻した")
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    // 適正な音量は場所（屋外の暗騒音）と機種で変わる。ここで合わせて覚えさせる
+                    Text(
+                        "読み上げの音量 %d%%".format((voiceVolume * 100).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = voiceVolume,
+                        onValueChange = { voiceVolume = it },
+                        onValueChangeFinished = { soundPrefs.voiceVolume = voiceVolume },
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (bgmOn) "BGM（いま ${bgmTrack?.label ?: "止まっている"}）" else "BGM なし",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = bgmOn,
+                            onCheckedChange = {
+                                bgmOn = it
+                                soundPrefs.bgmEnabled = it
+                                log(if (it) "BGM を入れた" else "BGM を止めた")
+                            },
+                        )
+                    }
+                    Text(
+                        "BGM の音量 %d%%（解説中は自動で下がる）".format((bgmVolume * 100).roundToInt()),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = bgmVolume,
+                        onValueChange = { bgmVolume = it },
+                        onValueChangeFinished = { soundPrefs.bgmVolume = bgmVolume },
+                        enabled = bgmOn,
+                    )
+                    // CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えないので、
+                    // ここにも出しておく
+                    Text(
+                        "BGM: Silver Blue Light / Fluidscape by Kevin MacLeod " +
+                            "(incompetech.com) CC BY 4.0",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8A9BA8),
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row {
+                        OutlinedButton(
+                            onClick = {
+                                val intent = sessionLog.shareIntent()
+                                if (intent == null) {
+                                    log("記録がまだ空", failed = true)
+                                } else {
+                                    context.startActivity(Intent.createChooser(intent, "記録を書き出す"))
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("記録を書き出す") }
+                        Spacer(Modifier.padding(4.dp))
+                        OutlinedButton(
+                            onClick = {
+                                sessionLog.clear()
+                                logs.clear()
+                                log("記録を消した。ここから計測しなおす")
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("記録を消す") }
+                    }
                     Spacer(Modifier.height(4.dp))
                     Column(
                         Modifier
@@ -1181,13 +1606,16 @@ private fun crossMarker(size: Int): ByteArray {
 }
 
 /**
- * 1 パケット（200 バイト）を書き出すのにかかる時間の初期値。
+ * 1 パケット（200 バイト）を書き出すのにかかる時間。
  *
- * もとは 30ms で見積もっていたが、根拠は以前の実測メモだけで、確かめ直せていない。
- * 短くしすぎても 0.6.0 の SDK が送信を直列化するので絵は壊れず、順番待ちが伸びるだけなので、
- * 画面のつまみで下げながら詰められるようにしてある。
+ * **実測は 8〜9ms**（528×330・圧縮後 6.1〜6.7KB を 12 回、実測 332〜390ms）。
+ * 20ms だと見積りが倍以上になり、そのぶん次の絵を無駄に待っていた。
+ *
+ * 実測より少し多めの 10ms にしてある。短くしすぎても 0.6.0 の SDK が送信を直列化するので
+ * 絵は壊れず順番待ちが伸びるだけだが、6DoF が再開したら待ちを打ち切る作りなので、
+ * 見積りが多すぎるほうが実害が大きい。
  */
-private const val PACKET_MS_DEFAULT = 20f
+private const val PACKET_MS_DEFAULT = 10f
 
 /**
  * 6DoF がこれより新しく届いていれば BLE は空いたとみなす、つもりの値。
@@ -1207,6 +1635,42 @@ private const val DEFAULT_LON = 136.1846
 
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
+
+/**
+ * ドリフトの材料を残す間隔。
+ *
+ * 1 分おきなら 30 分の観測で 30 行。画面のログ（40 行）には入らないが、
+ * ファイルには残る（`SessionLog`）。
+ */
+private const val DRIFT_LOG_MS = 60_000L
+
+/** 記録の大きさを拾い直す間隔。設定パネルを開いている間だけ動く */
+private const val LOG_SIZE_POLL_MS = 2_000L
+
+/**
+ * これより長い間隔が空いたサンプルは積分に入れない。
+ *
+ * 転送でキューが詰まるとサンプルが落ちる。穴をそのまま掛けると、
+ * 落ちている間の角速度を最後の値で代表してしまい角度が狂う。
+ */
+private const val IMU_GAP_LIMIT_S = 0.5
+
+/** これ以下の回転は記録しない。ノイズと区別が付かない */
+private const val ROTATION_LOG_DEG = 10.0
+
+/**
+ * これを超えたら「動いている」とみなすジャイロの大きさ[dps]。
+ *
+ * 静止中の実測ノイズは 0.1°/秒、首振りは 10〜100°/秒 なので間は広い。
+ * **低すぎるとドリフトを拾い、高すぎるとゆっくりした首振りを取りこぼす。**
+ */
+private const val GYRO_MOVING_DPS = 2.0
+
+/** ドリフト率を測り直す最短の静止時間[秒]。短いとノイズを率として拾う */
+private const val DRIFT_ESTIMATE_S = 5.0
+
+/** ドリフト率の平滑化の強さ。1 回の推定に引っぱられると動いた瞬間に方位が飛ぶ */
+private const val DRIFT_ESTIMATE_GAIN = 0.3
 
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L

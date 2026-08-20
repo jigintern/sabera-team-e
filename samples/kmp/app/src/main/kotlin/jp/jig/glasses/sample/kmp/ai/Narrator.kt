@@ -88,7 +88,7 @@ class Narrator(
         constellation!!
 
         // 端末が知っている事実なので即座に喋る。LLM を待たない
-        val opening = "$constellation ですね。"
+        val opening = opening(constellation)
         speaker.say(opening)
         _state.value = NarrationState(NarrationPhase.GENERATING, opening, constellation)
         log("解説を頼む: $constellation", false)
@@ -211,13 +211,21 @@ class Narrator(
             "星座を割り出せませんでした。星表が読めていないかもしれません。"
 
         !client.configured ->
-            "$constellation ですね。AI の設定がないので、解説はできません。"
+            opening(constellation) + "AI の設定がないので、解説はできません。"
 
         else -> null
     }
 
-    private companion object {
-        const val TAG = "Narrator"
+    companion object {
+        private const val TAG = "Narrator"
+
+        /**
+         * 最初の一言。星座名は端末が持っている確定値なので、**LLM を待たずに喋れる**。
+         *
+         * ここに切り出してあるのは、**タップより先にこの音声を作っておく**ため
+         * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
+         */
+        fun opening(constellation: String): String = "${constellation}ですね。"
     }
 }
 

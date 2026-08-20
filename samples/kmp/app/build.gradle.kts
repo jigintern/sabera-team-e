@@ -35,6 +35,11 @@ val openAiModel = secret("OPENAI_MODEL", "openAiModel").ifEmpty { "gpt-4o" }
 // 送らないと既定の強さで推論が走り、待たされたうえに出力枠を食い潰して本文が空になる
 val openAiReasoningEffort = secret("OPENAI_REASONING_EFFORT", "openAiReasoningEffort")
 
+// 読み上げの声。gpt-4o-mini-tts は話し方まで指示できる（OpenAiSpeech.INSTRUCTIONS）。
+// 声の好みは実機で聴かないと決まらないので、差し替えられるようにしてある
+val openAiTtsModel = secret("OPENAI_TTS_MODEL", "openAiTtsModel").ifEmpty { "gpt-4o-mini-tts" }
+val openAiTtsVoice = secret("OPENAI_TTS_VOICE", "openAiTtsVoice").ifEmpty { "alloy" }
+
 android {
     namespace = "jp.jig.glasses.sample.kmp"
     compileSdk = 36
@@ -50,6 +55,8 @@ android {
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
         buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
         buildConfigField("String", "OPENAI_REASONING_EFFORT", "\"$openAiReasoningEffort\"")
+        buildConfigField("String", "OPENAI_TTS_MODEL", "\"$openAiTtsModel\"")
+        buildConfigField("String", "OPENAI_TTS_VOICE", "\"$openAiTtsVoice\"")
     }
 
     buildFeatures {
