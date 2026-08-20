@@ -53,6 +53,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -141,6 +142,11 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         }
     }
 
+    // SDK は sendCommand / sendCommands をそのつど別コルーチンで書き出す。共通のキューが
+    // 無いので、2つの送信が重なるとパケットが混ざってグラス側で組み立てられない。
+    // アプリ側で1本ずつに直列化し、転送が終わるまで次を入れない
+    val sendGate = remember { Mutex() }
+
     fun look(): Look {
         if (!followGlasses) {
             val target = aimed ?: return Look(180.0, 45.0)
@@ -152,6 +158,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 
     suspend fun drawAndSend() {
         val r = renderer ?: return
+        // 送信中なら捨てる。積むとパケットが混ざって、どれも表示されない
+        if (!sendGate.tryLock()) return
         // 描画で落ちても黙って消えないよう、送信まで含めて丸ごと拾う
         runCatching {
             val started = System.currentTimeMillis()
@@ -195,10 +203,13 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             sendMs = System.currentTimeMillis() - sendStarted
             status = ""
             Log.d(TAG, "送信 ${map.width}x${map.height} 名前=${names.size} 転送見積り=${transferMs}ms")
+            // 最後のパケットが出てグラスが描き終わるまで、次の送信を入れない
+            delay(transferMs + SETTLE_MS)
         }.onFailure {
             status = "失敗: ${it.message}"
             Log.e(TAG, "drawAndSend で失敗", it)
         }
+        sendGate.unlock()
     }
 
     // 開いたらボタンを探さずに 1 枚出る。座標変換が通っているかをまず目で見るため
@@ -219,11 +230,10 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             val moved = drawn == null ||
                 kotlin.math.abs(normalizeDeg(now.azDeg - drawn!!.azDeg)) > REDRAW_DEG ||
                 kotlin.math.abs(now.altDeg - drawn!!.altDeg) > REDRAW_DEG
+            // 待ちは drawAndSend が持っている。ここでは動いたかどうかだけ見る
             if (moved) {
                 drawAndSend()
                 drawn = now
-                // 画像は送るたび前の1枚が破棄される。組み立てと描画が終わるまで次を送らない
-                delay(transferMs + SETTLE_MS)
             } else {
                 delay(150)
             }
@@ -247,18 +257,27 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             }
 
             CommandButton("テスト画像（塗りつぶし）") {
-                Log.d(TAG, "テスト画像ボタン")
-                runCatching {
-                    val w = imageSize.width
-                    val h = imageSize.height
-                    commandManager.sendCanvasImage(
-                        (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, solidBlock(w, h),
-                    )
-                    status = "テスト画像を送った。出ないなら星図の中身ではなく経路の問題"
-                    Log.d(TAG, "テスト画像を送った ${w}x$h")
-                }.onFailure {
-                    status = "テスト画像で失敗: ${it.message}"
-                    Log.e(TAG, "テスト画像で失敗", it)
+                scope.launch {
+                    if (!sendGate.tryLock()) {
+                        status = "まだ前の画像を送っている"
+                        return@launch
+                    }
+                    runCatching {
+                        val w = imageSize.width
+                        val h = imageSize.height
+                        val gray = solidBlock(w, h)
+                        commandManager.sendCanvasImage(
+                            (PANEL_WIDTH - w) / 2, (PANEL_HEIGHT - h) / 2, w, h, gray,
+                        )
+                        val wait = StarMap(w, h, gray, emptyList()).transferMillis()
+                        status = "テスト画像を送った（約 $wait ms）。出ないなら経路の問題"
+                        Log.d(TAG, "テスト画像 ${w}x$h 転送見積り=${wait}ms")
+                        delay(wait + SETTLE_MS)
+                    }.onFailure {
+                        status = "テスト画像で失敗: ${it.message}"
+                        Log.e(TAG, "テスト画像で失敗", it)
+                    }
+                    sendGate.unlock()
                 }
             }
 
