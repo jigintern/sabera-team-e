@@ -60,6 +60,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         height: Int = PANEL_HEIGHT,
         drawLines: Boolean = true,
         maxLabels: Int = 8,
+        tracks: List<SkyTrack> = emptyList(),
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -93,7 +94,26 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
         }
 
-        return StarMap(width, height, gray, labels(precessed, lst, site, basis, k, width, height, maxLabels))
+        // 衛星の軌跡は星より手前に描く。星座線より明るくして見分けが付くようにする
+        val trackLabels = ArrayList<Label>()
+        for (track in tracks) {
+            drawTrack(gray, width, height, track, basis, k)
+            val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height)
+            if (q != null && q[0] >= 0 && q[1] >= 0 && q[0] <= width && q[1] <= height) {
+                // いまの位置は画像にも点を打つ。テキストが出なくても何かは見える
+                dot(gray, width, height, q[0], q[1], 255, (3.0 * width / 196.0).roundToInt(), round = true)
+                if (track.labelled) {
+                    // 日が当たっているものは塗り、影のものは輪郭。肉眼で見えるかどうかの区別
+                    val mark = if (track.sunlit) "●" else "○"
+                    trackLabels += Label(mark + track.name, q[0].roundToInt(), q[1].roundToInt())
+                }
+            }
+        }
+
+        val starLabels = labels(precessed, lst, site, basis, k, width, height, maxLabels)
+        // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
+        val merged = (trackLabels + starLabels).take(maxLabels.coerceAtLeast(trackLabels.size))
+        return StarMap(width, height, gray, merged)
     }
 
     /**
@@ -208,6 +228,27 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
     }
 
+    /** 軌跡を折れ線で描く。点はすでに方位・高度なので、投影して結ぶだけ */
+    private fun drawTrack(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        track: SkyTrack,
+        basis: Basis,
+        k: Double,
+    ) {
+        var prev: DoubleArray? = null
+        for (p in track.points) {
+            val q = project(enu(p[0], p[1]), basis, k, width, height)
+            if (q == null) {
+                prev = null
+                continue
+            }
+            prev?.let { line(gray, width, height, it, q, TRACK_VALUE, lineRadius(width)) }
+            prev = q
+        }
+    }
+
     /**
      * 星座線は投影後の直線ではなく大円。ステレオ投影では円弧になるので
      * 3° ごとの折れ線に割って描く（仕様どおり、実用上の差は無い）。
@@ -298,5 +339,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     private companion object {
         /** 星座線は星より暗く。転送量の半分以上を占めるので、間に合わないときはここを間引く */
         const val LINE_VALUE = 110
+
+        /** 衛星の軌跡は星座線より明るく。同じ濃さだと空の模様と見分けが付かない */
+        const val TRACK_VALUE = 200
     }
 }

@@ -50,8 +50,13 @@
 
 仕様は [docs/team-e/](docs/team-e/) にある。
 
-**次に作るのは人工衛星モード。** 星座と `DOUBLE_TAP` で切り替えて、ISS・みちびき・ひまわり・
-スターリンクを同じ星図に重ねる（[調査](docs/team-e/satellites.md) / [issue #9](https://github.com/jigintern/sabera-team-e/issues/9)）。
+**人工衛星モードを作っている。** 星座と `DOUBLE_TAP` で切り替えて、ISS・みちびき・ひまわり・
+スターリンクを同じ星図に重ねる（[調査と実装](docs/team-e/satellites.md) /
+[issue #9](https://github.com/jigintern/sabera-team-e/issues/9)）。
+
+- 軌道計算（SGP4 / SDP4）は参照実装と 4mm 差で一致。**16 機＋スターリンク 10,748 機を同梱**
+- 全機の伝播と視線計算で 7ms。地平線より上にはスターリンクが常時 450 機ほどいる
+- **実機での見え方はまだ確認していない**
 
 ## はじめかた
 
