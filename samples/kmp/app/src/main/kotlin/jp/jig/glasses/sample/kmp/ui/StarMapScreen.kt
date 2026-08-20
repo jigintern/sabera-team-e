@@ -107,6 +107,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
     var renderMs by remember { mutableStateOf(0L) }
     var sendMs by remember { mutableStateOf(0L) }
+    // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
+    var transferMs by remember { mutableStateOf(1500L) }
     var status by remember { mutableStateOf("") }
     // 差分更新なので、前のフレームで使った id を消すために覚えておく
     var shownLabels by remember { mutableStateOf(0) }
@@ -165,13 +167,16 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
 
             val sendStarted = System.currentTimeMillis()
-            // 画像とテキストは別バッファなので、画像を置いてから名前を差分で載せる
-            commandManager.sendCanvasImage(IMAGE_X, IMAGE_Y, map.width, map.height, map.gray)
-            // 1 パケット 190 バイトに収まらないので、分けて送る
+            // 星座名を先に送り切る。画像とテキストは同じコマンド 0x1B で、
+            // SDK は両者を別コルーチンで書くため、あとから送ると画像の分割送信に割り込んで
+            // ファーム側の組み立てが壊れる（実機のログで確認）
             for (batch in map.toElementBatches(shownLabels)) {
                 commandManager.sendCanvasElements(batch)
+                delay(60)
             }
             shownLabels = map.labels.size
+            commandManager.sendCanvasImage(IMAGE_X, IMAGE_Y, map.width, map.height, map.gray)
+            transferMs = map.transferMillis()
             sendMs = System.currentTimeMillis() - sendStarted
             status = ""
         }.onFailure { status = "失敗: ${it.message}" }
@@ -191,8 +196,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         if (!imuStarted) commandManager.startImuData()
         while (true) {
             drawAndSend()
-            // 576×360 は数百バイトずつに分けて送られる。1 秒だとキューが溜まる
-            delay(3000)
+            // 転送しきる前に次を送ると画像が組み上がらない。実測ぶんだけ待つ
+            delay(transferMs + 500L)
         }
     }
 
@@ -315,7 +320,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                     Checkbox(checked = drawLines, onCheckedChange = { drawLines = it })
                     Text("星座線を描く", Modifier.padding(top = 14.dp))
                 }
-                Text("描画 $renderMs ms / 送信の呼び出し $sendMs ms")
+                Text("描画 $renderMs ms / 送信の呼び出し $sendMs ms / 画像の転送 約 $transferMs ms")
                 Text(
                     "送信は内部でキューイングされるので、呼び出し時間は転送完了までの時間ではない",
                     style = MaterialTheme.typography.bodySmall,
@@ -402,6 +407,26 @@ private fun StarMap.toElementBatches(previousCount: Int): List<List<CommandManag
     }
     if (current.isNotEmpty()) batches += current
     return batches
+}
+
+/**
+ * 画像の分割送信にかかるおおよその時間。
+ *
+ * SDK は 3bit RLE に圧縮してから 200 バイトずつ、10ms 間隔で送る。
+ * 実測ではパケット 1 本あたり 30ms 程度かかっていたので、それで見積もる。
+ */
+private fun StarMap.transferMillis(): Long {
+    var bytes = 0
+    var i = 0
+    val count = width * height
+    while (i < count) {
+        val v = (gray[i].toInt() and 0xFF) ushr 5
+        var run = 1
+        while (i + run < count && run < 32 && ((gray[i + run].toInt() and 0xFF) ushr 5) == v) run++
+        bytes++
+        i += run
+    }
+    return ((bytes + 199) / 200) * 30L
 }
 
 /** 実機で見える色に寄せた確認用。3bit へ落としてから緑に写す（順序を逆にすると階調が狂う） */
