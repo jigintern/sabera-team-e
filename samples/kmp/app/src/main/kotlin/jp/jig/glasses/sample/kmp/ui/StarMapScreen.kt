@@ -8,7 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -43,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -156,6 +157,9 @@ fun StarMapScreen(
     val locator = remember { Locator(context) }
     var locateNow by remember { mutableStateOf(0) }
 
+    // 測位は屋内だと 8 秒待って諦める。待っていることが見えないと固まったように見える
+    var locating by remember { mutableStateOf(false) }
+
     fun apply(located: Located?, how: String): Boolean {
         if (located == null) return false
         latText = "%.4f".format(located.site.latDeg)
@@ -183,7 +187,12 @@ fun StarMapScreen(
         }
         // 直近の値をすぐ使い、測り直しはその裏でやる。1km ずれても星の位置は 0.01° も動かない
         apply(locator.lastKnown(), "直近の測位")
-        val fresh = withTimeoutOrNull(LOCATE_TIMEOUT_MS) { locator.current() }
+        locating = true
+        val fresh = try {
+            withTimeoutOrNull(LOCATE_TIMEOUT_MS) { locator.current() }
+        } finally {
+            locating = false
+        }
         if (!apply(fresh, "測位") && siteSource.startsWith("手入力")) {
             log("測位できない（屋内かも）。手入力のまま", failed = true)
         }
@@ -674,7 +683,16 @@ fun StarMapScreen(
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
         ) {
             if (renderer == null) {
-                Text("星表を読み込み中…")
+                LoadingLine("星表（星と星座線）を読み込み中")
+                Spacer(Modifier.height(12.dp))
+            }
+            if (satellites == null) {
+                // 10,748 機ぶんの TLE。読み終わるまで衛星モードに入れないので、待ちを見せる
+                LoadingLine("人工衛星の軌道要素を読み込み中")
+                Spacer(Modifier.height(12.dp))
+            }
+            if (locating) {
+                LoadingLine("観測地を測位中（屋内なら ${LOCATE_TIMEOUT_MS / 1000} 秒で諦める）")
                 Spacer(Modifier.height(12.dp))
             }
 
@@ -682,19 +700,38 @@ fun StarMapScreen(
             Spacer(Modifier.height(4.dp))
             Card(colors = CardDefaults.cardColors(containerColor = Color.Black)) {
                 val shot = preview
-                if (shot == null) {
-                    Column(
-                        Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat()),
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text("　まだ出していない", color = Color.Gray)
+                Box(Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())) {
+                    if (shot != null) {
+                        Image(
+                            bitmap = shot.asImageBitmap(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxWidth().background(Color.Black),
+                        )
+                    } else {
+                        // **方位合わせの直後がここ。** 何も出ないと壊れたように見えるので、
+                        // 何を待っているのかと、首を止めてほしいことを出す
+                        LoadingPanel(
+                            text = when {
+                                renderer == null -> "星表を読み込み中"
+                                calibrating -> "方位合わせ中（グラスには十字が出ている）"
+                                sending -> "1 枚目を送信中（約 $transferMs ms）"
+                                else -> "星図の送信を待っている"
+                            },
+                            hint = if (renderer != null && !calibrating) {
+                                "首を止めると送ります（0.4 秒じっとする）"
+                            } else {
+                                null
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
-                } else {
-                    Image(
-                        bitmap = shot.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxWidth().background(Color.Black),
-                    )
+                    if (sending && shot != null) {
+                        // 転送中はグラスから絵が消える。プレビューは前の絵なので、その食い違いを出す
+                        SendingChip(
+                            "送信中（グラスは一時的に消える）",
+                            Modifier.align(Alignment.TopStart).padding(8.dp),
+                        )
+                    }
                 }
             }
             Text(
@@ -861,6 +898,11 @@ fun StarMapScreen(
                     )
                     if (narration.constellation.isNotEmpty()) {
                         StatusRow("星座", narration.constellation)
+                    }
+                    if (narration.phase == NarrationPhase.GENERATING) {
+                        // 星座名を喋ってから返事が来るまで数秒空く。その間が見えるようにする
+                        Spacer(Modifier.height(4.dp))
+                        LoadingLine("AI の返事を待っている")
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
