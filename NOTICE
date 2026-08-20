@@ -62,3 +62,19 @@ data/ に同梱する人工衛星の軌道要素（TLE）
   1 IP あたり 1 日 100MB まで、starlink グループは更新期間ごとに 1 回まで）。
 
   https://celestrak.org/NORAD/documentation/gp-data-formats.php
+
+--------------------------------------------------------------------------------
+
+samples/kmp/app/src/main/kotlin/.../satellite/Sgp4.kt
+samples/kmp/app/src/test/resources/sgp4/
+
+SGP4 の実装は David A. Vallado らの参照実装を Kotlin に移したものです。
+検証用の TLE（SGP4-VER.TLE）は同じ配布物に含まれるもので、期待値は参照実装を
+ビルドして生成しました。
+
+  Revisiting Spacetrack Report #3 (AIAA 2006-6753)
+  David A. Vallado, Paul Crawford, Richard Hujsak, T.S. Kelso
+  https://celestrak.org/publications/AIAA/2006-6753/
+
+  参照実装の配布元
+  https://celestrak.org/software/vallado-sw.php
