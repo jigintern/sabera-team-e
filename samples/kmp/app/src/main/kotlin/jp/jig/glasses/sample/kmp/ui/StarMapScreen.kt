@@ -55,6 +55,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** グラスへの出し先。ファームが 2.2.0 未満だと星図とラベルを同時に出せない */
+private enum class Output(val label: String, val note: String) {
+    IMAGE_PAGE("画像表示ページ（196×196）", "星図だけ。ラベルは出せないが、ファームの版を選ばない"),
+    CANVAS("キャンバス（576×360）", "星図＋星座名。FEATURE_VERSION 2.2.0 以上が要る"),
+    LABELS_ONLY("星座名だけ（576×360）", "画像を使わないので 2.1.0 でも出る"),
+}
+
 /**
  * 座標変換パイプラインを実機で試す画面。仕様は docs/team-e/coordinate-system.md。
  *
@@ -96,6 +103,8 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
+    // 手元のグラスは 2.2.0 未満で sendCanvasImage が効かないので、既定は画像表示ページ
+    var output by remember { mutableStateOf(Output.IMAGE_PAGE) }
     var fov by remember { mutableStateOf(35f) }
     var limitMag by remember { mutableStateOf(5f) }
     var drawLines by remember { mutableStateOf(true) }
@@ -142,6 +151,9 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
     suspend fun drawAndSend() {
         val r = renderer ?: return
         val started = System.currentTimeMillis()
+        // 画像表示ページは 196x196 が上限。超えるとファーム側で弾かれて何も出ない
+        val w = if (output == Output.IMAGE_PAGE) IMAGE_PAGE_SIZE else PANEL_WIDTH
+        val h = if (output == Output.IMAGE_PAGE) IMAGE_PAGE_SIZE else PANEL_HEIGHT
         val map = withContext(Dispatchers.Default) {
             r.render(
                 site = site,
@@ -149,7 +161,10 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                 look = look(),
                 fovDeg = fov.toDouble(),
                 limitMagnitude = limitMag.toDouble(),
+                width = w,
+                height = h,
                 drawLines = drawLines,
+                maxLabels = if (output == Output.IMAGE_PAGE) 0 else 8,
             )
         }
         renderMs = System.currentTimeMillis() - started
@@ -158,26 +173,26 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 
         val sendStarted = System.currentTimeMillis()
         runCatching {
-            commandManager.sendCanvasImage(
-                x = (PANEL_WIDTH - map.width) / 2,
-                y = (PANEL_HEIGHT - map.height) / 2,
-                width = map.width,
-                height = map.height,
-                grayscale = map.gray,
-            )
-            // テキストは画像の手前に描かれるので、星図を消さずに星座名を重ねられる
-            commandManager.sendCanvasElements(
-                map.labels.mapIndexed { i, label ->
-                    CommandManager.CanvasElement(
-                        id = i,
-                        x = (label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
-                        y = (label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
-                        width = 120,
-                        height = 22,
-                        text = label.text,
+            when (output) {
+                Output.IMAGE_PAGE -> {
+                    // このページは画像専用。テキストとは排他なので星座名は出せない
+                    commandManager.enterImageDisplayPage()
+                    commandManager.sendImage(map.width, map.height, map.gray)
+                }
+
+                Output.CANVAS -> {
+                    commandManager.sendCanvasImage(
+                        x = (PANEL_WIDTH - map.width) / 2,
+                        y = (PANEL_HEIGHT - map.height) / 2,
+                        width = map.width,
+                        height = map.height,
+                        grayscale = map.gray,
                     )
-                },
-            )
+                    commandManager.sendCanvasElements(map.toElements())
+                }
+
+                Output.LABELS_ONLY -> commandManager.sendCanvas(map.toElements())
+            }
             status = ""
         }.onFailure { status = "送信に失敗: ${it.message}" }
         sendMs = System.currentTimeMillis() - sendStarted
@@ -208,6 +223,20 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
                 Text("星表を読み込み中…")
                 return@Column
             }
+
+            SectionTitle("どこに出すか")
+            for (o in Output.entries) {
+                Row {
+                    FilterChip(
+                        selected = output == o,
+                        onClick = { output = o },
+                        label = { Text(o.label) },
+                    )
+                }
+                Text(o.note, style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(4.dp))
+            }
+            Spacer(Modifier.height(12.dp))
 
             Row {
                 FilterChip(
@@ -373,6 +402,21 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
         }
     }
 }
+
+/** 画像表示ページの上限。超えるとファーム側で弾かれて何も出ない */
+private const val IMAGE_PAGE_SIZE = 196
+
+private fun StarMap.toElements(): List<CommandManager.CanvasElement> =
+    labels.mapIndexed { i, label ->
+        CommandManager.CanvasElement(
+            id = i,
+            x = (label.x - 60).coerceIn(0, PANEL_WIDTH - 120),
+            y = (label.y - 10).coerceIn(0, PANEL_HEIGHT - 22),
+            width = 120,
+            height = 22,
+            text = label.text,
+        )
+    }
 
 /** 見落としようのない図形。枠と対角線と中央の塗りつぶしを最大輝度で描く */
 private fun testPattern(w: Int, h: Int): ByteArray {
