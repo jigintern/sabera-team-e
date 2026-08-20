@@ -52,6 +52,7 @@ fun CommandScreen(
     onOpenMicScreen: () -> Unit,
     onOpenLayoutScreen: () -> Unit,
     onOpenCanvasScreen: () -> Unit,
+    onOpenStarMapScreen: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val commandManager = remember(client) { client.createCommandManager() }
@@ -103,6 +104,7 @@ fun CommandScreen(
             SectionTitle("送るだけで切り替わる")
             CommandButton("分割レイアウトの画面へ", onClick = onOpenLayoutScreen)
             CommandButton("自由配置キャンバスの画面へ", onClick = onOpenCanvasScreen)
+            CommandButton("星図の画面へ", onClick = onOpenStarMapScreen)
 
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
 
