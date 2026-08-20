@@ -32,7 +32,7 @@ nav_order: 1
 | ロール | 地平線を水平に固定 |
 | 星座の判定 | 視野中心が属する星座を IAU 境界で決める |
 | 星表 | d3-celestial（BSD-3-Clause）を 5 等でフィルタして同梱 |
-| 出力 | キャンバスの画像（`sendCanvasImage`）＋ テキストの星座名。**ファーム更新までは 196×196 の画像表示ページに出す** |
+| 出力 | キャンバスの画像（`sendCanvasImage`）＋ テキストの星座名 |
 | 音声 | スマホの `TextToSpeech`（SDK に音声出力 API が無い） |
 | 方位 | 段階 1（スマホ同期）を標準、精度が要るときだけ段階 2 |
 
@@ -234,8 +234,8 @@ fun sendCanvasImage(x: Int, y: Int, width: Int, height: Int, grayscale: ByteArra
 - **1 画素 1 バイトのグレースケール**（0-255、左上から行優先）
 - **3bit への量子化と RLE 圧縮は SDK が行う。エンコーダを自前で書かない**
 - **置けるのは 1 枚だけ。** ナビ表示中は使えない（バッファを共有している）
-- `FEATURE_VERSION 2.2.0` 以上が要る。**手元のグラスは 2.1.0 台でまだ効かない**（実機で確認）。
-  更新されるまでは `enterImageDisplayPage` ＋ `sendImage`（196×196）に出す
+- `FEATURE_VERSION 2.2.0` 以上が要る。**手元のグラスは更新済みで動く**（実機で確認）。
+  古いファームでは `enterImageDisplayPage` ＋ `sendImage`（196×196、星図だけ）が退路
 - **映るのは緑の 8 段。** API の契約はグレースケールなので、**緑の値を作って渡すのではない**
 
 ### 転送量
