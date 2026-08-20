@@ -78,7 +78,7 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
+fun StarMapScreen(client: GlassClient) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val commandManager = remember(client) { client.createCommandManager() }
@@ -267,10 +267,7 @@ fun StarMapScreen(client: GlassClient, onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("星図") },
-                navigationIcon = { OutlinedButton(onClick = onBack) { Text("戻る") } },
-            )
+            TopAppBar(title = { Text("星図") })
         },
     ) { padding ->
         Column(
