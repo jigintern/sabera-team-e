@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -86,7 +87,10 @@ import kotlin.math.roundToInt
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StarMapScreen(client: GlassClient) {
+fun StarMapScreen(
+    client: GlassClient,
+    onHome: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val commandManager = remember(client) { client.createCommandManager() }
@@ -374,7 +378,19 @@ fun StarMapScreen(client: GlassClient) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("星図") })
+            TopAppBar(
+                title = { Text("星図") },
+                navigationIcon = {
+                    TextButton(
+                        onClick = {
+                            commandManager.closeCanvas()
+                            onHome()
+                        },
+                    ) {
+                        Text("ホーム")
+                    }
+                },
+            )
         },
     ) { padding ->
         Column(
