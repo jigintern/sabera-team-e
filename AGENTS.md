@@ -506,6 +506,8 @@ cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
 - 「AI にお願いする」の入力経路 — グラスのマイク（`startMicStreaming` で PCM が取れる）かスマホ側か
 - 解説文の生成に使う LLM と呼び出し場所（端末直かバックエンド経由か）
 - 解説テキストの表示先 — `enterEmptyScreenPage` / AI Chat / Teleprompter / 分割レイアウト / キャンバス
+- **「もっと詳しく」をどのジェスチャーに割り当てるか。** `DOUBLE_TAP` を人工衛星モードとの
+  切り替えに使うことにしたので行き先が無い（`SINGLE_TAP` は解説の開始／停止で埋まっている）
 - 発話の区切りをどう決めるか（`micAudio` は流れ続けるので、どこで文字起こしに送るか）
 - **マイクと星図が同じ BLE を食い合う。** 音声を流しながら画像を送れるか
 - API キーなど秘密情報の持ち方（`.gitignore` は `.env` を除外済み）

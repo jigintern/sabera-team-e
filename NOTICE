@@ -46,3 +46,19 @@ data/stars.json, data/constellations.json, data/bright-stars.json
 
 元データは XHIP: An Extended Hipparcos Compilation (Anderson E., Francis C. 2012)
 に由来します。
+
+--------------------------------------------------------------------------------
+
+data/ に同梱する人工衛星の軌道要素（TLE）
+
+これらは CelesTrak から取得したものです。
+
+  CelesTrak
+  https://celestrak.org/
+  Dr. T.S. Kelso / CelesTrak
+
+  軌道要素の元データは米国宇宙軍が公開している一般摂動要素（GP データ）です。
+  CelesTrak の利用方針に従って取得しています（更新は 2 時間ごと、
+  1 IP あたり 1 日 100MB まで、starlink グループは更新期間ごとに 1 回まで）。
+
+  https://celestrak.org/NORAD/documentation/gp-data-formats.php
