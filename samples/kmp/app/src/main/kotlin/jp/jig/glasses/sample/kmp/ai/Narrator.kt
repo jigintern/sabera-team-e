@@ -22,7 +22,8 @@ data class NarrationState(
     val phase: NarrationPhase = NarrationPhase.IDLE,
     /** 直近に喋った内容。画面にはこれを出す（音が使えない環境ではテキストが主役になる） */
     val text: String = "",
-    val constellation: String = "",
+    /** 何について喋ったか。星座モードなら星座名、人工衛星モードなら機体名 */
+    val subject: String = "",
 )
 
 /** 解説を頼むときに画面から渡すもの */
@@ -38,6 +39,15 @@ class NarrationInput(
     val pngBase64: String?,
 )
 
+/** 人工衛星モードで喋るときに渡すもの。端末が計算した確定値だけ */
+class SatellitePass(
+    val name: String,
+    val azDeg: Double,
+    val altDeg: Double,
+    /** 日が当たっているか。当たっていなければ肉眼では見えない */
+    val sunlit: Boolean,
+)
+
 /**
  * 「あれは何？」に答える。
  *
@@ -46,7 +56,7 @@ class NarrationInput(
  * 生成に 1〜3 秒かかっても、その間ずっと黙っていることにはならない。
  */
 class Narrator(
-    private val speaker: Speaker,
+    private val speaker: Voice,
     private val client: OpenAiClient,
     /** 画面のログへ流す。実機で何が起きたかはログだけが頼り */
     private val log: (String, Boolean) -> Unit,
@@ -103,6 +113,49 @@ class Narrator(
         speaker.add(explanation)
         _state.value = NarrationState(NarrationPhase.SPEAKING, explanation, constellation)
         log("解説を読み上げ中（${explanation.length} 文字）", false)
+    }
+
+    /**
+     * 人工衛星モードの「あれは何？」。
+     *
+     * **LLM は使わない。** 機体名・方角・高度・日照はすべて端末が計算した確定値で、
+     * 生成に投げると待つだけ損をする（星座は由来や探し方があるので LLM が効く）。
+     */
+    fun narrateSatellites(inView: List<SatellitePass>) {
+        val lead = inView.firstOrNull()
+        if (lead == null) {
+            val guide = "いま視野には人工衛星がいません。空の別のほうを向いてください。"
+            speaker.say(guide)
+            _state.value = NarrationState(NarrationPhase.FAILED, guide, "")
+            log("衛星が視野にいない", false)
+            return
+        }
+
+        val text = buildString {
+            append("いま視野には")
+            append(lead.name)
+            append("が入っています。")
+            append(compass(lead.azDeg))
+            append("の空、高度 ")
+            append(lead.altDeg.toInt())
+            append(" 度あたりです。")
+            append(
+                if (lead.sunlit) {
+                    "日が当たっているので、動く光として肉眼でも見えるかもしれません。"
+                } else {
+                    "地球の影に入っているので、肉眼では見えません。"
+                },
+            )
+            val others = inView.drop(1)
+            if (others.isNotEmpty()) {
+                append("ほかに")
+                append(others.take(2).joinToString("、") { it.name })
+                append("も同じ視野にいます。")
+            }
+        }
+        speaker.say(text)
+        _state.value = NarrationState(NarrationPhase.SPEAKING, text, lead.name)
+        log("衛星を案内: ${lead.name}（視野に ${inView.size} 機）", false)
     }
 
     fun stop() {

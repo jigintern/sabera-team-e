@@ -59,6 +59,7 @@ import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.NarrationPhase
 import jp.jig.glasses.sample.kmp.ai.Narrator
 import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
@@ -522,6 +523,7 @@ fun StarMapScreen(
     }
     val narration by narrator.state.collectAsState()
     val speaking by speaker.speaking.collectAsState()
+    val ttsAvailable by speaker.available.collectAsState()
 
     // 読み上げが終わったら待機に戻す。TextToSpeech の完了通知は Speaker が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
@@ -530,6 +532,11 @@ fun StarMapScreen(
         if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
             log("OPENAI_API_KEY が設定されていない（.env を作る）", failed = true)
         }
+    }
+
+    LaunchedEffect(ttsAvailable) {
+        // 黙っている理由が分からないのがいちばん困る。使えないなら言う
+        if (ttsAvailable == false) log("読み上げが使えない（日本語の音声データが無い）", failed = true)
     }
 
     var narrationJob by remember { mutableStateOf<Job?>(null) }
@@ -542,6 +549,27 @@ fun StarMapScreen(
             return
         }
         val latched = latchedLook()
+
+        // **衛星モードでは星座を喋らない。** グラスに出ているのは衛星の点と輪郭で、
+        // 星は 1 つも描いていない。星座の解説を返すと、見えているものと食い違う
+        if (satelliteMode) {
+            val scene = satellites
+            if (scene == null || !scene.loaded) {
+                log("軌道要素が読めていない", failed = scene != null)
+                return
+            }
+            narrationJob = scope.launch {
+                val inView = withContext(Dispatchers.Default) {
+                    val observer = Observer(site.latDeg, site.lonDeg)
+                    // 名前つきだけ。スターリンクは名前を読み上げても意味がない
+                    scene.tracksInView(
+                        observer, System.currentTimeMillis(), latched, fov.toDouble(), maxStarlink = 0,
+                    ).map { SatellitePass(it.name, it.nowAzDeg, it.nowAltDeg, it.sunlit) }
+                }
+                narrator.narrateSatellites(inView)
+            }
+            return
+        }
         narrationJob = scope.launch {
             val names = withContext(Dispatchers.Default) {
                 r.constellationsNear(site, System.currentTimeMillis(), latched)
@@ -892,12 +920,15 @@ fun StarMapScreen(
                         when {
                             narration.phase == NarrationPhase.GENERATING -> "AI に聞いている…"
                             narration.phase == NarrationPhase.SPEAKING || speaking -> "読み上げ中"
+                            ttsAvailable == false -> "読み上げが使えない（日本語の音声データが無い）"
+                            // 衛星モードは端末の計算だけで喋るので、キーが無くても案内できる
+                            satelliteMode -> "待機中（1 回タップで衛星を案内）"
                             BuildConfig.OPENAI_API_KEY.isEmpty() -> "キー未設定（.env を作る）"
                             else -> "待機中（グラスのツルを 1 回タップ）"
                         },
                     )
-                    if (narration.constellation.isNotEmpty()) {
-                        StatusRow("星座", narration.constellation)
+                    if (narration.subject.isNotEmpty()) {
+                        StatusRow(if (satelliteMode) "衛星" else "星座", narration.subject)
                     }
                     if (narration.phase == NarrationPhase.GENERATING) {
                         // 星座名を喋ってから返事が来るまで数秒空く。その間が見えるようにする
