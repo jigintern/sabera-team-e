@@ -37,7 +37,7 @@
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk)（このリポジトリの元）
 - 上流の公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>（`docs/` をビルドしたもの）
-- **`46fd822`（SDK 0.4.0）時点まで取り込み済み**
+- **`f3db995`（SDK 0.6.0）時点まで取り込み済み**
 - どのメソッドがどの版から使えるかは上流の `docs/api-history.md`（0.4.0 で追加）にまとまっている
 - team-e 独自ファイル（README / AGENTS.md / CLAUDE.md / CONTRIBUTING.md / .gitignore）は同期対象外
 - `Package.swift` は上流でも 0.0.10 のまま。iOS は追従していない
@@ -141,8 +141,8 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 
 **team-e の仕様を左右する最重要事項。** 0.0.11 で画像送信が入り、**星図をグラスに出す道が開いた**。
 0.1.0 で **6DoF（グラスの姿勢）** が解放され、0.1.1 / 0.2.0 で **分割レイアウト**と
-**576×360 の自由配置キャンバス**が入った。**0.4.0 でキャンバスに画像が置けるようになり、
-画像とテキストが同じ画面に共存できるようになった**（それまでは排他だった）。
+**576×360 の自由配置キャンバス**が入った。0.4.0 でキャンバスに画像が置けるようになり、
+**0.6.0 で画像に `id` が付いて 8 枚まで並べられるようになった**。
 
 ### 画像を出す（0.0.11 で追加、0.0.12 で簡素化）
 
@@ -193,8 +193,10 @@ fun sendNaviLargeImage(width: Int, height: Int, grayscale: ByteArray)
   - 200バイト超は分割して送られる
   - 用途が限定されないので、解説文の表示先の第一候補
 - 用途別ページもある — Teleprompter / AI Chat / Translate / Navigation
-- **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファームが対応していないため）。
-  `sendAIContent` / `sendMeeting` は残っているが、ページを開く手段が無いので実質使えない
+- **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファームが対応していないため）
+- **0.5.0 でアプリ本体に実装が無いメソッドがまとめて撤去された** — `sendMeeting` /
+  `sendAIContent` / `sendAiChatSender` / `sendEmptyScreenStatus` / `sendTeleprompterGenerating` /
+  `requestLog` / `requestNotificationCountSync` と、**電源・リモコンのイベントリスナー4つ**
 - Teleprompter は行送り・進捗・時刻の API が揃っている（`sendTeleprompterLine` など）
 
 ### 分割レイアウトにテキストを出す（0.1.1 で追加）
@@ -212,12 +214,13 @@ fun closeLayout()
 - **分割して送れないので、テキストの合計は 190 バイト程度まで**
 - `FEATURE_VERSION 2.0.0` 以上のファームが対象
 
-### 自由配置キャンバス（0.2.0 でテキスト、0.4.0 で画像）
+### 自由配置キャンバス（0.2.0 でテキスト、0.4.0 で画像、0.6.0 で複数枚）
 
 ```kotlin
 fun sendCanvas(elements: List<CommandManager.CanvasElement>)
 fun sendCanvasElements(elements: List<CommandManager.CanvasElement>)
-fun sendCanvasImage(x: Int, y: Int, width: Int, height: Int, grayscale: ByteArray)
+fun sendCanvasImage(id: Int, x: Int, y: Int, width: Int, height: Int, grayscale: ByteArray)
+fun removeCanvasImage(id: Int)
 fun clearCanvas()
 fun closeCanvas()
 ```
@@ -233,19 +236,26 @@ fun closeCanvas()
   （既存 id は座標ごと差し替え、テキストを空にするとその id が消える）
 - **テキストの合計は 190 バイト程度まで。** 収まらないときは `sendCanvasElements` で 1 要素ずつ積む
 
-画像（0.4.0 で追加）：
+画像（0.4.0 で追加、0.6.0 で複数枚）：
 
 - 渡し方は `sendImage` と同じ（1 画素 1 バイトのグレースケール。量子化と圧縮は SDK 側）
-- **`x + width` は 576、`y + height` は 360 まで。** 画像表示ページの 196x196 より大きく出せる
-- **置けるのは 1 枚だけ。** 位置をずらして送っても最後の 1 枚しか残らない
-- **テキストと共存でき、テキストは画像の手前に描かれる**
+- **`x + width` は 576、`y + height` は 360 まで**
+- **id は 0..7 の 8 枚まで。** 同じ id に送ると座標ごと差し替わる。消すのは `removeCanvasImage(id)`
+- **画像バッファは全画像で共有していて、上限は 380,000 バイト。**
+  置いてある画像の `width * height * 2` の合計に受信中の圧縮データを足した値で見る
+  - **576×360 は画素だけで 414,720 になるので、1 枚でも入らない**（`require` で弾かれる）
+  - 192 角なら 5 枚が目安。16:10 で全画面に近づけるなら 512×320（327,680）が上限に近い
+- **画像はテキスト要素の背面に描かれる**
 - `clearCanvas()` はテキストごと画像も消す
 - **ナビの全体ルート画像とバッファを共有しているので、ナビ表示中は使えない**
 - 数百バイトずつに分けて送るため、**大きい画像ほど表示まで時間がかかる**
+- **0.6.0 から SDK が分割送信を直列化する。** 続けて呼んでもチャンクが混ざらない
+  （0.5.0 までは `sendCommand` / `sendCommands` が毎回別コルーチンで書き出すため、
+  送信が重なるとどの画像も組み立てられなかった）
 
 ファーム要件は段階的に上がる — レイアウト `2.0.0` / キャンバス `2.1.0` / **キャンバス画像 `2.2.0`**。
 
-→ **星図とラベルを同じ画面に出せるようになった。** 576×360 に星図を置き、
+→ **星図とラベルを同じ画面に出せる。** キャンバスに星図を置き、
 星座名を任意座標のテキストで重ねられる。196x196 の画像表示ページより広く、テキストと排他でもない。
 
 ### 入力を取る
@@ -288,18 +298,20 @@ val micStreaming: StateFlow<Boolean>
   - 生の Opus を自分で扱うなら従来の `openGlassMic()` + `GlassClient.addAudioDataEventListener`
   - 止めるまでマイクは開いたまま。使い終わったら `stopMicStreaming()`
 - ジェスチャー — `gestureEvents`（`SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`）
-- **リモコン — `RemoteControlListener` は `onPrev` / `onNext` / `onEsc` の 3 つ**
-  - 上流の本文は未執筆だが、**コード例にインターフェースが出ている**ので取れるものは確定している
-  - **戻る操作でキャンバスと分割レイアウトは閉じる**（`closeCanvas` / `closeLayout` の説明）。
-    出しっぱなしにする画面は、勝手に閉じられる前提で組む
-- 電源イベントのリスナー（`addGlassPowerEventListener`。上流の本文は未執筆）
+- **電源・リモコンのイベントリスナーは 0.5.0 で撤去された**
+  - `RemoteControlListener`（`onPrev` / `onNext` / `onEsc`）ごと 0.6.0 の AAR から消えている。
+    **リモコン操作をアプリで拾う手段は無い**
+  - それでも**リモコンの戻る操作でキャンバスと分割レイアウトは閉じる**
+    （`closeCanvas` / `closeLayout` の説明）。**閉じられたことに気づけないまま**
+    出しっぱなしの画面が消えるので、送り直せる作りにしておく
 - **逃げ道 — `GlassClient.sendCommand(ByteArray)` / `sendCommandList` / `sendText`**
   - `CommandManager` に無い操作が要るときの生の経路。**上流の本文は未執筆で、電文の仕様も非公開**
   - **使う前に SDK チームに聞く。** 自力で電文を組み立てない
 - **`GlassClient.cancelPendingPackets()` — 送信待ちのパケットを捨てる**
   - 上流の本文は未執筆だが、名前のとおりなら**古い星図フレームを積ませずに捨てられる**
   - 首を振ったときに前のフレームが順番待ちで残る問題への手当てになる
-  - `要確認` 実際の挙動
+  - `要確認` 実際の挙動。**0.6.0 で SDK が分割送信を直列化したので、
+    「積んだフレームを捨てる」用途はこちらに寄せられる可能性がある**
 
 ### グラスの設定を書き換える（`sendSetting`）
 
@@ -308,15 +320,15 @@ fun sendSetting(name: String, value: Int)      // Boolean / String / ByteArray �
 fun requestSettingSync()                        // 全設定値の送信を要求。応答は parseResponse
 ```
 
-**上流ドキュメントに設定キーの一覧が無い。** 以下は `sabera-app-core:0.2.1` の AAR を
-`javap` で読んで拾った `CommandManager.SettingKey` の 17 個（値は定数名と同じ。
-`NOTIFICATION_CONTENT_MASK` だけ実値が `NOTIF_CONTENT_MASK`）。
+**上流ドキュメントに設定キーの一覧が無い。** 以下は AAR を `javap` で読んで拾った
+`CommandManager.SettingKey` の 17 個（値は定数名と同じ。`NOTIFICATION_CONTENT_MASK` だけ
+実値が `NOTIF_CONTENT_MASK`）。**0.6.0 の AAR でも 17 個のまま変わっていない**。
 
 | キー | 推測される用途 | team-e への効き |
 |---|---|---|
 | `BRIGHTNESS_LEVEL` / `BRIGHTNESS_AUTO` | 表示の明るさ・自動調整 | **暗順応。明るいまま出すと肉眼の空が見えなくなる** |
 | `SCREEN_OFF_TIME` | 消灯までの時間 | **見上げ続ける用途なので、途中で消えると成立しない** |
-| `FEATURE_VERSION` | ファームの機能バージョン | **キャンバス（2.1.0）が使えるかを実行時に判定できる** |
+| `FEATURE_VERSION` | ファームの機能バージョン | **キャンバス画像（2.2.0）が使えるかを実行時に判定できる** |
 | `FONT_SIZE` | 文字の大きさ | キャンバス・レイアウトに入る文字数が変わる |
 | `DISPLAY_HEIGHT_LEVEL` / `DISPLAY_DISTANCE_LEVEL` | 表示位置・見かけの距離 | 表示面が視界のどこに出るか |
 | `MESSAGE_DISPLAY_MODE` / `MESSAGE_DISPLAY_TIME` / `NOTIF_CONTENT_MASK` | 通知の出し方 | **観測中に通知が割り込むと星図が消える** |
@@ -367,7 +379,7 @@ fun sendNaviCourse(courseDegrees: Double)
 - `要確認` **最重要 —** 補正後の方位が `imuData` の `yawDegrees` に返るのか。返るなら
   **ドリフト補正をファームに任せられ**、こちらは初期オフセットを与えるだけで済む
 
-### 取れないもの（0.4.0 時点）
+### 取れないもの（0.6.0 時点）
 
 - **カメラ映像** — グラスから画像は取れない
 - **音声出力** — `startMicStreaming` / `openGlassMic` はいずれも入力のみ。**音を鳴らす API は無い**
@@ -381,9 +393,10 @@ fun sendNaviCourse(courseDegrees: Double)
   - **方位（ヨー）だけは絶対基準が無い。** ここを天体アライメントで埋める
   - **スマホのコンパスでは代替できない。** スマホの磁気が示すのはスマホの方位で、頭とスマホの相対姿勢は未知
   - 詳しくは [docs/team-e/coordinate-system.md](docs/team-e/coordinate-system.md)
-- グラスへの出力 = **キャンバス（576×360）に星図画像＋星座名ラベル**が第一候補になった（0.4.0）
+- グラスへの出力 = **キャンバスに星図画像＋星座名ラベル**が第一候補（0.4.0、0.6.0 で複数枚）
   - 画像表示ページ（196x196）より広く、**テキストと画像が同じ画面に共存できる**
-  - ただし `FEATURE_VERSION 2.2.0` 以上が要る。**手元のファームで動くかは未確認**
+  - **全画面 576×360 は画像バッファに入らない。** 16:10 のまま 512×320 程度に落とす
+  - `FEATURE_VERSION 2.2.0` 以上が要る
   - 動かない場合の退路 — 画像表示ページ（196x196）／キャンバスのテキストだけ／全画面テキスト
 - 「AI にお願いする」の音声入力は**グラスのマイクで成立する**（0.3.0）。
   PCM16 / 16kHz が取れるので、WAV に包めば文字起こし API にそのまま渡せる
@@ -392,16 +405,23 @@ fun sendNaviCourse(courseDegrees: Double)
 
 ### エージェントへの指示
 
-- 画像送信は**まだ team-e の誰も実機で試していない**。動作を断定しない
 - `sendImage` に渡すのはグレースケール。**RLE エンコーダを自前で書かない**（0.0.12 で SDK 側に入った）
-- 6DoF も 0.1.0 で入ったばかりで**実機未確認**。手元のファームの FEATURE_VERSION も確かめていない
-- 分割レイアウト・キャンバス・マイクストリーミングも**すべて実機未確認**。
-  必要なファームは段階的に上がる（`2.0.0` → `2.1.0` → **キャンバス画像は `2.2.0`**）
-  - **team-e の手元のグラスは `sendCanvasImage` が使えることを SDK チームに確認済み**
-  - ただし**バージョンの数値は未取得**で、**実際に送ってはいない**。動作は断定しない
-  - 配布先のグラスが同じとは限らないので、**退路（196x196 の画像表示ページ）は残す**
-- **キャンバスの画像は 1 枚だけ。** 複数枚を並べる前提で設計しない
 - マイクの PCM を扱うとき **Opus のデコーダを自前で書かない**（0.3.0 で SDK 側に入った）
+- **キャンバスの画像は id 0..7 の 8 枚まで。** ただし置ける総量はバッファ 380,000 バイトで、
+  `width * height * 2` の合計で数える。**枚数ではなく面積で設計する**
+- **転送量は面積でほぼ決まる。** 3bit RLE は真っ黒でも 32 画素で 1 バイト使うので、
+  `面積 / 32` バイトが下限。1 パケット 200 バイト・実測 30ms/本なので、
+  512×320 で約 1 秒、384×240 で約 0.4 秒かかる
+- **「なめらかに動かす」は成立しない。** 全画面を毎回送り直す方式なので、
+  視線が一定以上動いたときだけ送り直す作りにする
+- **0.6.0 の直列化は「積んでよい」という意味ではない。** チャンクは混ざらなくなったが、
+  送信の呼び出しは積むだけで返るので、転送が追いつかないと古いフレームが順番待ちで残る
+- 実機で確かめたこと（`feat/star-map`）：
+  - `sendCanvas`（テキスト）と `enterImageDisplayPage` ＋ `sendImage` は動く
+  - **`sendCanvasImage` に 576×360 を渡すと必ず `require` で落ちる。** ファームではなく SDK の制限
+  - `imuData` は 10Hz 程度で流れ続け、BLE の帯域を画像転送と分け合う
+  - 手元のファームは**キャンバス画像が動く**。ただし **FEATURE_VERSION の数値は未取得**で、
+    配布先のグラスが同じとは限らないので、**退路（196x196 の画像表示ページ）は残す**
 - `sendNaviCourse` を**方位問題の解決として扱わない**。値を作る工程は残る（上記）
 - **画素数と画角を混同しない。** パネルが 576×360 と分かっても、視野の何度を占めるかは別に確かめる
 - **`SettingKey` の一覧は AAR から読み取ったもの**で、上流ドキュメントには無い。
