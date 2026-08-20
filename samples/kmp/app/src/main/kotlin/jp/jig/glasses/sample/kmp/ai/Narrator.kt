@@ -93,27 +93,36 @@ class Narrator(
         _state.value = NarrationState(NarrationPhase.GENERATING, opening, constellation)
         log("解説を頼む: $constellation", false)
 
+        val ask = ExplainRequest(
+            constellations = input.constellations,
+            latDeg = input.latDeg,
+            lonDeg = input.lonDeg,
+            azDeg = input.azDeg,
+            altDeg = input.altDeg,
+            localTime = input.localTime,
+            pngBase64 = input.pngBase64,
+        )
+
         val explanation = try {
-            client.explain(
-                ExplainRequest(
-                    constellations = input.constellations,
-                    latDeg = input.latDeg,
-                    lonDeg = input.lonDeg,
-                    azDeg = input.azDeg,
-                    altDeg = input.altDeg,
-                    localTime = input.localTime,
-                    pngBase64 = input.pngBase64,
-                ),
-            )
+            try {
+                client.explain(ask)
+            } catch (e: EmptyReplyException) {
+                // 空応答はモデル側の都合で起きるので、1 回だけ頼み直す。
+                // API エラーと通信断では繰り返さない（つながらないものを待たせると無言が倍になる）
+                log("応答が空だったので 1 回だけ頼み直す（${e.message}）", true)
+                client.explain(ask)
+            }
         } catch (e: CancellationException) {
             // 停止トグルで畳まれた場合。失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
             Log.e(TAG, "解説の生成に失敗", e)
-            val fallback = offline(constellation, input.azDeg, input.altDeg)
+            val kind = classifyFailure(e)
+            val fallback = fallbackLine(kind, constellation, input.azDeg, input.altDeg)
             speaker.add(fallback)
             _state.value = NarrationState(NarrationPhase.FAILED, "$opening$fallback", constellation)
-            log("解説を作れない（${e.message}）。方角だけ喋った", true)
+            // 生のメッセージを必ず載せる。実機で何が起きたかはここだけが頼り
+            log("解説を作れない[$kind]: ${e.message}", true)
             return
         }
 
@@ -207,20 +216,6 @@ class Narrator(
         else -> null
     }
 
-    /** 圏外・API 失敗のときの逃げ道。端末が知っていることだけで話を閉じる */
-    private fun offline(constellation: String, azDeg: Double, altDeg: Double): String =
-        "いまは通信ができないので、詳しい解説はお預けです。" +
-            "$constellation は${compass(azDeg)}の空、高度 ${altDeg.toInt()} 度あたりに出ています。"
-
-    private fun compass(azDeg: Double): String {
-        val points = listOf(
-            "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-            "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
-        )
-        val normalized = ((azDeg % 360.0) + 360.0) % 360.0
-        return points[((normalized + 11.25) / 22.5).toInt() % 16]
-    }
-
     companion object {
         private const val TAG = "Narrator"
 
@@ -232,4 +227,30 @@ class Narrator(
          */
         fun opening(constellation: String): String = "${constellation}ですね。"
     }
+}
+
+/**
+ * 解説が作れなかったときの逃げ道。端末が知っていることだけで話を閉じる。
+ *
+ * **原因を取り違えて喋らない。** かつては失敗を全部「いまは通信ができない」と言っていたので、
+ * 推論が出力枠を使い切っただけのときまで圏外だと思い込ませていた。
+ * トップレベルに出してあるのは、この写像を JVM テストで押さえるため。
+ */
+fun fallbackLine(kind: FailureKind, subject: String, azDeg: Double, altDeg: Double): String {
+    val reason = when (kind) {
+        FailureKind.EMPTY -> "解説がうまく作れませんでした。"
+        FailureKind.API -> "AI につながりませんでした。"
+        FailureKind.NETWORK -> "いまは通信ができません。"
+    }
+    return reason + "$subject は${compass(azDeg)}の空、高度 ${altDeg.toInt()} 度あたりに出ています。"
+}
+
+/** 方位角[度]を 16 方位の日本語に。読み上げるので「南南西」まで刻む */
+fun compass(azDeg: Double): String {
+    val points = listOf(
+        "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+        "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
+    )
+    val normalized = ((azDeg % 360.0) + 360.0) % 360.0
+    return points[((normalized + 11.25) / 22.5).toInt() % 16]
 }

@@ -146,4 +146,45 @@ class NarratorTest {
         )
         assertTrue("案内していない", "十字" in voice.spoken.single())
     }
+
+    @Test
+    fun `失敗の理由ごとに違うことを喋る`() {
+        // 全部「通信ができない」と言っていたせいで、推論が枠を使い切っただけのときまで
+        // 圏外だと思い込ませていた。原因を取り違えて喋らないことを押さえる
+        val empty = fallbackLine(FailureKind.EMPTY, "さそり座", 187.0, 42.0)
+        val api = fallbackLine(FailureKind.API, "さそり座", 187.0, 42.0)
+        val network = fallbackLine(FailureKind.NETWORK, "さそり座", 187.0, 42.0)
+
+        assertTrue("空応答なのに通信のせいにしている: $empty", "通信" !in empty)
+        assertTrue("APIエラーなのに通信のせいにしている: $api", "通信" !in api)
+        assertTrue("圏外だと言っていない: $network", "通信ができません" in network)
+
+        // どれも「無反応」にはせず、端末が知っている方角と高度で話を閉じる
+        for (line in listOf(empty, api, network)) {
+            assertTrue("星座名が無い: $line", "さそり座" in line)
+            assertTrue("方角が無い: $line", "南" in line)
+            assertTrue("高度が無い: $line", "42" in line)
+        }
+    }
+
+    @Test
+    fun `キー未設定でもタップは必ず何か喋る`() {
+        val voice = FakeVoice()
+        runBlocking {
+            narrator(voice).narrate(
+                NarrationInput(
+                    calibrated = true,
+                    altDeg = 42.0,
+                    azDeg = 187.0,
+                    constellations = listOf("さそり座"),
+                    latDeg = 35.9432,
+                    lonDeg = 136.1846,
+                    localTime = "2026-08-20 21:34 JST",
+                    pngBase64 = null,
+                ),
+            )
+        }
+        assertTrue("無反応になっている", voice.spoken.isNotEmpty())
+        assertTrue("星座名を言っていない: ${voice.spoken}", voice.spoken.any { "さそり座" in it })
+    }
 }
