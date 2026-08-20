@@ -63,8 +63,10 @@ import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
 import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.NarrationPhase
+import jp.jig.glasses.sample.kmp.ai.CloudVoice
 import jp.jig.glasses.sample.kmp.ai.Narrator
 import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
 import jp.jig.glasses.sample.kmp.satellite.Observer
@@ -822,23 +824,48 @@ fun StarMapScreen(
         }
     }
 
-    // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない
+    // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない。
+    // 端末の TextToSpeech は棒読みで**プラネタリウムの雰囲気を壊す**ので、
+    // 普段は AI 音声で喋り、作れないときだけ端末の読み上げに落ちる（CloudVoice）
     val speaker = remember { Speaker(context) }
-    DisposableEffect(speaker) { onDispose { speaker.shutdown() } }
+    val voice = remember(speaker) {
+        CloudVoice(
+            context = context,
+            speech = OpenAiSpeech(
+                apiKey = BuildConfig.OPENAI_API_KEY,
+                voice = BuildConfig.OPENAI_TTS_VOICE,
+                model = BuildConfig.OPENAI_TTS_MODEL,
+            ),
+            fallback = speaker,
+            scope = scope,
+            log = { text, failed -> log(text, failed) },
+        )
+    }
+    var aiVoice by remember { mutableStateOf(true) }
+    DisposableEffect(voice) { onDispose { voice.shutdown(); speaker.shutdown() } }
 
-    val narrator = remember(speaker) {
+    val narrator = remember(voice) {
         Narrator(
-            speaker = speaker,
+            speaker = voice,
             client = OpenAiClient(BuildConfig.OPENAI_API_KEY, BuildConfig.OPENAI_MODEL),
             log = { text, failed -> log(text, failed) },
         )
     }
     val narration by narrator.state.collectAsState()
-    val speaking by speaker.speaking.collectAsState()
-    val ttsAvailable by speaker.available.collectAsState()
+    val speaking by voice.speaking.collectAsState()
+    val ttsAvailable by voice.available.collectAsState()
 
-    // 読み上げが終わったら待機に戻す。TextToSpeech の完了通知は Speaker が拾っている
+    // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
+
+    // タップした瞬間に最初の一言を返すため、いま視野にある星座の分だけ先に作っておく。
+    // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
+    // 星図の 1 番目のラベルと解説の主役がずれることはあるが、外れてもキャッシュが当たらないだけ
+    LaunchedEffect(lastMap, satelliteMode) {
+        if (satelliteMode) return@LaunchedEffect
+        val name = lastMap?.labels?.firstOrNull()?.text ?: return@LaunchedEffect
+        voice.warm(Narrator.opening(name))
+    }
 
     LaunchedEffect(Unit) {
         if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
@@ -1341,6 +1368,25 @@ fun StarMapScreen(
                             onCheckedChange = {
                                 useFusedYaw = it
                                 log(if (it) "方位: ドリフト補正を入れた" else "方位: 生のヨーに戻した")
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
+                    // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (aiVoice) "声: AI 音声（落ち着いた解説員）" else "声: 端末の読み上げ",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = aiVoice,
+                            onCheckedChange = {
+                                aiVoice = it
+                                voice.enabled = it
+                                voice.stop()
+                                log(if (it) "声: AI 音声にした" else "声: 端末の読み上げに戻した")
                             },
                         )
                     }
