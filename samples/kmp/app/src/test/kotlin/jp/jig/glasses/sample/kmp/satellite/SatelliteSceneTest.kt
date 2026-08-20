@@ -30,6 +30,7 @@ class SatelliteSceneTest {
     private fun scene(): SatelliteScene = SatelliteScene(
         named = Tle.parseAll(File(dataDir, "satellites.tle").readText()).map { Sgp4(it) },
         starlink = Tle.parseAll(File(dataDir, "starlink.tle").readText()).map { Sgp4(it) },
+        fetchedAt = File(dataDir, "satellites-fetched.txt").takeIf { it.exists() }?.readText(),
     )
 
     private fun catalog(): StarCatalog {
@@ -126,6 +127,37 @@ class SatelliteSceneTest {
             "スターリンクの本数が上限を超えている",
             starlink.size <= SatelliteScene.MAX_STARLINK,
         )
+    }
+
+    @Test
+    fun `視野の外にいる衛星は拾わない`() {
+        val scene = scene()
+        val now = System.currentTimeMillis()
+        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
+
+        // 狙った衛星のちょうど反対側を向く。視野 35° なら絶対に入らないはず
+        val away = Look((target.azDeg + 180.0) % 360.0, -target.altDeg.coerceAtMost(80.0))
+        val tracks = scene.tracksInView(observer, now, away, fovDeg = 35.0)
+        assertTrue("反対側を向いたのに狙った衛星が入っている", tracks.none { it.name == target.name })
+
+        // 視野の半分より外にいるものが混ざっていないか。
+        // fovDeg は横幅なので、視線からの角度は半分＋余裕までしか入らない
+        val forward = jp.jig.glasses.sample.kmp.starmap.enu(away.azDeg, away.altDeg)
+        for (t in tracks) {
+            val v = jp.jig.glasses.sample.kmp.starmap.enu(t.nowAzDeg, t.nowAltDeg)
+            val sep = Math.toDegrees(Math.acos((v dot forward).coerceIn(-1.0, 1.0)))
+            assertTrue("${t.name} が視線から $sep° も離れている", sep < 35.0 * 0.5 * 1.18 * 1.3 + 0.1)
+        }
+    }
+
+    @Test
+    fun `TLE の古さを日数で出せる`() {
+        val scene = scene()
+        // 同梱データには取得日を残してある
+        val age = scene.ageDays(System.currentTimeMillis())
+        checkNotNull(age) { "取得日が読めない" }
+        assertTrue("取得日が未来になっている: $age", age >= -0.1)
+        println("同梱した TLE は ${"%.2f".format(age)} 日前のもの")
     }
 
     @Test

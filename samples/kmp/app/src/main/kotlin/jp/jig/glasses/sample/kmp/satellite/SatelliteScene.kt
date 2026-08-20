@@ -16,7 +16,20 @@ import kotlin.math.roundToInt
 class SatelliteScene(
     private val named: List<Sgp4>,
     private val starlink: List<Sgp4>,
+    /** 同梱した TLE をいつ取ったか。**古いと位置がずれる**ので画面に出す */
+    val fetchedAt: String? = null,
 ) {
+
+    /** TLE の古さ[日]。取得日が分からなければ null */
+    fun ageDays(nowMillis: Long): Double? {
+        val text = fetchedAt?.trim() ?: return null
+        val parsed = runCatching {
+            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.parse(text)
+        }.getOrNull() ?: return null
+        return (nowMillis - parsed.time) / 86_400_000.0
+    }
 
     /** 空にいる衛星 1 機ぶんの情報。スマホ側の一覧にも使う */
     class Sighting(
@@ -49,8 +62,11 @@ class SatelliteScene(
         maxStarlink: Int = MAX_STARLINK,
     ): List<SkyTrack> {
         val forward = enu(look.azDeg, look.altDeg)
-        // 視野の少し外まで拾う。軌跡が画面の端から入ってくるのが見えるように
-        val cosLimit = kotlin.math.cos((fovDeg * 0.9) * (Math.PI / 180.0))
+        // **fovDeg は視野の「横幅」なので、視線からの角度は半分で見る。**
+        // 画像は 16:10 なので対角の半分は横の半分の約 1.18 倍。
+        // 画面の端から軌跡が入ってくるのを見せたいので、さらに 1.3 倍の余裕を取る
+        val radiusDeg = fovDeg * 0.5 * 1.18 * 1.3
+        val cosLimit = kotlin.math.cos(radiusDeg * (Math.PI / 180.0))
 
         fun inView(azDeg: Double, altDeg: Double): Boolean {
             val v = enu(azDeg, altDeg)
@@ -62,15 +78,21 @@ class SatelliteScene(
             .sortedByDescending { it.nowAltDeg }
             .take(maxNamed)
 
-        val starlinkTracks = starlink.asSequence()
-            .mapNotNull { sgp4 ->
-                val state = sgp4.at(epochMillis) ?: return@mapNotNull null
-                val now = observer.look(state, epochMillis)
-                if (now.altDeg <= 0.0 || !inView(now.azDeg, now.altDeg)) return@mapNotNull null
-                track(sgp4, observer, epochMillis, labelled = false)
-            }
+        // **近い順に選ぶ。** カタログの並び順で先着 8 機にすると、
+        // 視野の隅にいる遠い機体が、真ん中を通る近い機体を押しのける。
+        // maxStarlink が 0 なら 10,748 機を回さずに帰る（印だけ動かすときはこの道）
+        if (maxStarlink <= 0) return namedTracks
+        val starlinkCandidates = ArrayList<Pair<Double, Sgp4>>()
+        for (sgp4 in starlink) {
+            val state = sgp4.at(epochMillis) ?: continue
+            val now = observer.look(state, epochMillis)
+            if (now.altDeg <= 0.0 || !inView(now.azDeg, now.altDeg)) continue
+            starlinkCandidates += now.rangeKm to sgp4
+        }
+        val starlinkTracks = starlinkCandidates
+            .sortedBy { it.first }
             .take(maxStarlink)
-            .toList()
+            .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false) }
 
         return namedTracks + starlinkTracks
     }
@@ -93,6 +115,9 @@ class SatelliteScene(
         }
         return sightings.sortedByDescending { it.altDeg }.take(limit)
     }
+
+    /** 軌道要素を読めたか。assets が入っていないと空になる */
+    val loaded: Boolean get() = named.isNotEmpty()
 
     /** 頭上にいるスターリンクの数。「いま何機飛んでいるか」を出すために数えるだけ */
     fun starlinkAboveHorizon(observer: Observer, epochMillis: Long): Int =
@@ -146,7 +171,14 @@ class SatelliteScene(
                 context.assets.open(name).use { it.readBytes().toString(Charsets.UTF_8) }
             }.map { text -> Tle.parseAll(text).map { Sgp4(it) } }.getOrElse { emptyList() }
 
-            return SatelliteScene(named = read("satellites.tle"), starlink = read("starlink.tle"))
+            val fetchedAt = runCatching {
+                context.assets.open("satellites-fetched.txt").use { it.readBytes().toString(Charsets.UTF_8) }
+            }.getOrNull()
+            return SatelliteScene(
+                named = read("satellites.tle"),
+                starlink = read("starlink.tle"),
+                fetchedAt = fetchedAt,
+            )
         }
     }
 }

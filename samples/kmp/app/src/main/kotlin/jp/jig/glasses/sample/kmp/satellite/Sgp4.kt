@@ -192,7 +192,12 @@ class Sgp4(val tle: Tle) {
      *
      * 伝播できないときは null。**軌道が壊れている TLE は珍しくない**ので、
      * 呼ぶ側で「出せなかった衛星は飛ばす」作りにする。
+     *
+     * **参照実装と同じく内部に状態を持つ**（深宇宙の共鳴の積分位置、
+     * 近地球でも aycof などの係数）。同じ衛星を別スレッドから同時に伝播すると
+     * その状態が壊れるので、ここで直列化しておく。数千機を回しても数 ms なので惜しくない。
      */
+    @Synchronized
     fun propagate(tsince: Double): TemeState? {
         val twopi = 2.0 * PI
         val vkmpersec = RADIUS_EARTH_KM * XKE / 60.0

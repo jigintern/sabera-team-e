@@ -95,20 +95,15 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
 
         // 衛星の軌跡は星より手前に描く。星座線より明るくして見分けが付くようにする
-        val trackLabels = ArrayList<Label>()
         for (track in tracks) {
             drawTrack(gray, width, height, track, basis, k)
             val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height)
             if (q != null && q[0] >= 0 && q[1] >= 0 && q[0] <= width && q[1] <= height) {
                 // いまの位置は画像にも点を打つ。テキストが出なくても何かは見える
                 dot(gray, width, height, q[0], q[1], 255, (3.0 * width / 196.0).roundToInt(), round = true)
-                if (track.labelled) {
-                    // 日が当たっているものは塗り、影のものは輪郭。肉眼で見えるかどうかの区別
-                    val mark = if (track.sunlit) "●" else "○"
-                    trackLabels += Label(mark + track.name, q[0].roundToInt(), q[1].roundToInt())
-                }
             }
         }
+        val trackLabels = trackLabels(look, fovDeg, width, height, tracks)
 
         val starLabels = labels(precessed, lst, site, basis, k, width, height, maxLabels)
         // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
@@ -226,6 +221,37 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             found += dist to Label(catalog.constellations[i].nameJa, q[0].roundToInt(), q[1].roundToInt())
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
+    }
+
+    /**
+     * 衛星のいまの位置を、画像の上のどこに置くかだけ出す。
+     *
+     * **画像を焼き直さずにテキストだけ送るため**に切り出してある。
+     * 衛星は 1 秒に 1° 動くのに画像は 1 枚 0.5 秒かかるので、
+     * 首が止まっている間はここだけを送り直す。
+     *
+     * `look` は**画像を描いたときの視線**を渡す。いまの視線ではない
+     * （画像がその向きで焼かれているので、印もその座標系に乗せる必要がある）。
+     */
+    fun trackLabels(
+        look: Look,
+        fovDeg: Double,
+        width: Int,
+        height: Int,
+        tracks: List<SkyTrack>,
+    ): List<Label> {
+        val basis = Basis(look.azDeg, look.altDeg)
+        val k = projectionScale(width, fovDeg)
+        val labels = ArrayList<Label>()
+        for (track in tracks) {
+            if (!track.labelled) continue
+            val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
+            // 日が当たっているものは塗り、影のものは輪郭。肉眼で見えるかどうかの区別
+            val mark = if (track.sunlit) "●" else "○"
+            labels += Label(mark + track.name, q[0].roundToInt(), q[1].roundToInt())
+        }
+        return labels
     }
 
     /** 軌跡を折れ線で描く。点はすでに方位・高度なので、投影して結ぶだけ */

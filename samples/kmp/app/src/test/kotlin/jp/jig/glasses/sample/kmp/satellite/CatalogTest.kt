@@ -25,7 +25,10 @@ class CatalogTest {
         val tles = load("satellites.tle")
         assertEquals(16, tles.size)
         val names = tles.map { it.name }
-        assertTrue("きぼうが無い", names.any { it.contains("きぼう") })
+        assertTrue("ISS が無い", names.any { it == "ISS" })
+        // グラスの枠に入る長さか。1 文字 28px 見当で、印を足しても 576px に収まる必要がある
+        val longest = names.maxByOrNull { it.length }!!
+        assertTrue("名前が長すぎる: $longest", longest.length <= 8)
         assertTrue("みちびきが無い", names.count { it.contains("みちびき") } == 5)
         assertTrue("ひまわりが無い", names.count { it.contains("ひまわり") } == 2)
     }
@@ -58,7 +61,7 @@ class CatalogTest {
     @Test
     fun `ひまわりは鯖江から見て南の空の決まった位置にいる`() {
         val sabae = Observer(35.9432, 136.1846)
-        val himawari = load("satellites.tle").first { it.name.contains("ひまわり8") }
+        val himawari = load("satellites.tle").first { it.name == "ひまわり8" }
         val sgp4 = Sgp4(himawari)
 
         val now = System.currentTimeMillis()
