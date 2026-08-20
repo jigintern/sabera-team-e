@@ -230,6 +230,6 @@ class Narrator(
          * ここに切り出してあるのは、**タップより先にこの音声を作っておく**ため
          * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
          */
-        fun opening(constellation: String): String = "$constellation ですね。"
+        fun opening(constellation: String): String = "${constellation}ですね。"
     }
 }

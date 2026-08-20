@@ -85,19 +85,20 @@ class OpenAiSpeech(
         const val SAMPLE_RATE = 24_000
 
         const val DEFAULT_MODEL = "gpt-4o-mini-tts"
-        const val DEFAULT_VOICE = "sage"
+        const val DEFAULT_VOICE = "alloy"
 
         /**
          * 話し方の注文。**issue #20 の本体はこの文字列**。
          *
          * 文の中身（何を言うか）は [OpenAiClient] のプロンプトが決めていて、ここは言い方だけ。
+         *
+         * **注文を盛るとかえって芝居になる。** 「暗い場内で静かに語りかけるように」まで
+         * 書いた版は聴き比べで「わざとらしい」と落ちた。**望みは演技ではなく素の落ち着き**なので、
+         * 演じないことだけ頼んで、雰囲気の描写は書かない。
          */
         const val INSTRUCTIONS =
-            "落ち着いたプラネタリウムの解説員として読んでください。\n" +
-                "声色は穏やかで低め、暗い場内で静かに語りかけるように。\n" +
-                "速さはゆっくりめ。句点では息を置き、次の文へ急がない。\n" +
-                "抑揚は控えめにして、驚いたり盛り上げたりしない。\n" +
-                "星や星座の名前はていねいに、はっきり発音する。"
+            "演じずに、ふだんの落ち着いた話し方で読んでください。\n" +
+                "ためたり息を強調したりせず、淡々と。"
 
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 30_000

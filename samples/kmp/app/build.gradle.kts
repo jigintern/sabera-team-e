@@ -34,7 +34,7 @@ val openAiModel = secret("OPENAI_MODEL", "openAiModel").ifEmpty { "gpt-4o" }
 // 読み上げの声。gpt-4o-mini-tts は話し方まで指示できる（OpenAiSpeech.INSTRUCTIONS）。
 // 声の好みは実機で聴かないと決まらないので、差し替えられるようにしてある
 val openAiTtsModel = secret("OPENAI_TTS_MODEL", "openAiTtsModel").ifEmpty { "gpt-4o-mini-tts" }
-val openAiTtsVoice = secret("OPENAI_TTS_VOICE", "openAiTtsVoice").ifEmpty { "sage" }
+val openAiTtsVoice = secret("OPENAI_TTS_VOICE", "openAiTtsVoice").ifEmpty { "alloy" }
 
 android {
     namespace = "jp.jig.glasses.sample.kmp"
