@@ -117,7 +117,7 @@ SDK が `IllegalArgumentException` で弾く条件（0.6.0 のソースで確定
 ## 夜空で使うためのグラス設定
 
 `sendSetting(name, value)` でグラス本体の設定を書き換えられる。キー一覧は上流ドキュメントに無く、
-`sources.jar` の `CommandManager.SettingKey`（17 個）から読み取ったもの。**値の範囲と意味は未確認。**
+`sources.jar` の `CommandManager.SettingKey`（17 個）から読み取ったもの。
 
 | キー | なぜ効くか |
 |---|---|
@@ -126,6 +126,24 @@ SDK が `IllegalArgumentException` で弾く条件（0.6.0 のソースで確定
 | `MESSAGE_DISPLAY_MODE` / `NOTIF_CONTENT_MASK` | **通知が出ると星図が消える**（同時には出せない） |
 | `FONT_SIZE` | 星座名の大きさ＝入る文字数が変わる |
 | `FEATURE_VERSION` | ファームの機能バージョン（読み出し経路が不明） |
+
+### 明るさ設定
+
+- `BRIGHTNESS_LEVEL` は **0..4 の5段階で、大きいほど明るい**。
+  [team-f の実機調査](https://github.com/jigintern/sabera-team-f/pull/11)では、0..4 は受理され、
+  5以上はエラーなしで拒否された。同じ設定キーと電文を使う
+  [公開実装](https://github.com/itcayman/XinCaiGlass/blob/89b472cea9b8f4ff36e8466155cb996a31256182/entry/src/main/ets/core/config/GeneralConfig.ets)
+  とも一致する
+- `BRIGHTNESS_AUTO = true` の間は手動の明るさが無効になる。
+  **アプリでは自動調整を使わず、手動値を送る前に必ず false を送る**
+- team-f の実機では、設定値は**次の画面再描画で見た目へ反映**された。team-e でも設定送信後に
+  最後に表示したキャンバス画像を同じ id へ送り直す。キャンバスでの反映は **team-e 実機確認待ち**
+- SDK 0.6.0 自体は値域を検査しないため、アプリ側で 0..4 に制限する
+- SDK は設定同期のパース結果を公開していない。設定画面に出せるのは本体の現在値ではなく、
+  **このアプリが最後に送った値**だけ
+- 設定画面は手動5段階のスライダーだけにする。段階が変わると `BRIGHTNESS_AUTO = false` を送り、
+  100ms 待ってから最新の `BRIGHTNESS_LEVEL` を送る。その後、直前の星図画像を再送する
+- ドラッグ中の段階をBLEへ積まないよう200msまとめ、画像送信中は他の描画と排他にする
 
 - `sendWakeupTiltThreshold(degrees)` は**見上げでグラスが起きるしきい値**。
   星を見る姿勢と正面衝突するが、噛み合わせれば「空を見上げた瞬間に星図が出る」入り口になる
@@ -138,8 +156,9 @@ SDK が `IllegalArgumentException` で弾く条件（0.6.0 のソースで確定
 
 1. **パネルが視野の何度を占めるか** — FOV が決まる
 2. **200 バイト 1 パケットの実時間** — 描き直しの間隔が決まる
-3. **屋外での適正な明るさ** — 屋内で決めた値は暗闇では確実に明るすぎる
+3. **屋外での適正な明るさ** — 0..4 の各段階を昼・薄明・夜で実測する
 4. **ラベルの読みやすさ** — 8 個並べて重ならないか、緑 8 階調で読めるか
 
-SDK チームへの質問：**`FEATURE_VERSION` の読み方**、**`SettingKey` の値の意味と範囲**、
+SDK チームへの質問：**`FEATURE_VERSION` の読み方**、**明るさの公式な値域**、
+**他の `SettingKey` の値の意味と範囲**、
 **`parseResponse` の読み出し経路**、**`cancelPendingPackets` の挙動**、**パネルの表示画角**。

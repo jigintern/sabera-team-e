@@ -17,6 +17,7 @@ import urllib.request
 
 BASE = "https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data"
 SOURCES = ["stars.6.json", "constellations.lines.json", "starnames.json"]
+ROMAN_BOUNDARY_URL = "https://cdsarc.cds.unistra.fr/ftp/cats/VI/42/data.dat"
 
 # 196x196 に描く密度から決めた。5 等で FOV 40° の視野内に約 49 個
 LIMIT_MAGNITUDE = 5.0
@@ -36,14 +37,18 @@ ATTRIBUTION = {
 }
 
 
-def fetch(name):
+def fetch_text(name, url=None):
     """元データを取ってくる。一度取ったものは tools/.cache に置いて使い回す。"""
     CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / name
     if not path.exists():
         print(f"  取得中: {name}")
-        urllib.request.urlretrieve(f"{BASE}/{name}", path)
-    return json.loads(path.read_text(encoding="utf-8"))
+        urllib.request.urlretrieve(url or f"{BASE}/{name}", path)
+    return path.read_text(encoding="utf-8")
+
+
+def fetch(name):
+    return json.loads(fetch_text(name))
 
 
 def to_ra(lon):
@@ -108,6 +113,31 @@ def build_bright_stars(raw, starnames, names_ja):
     return {**ATTRIBUTION, "limitMagnitude": BRIGHT_MAGNITUDE, "count": len(out), "stars": out}
 
 
+def build_constellation_boundaries(raw, names_ja):
+    """Roman (1987) の B1875 境界表を、端末で順に走査できる形へする。"""
+    rows = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        ra_low, ra_up, dec_low, abbr = line.split()
+        rows.append([float(ra_low), float(ra_up), float(dec_low), abbr])
+    if len(rows) != 357:
+        sys.exit(f"Roman 1987 の境界行数が不正: {len(rows)}（期待値 357）")
+    missing = {row[3] for row in rows} - set(names_ja)
+    if missing:
+        sys.exit(f"境界表の日本語名が足りない: {sorted(missing)}")
+    return {
+        "source": "CDS VI/42: Roman, Identification of a Constellation from a Position (1987)",
+        "sourceUrl": ROMAN_BOUNDARY_URL,
+        "epoch": "B1875.0",
+        "generatedBy": "tools/build-star-catalog.py",
+        "fields": ["raLowHours", "raUpHours", "decLowDegrees", "abbr"],
+        "namesJa": names_ja,
+        "count": len(rows),
+        "boundaries": rows,
+    }
+
+
 def verify_names(lines_raw, stars_raw, starnames, names_ja):
     """日本語名の取りこぼしを落とす。データが増えたときに気づけるようにする。"""
     missing_c = {f["id"] for f in lines_raw["features"]} - set(names_ja["constellations"])
@@ -136,12 +166,17 @@ def main():
 
     stars_raw, lines_raw, starnames = (fetch(n) for n in SOURCES)
     names_ja = json.loads((ROOT / "tools" / "names-ja.json").read_text(encoding="utf-8"))
+    boundaries_raw = fetch_text("constellation-boundaries-roman87.dat", ROMAN_BOUNDARY_URL)
     verify_names(lines_raw, stars_raw, starnames, names_ja)
 
     outputs = {
         DATA / "stars.json": build_stars(stars_raw),
         DATA / "constellations.json": build_constellations(lines_raw, names_ja["constellations"]),
         DATA / "bright-stars.json": build_bright_stars(stars_raw, starnames, names_ja["stars"]),
+        DATA / "constellation-boundaries.json": build_constellation_boundaries(
+            boundaries_raw,
+            names_ja["constellations"],
+        ),
     }
 
     stale = []

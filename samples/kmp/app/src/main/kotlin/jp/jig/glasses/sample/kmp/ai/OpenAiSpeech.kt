@@ -2,9 +2,11 @@ package jp.jig.glasses.sample.kmp.ai
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 
 /**
@@ -24,6 +26,7 @@ class OpenAiSpeech(
     private val voice: String,
     private val model: String,
     private val endpoint: String = SPEECH,
+    private val onTrace: (OpenAiRequestTrace) -> Unit = {},
 ) {
 
     val configured: Boolean get() = apiKey.isNotEmpty()
@@ -40,33 +43,105 @@ class OpenAiSpeech(
     suspend fun stream(text: String, onPcm: (ByteArray, Int) -> Unit) = withContext(Dispatchers.IO) {
         require(configured) { "API キーが設定されていない" }
         val body = buildRequestBody(model, voice, text).toString().toByteArray(Charsets.UTF_8)
+        var attempt = 1
+        while (true) {
+            var received = false
+            try {
+                streamOnce(body, attempt) { buffer, length ->
+                    if (length > 0) received = true
+                    onPcm(buffer, length)
+                }
+                return@withContext
+            } catch (error: Throwable) {
+                if (received || attempt >= MAX_ATTEMPTS || !OpenAiHttp.isTransientFailure(error)) {
+                    throw error
+                }
+                delay(RETRY_BASE_MS * attempt)
+                attempt++
+            }
+        }
+    }
+
+    /**
+     * 1文ぶんを最後まで検証してから返す。再生中の通信アンダーランを避ける本番経路。
+     */
+    suspend fun synthesize(text: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        stream(text) { buffer, length ->
+            if (output.size() + length > MAX_PCM_BYTES) {
+                throw IOException("AI音声が長すぎる")
+            }
+            output.write(buffer, 0, length)
+        }
+        return output.toByteArray().also { Pcm16FrameAssembler.requireValid(it) }
+    }
+
+    private suspend fun streamOnce(body: ByteArray, attempt: Int, onPcm: (ByteArray, Int) -> Unit) {
+        val startedAt = System.nanoTime()
+        var firstByteMs: Long? = null
+        var bytes = 0L
+        var requestId: String? = null
+        var completed = false
 
         val connection = OpenAiHttp.openPost(endpoint, apiKey)
+        connection.setRequestProperty("Accept", "application/octet-stream")
 
         try {
             connection.outputStream.use { it.write(body) }
             val status = connection.responseCode
+            requestId = connection.getHeaderField("x-request-id")
             if (status !in 200..299) {
                 val detail = connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-                throw SpeechException(status, OpenAiClient.errorMessage(status, detail))
+                throw SpeechException(status, requestId, OpenAiClient.errorMessage(status, detail))
+            }
+            val contentType = connection.contentType.orEmpty().substringBefore(';').lowercase()
+            if (contentType.contains("json") || contentType.contains("text") || contentType.contains("wav")) {
+                throw IOException("AI音声の形式がPCMではない: $contentType")
             }
             val buffer = ByteArray(CHUNK_BYTES)
+            val expectedBytes = connection.contentLengthLong
+            val frames = Pcm16FrameAssembler(onPcm)
             connection.inputStream.use { input ->
                 while (currentCoroutineContext().isActive) {
                     val read = input.read(buffer)
                     if (read < 0) break
-                    if (read > 0) onPcm(buffer, read)
+                    if (read > 0) {
+                        if (firstByteMs == null) firstByteMs = elapsedMs(startedAt)
+                        bytes += read
+                        frames.append(buffer, read)
+                    }
                 }
             }
+            if (expectedBytes >= 0 && bytes < expectedBytes) {
+                throw java.io.EOFException("AI音声が完了前に切れた ($bytes/$expectedBytes bytes)")
+            }
+            frames.finish()
+            completed = true
         } finally {
+            runCatching {
+                onTrace(
+                    OpenAiRequestTrace(
+                        operation = "speech",
+                        attempt = attempt,
+                        requestId = requestId,
+                        firstByteMs = firstByteMs,
+                        totalMs = elapsedMs(startedAt),
+                        bytes = bytes,
+                        completed = completed,
+                    ),
+                )
+            }
             connection.disconnect()
         }
     }
 
     /** 直しても直らない失敗（キーが違う・モデル名が違う）を見分けるために status を持つ */
-    class SpeechException(val status: Int, message: String) : IOException(message) {
+    class SpeechException(status: Int, requestId: String?, message: String) :
+        OpenAiStatusException(status, requestId, message) {
         /** 次に呼んでも同じように落ちるか。そうなら AI 音声を諦めて端末の読み上げに戻す */
         val permanent: Boolean get() = status == 400 || status == 401 || status == 403 || status == 404
+
+        constructor(status: Int, message: String) : this(status, null, message)
     }
 
     companion object {
@@ -74,6 +149,8 @@ class OpenAiSpeech(
 
         /** `response_format = pcm` の形式。AudioTrack に渡すときに要る */
         const val SAMPLE_RATE = 24_000
+        private const val MAX_ATTEMPTS = 2
+        private const val RETRY_BASE_MS = 350L
 
         /**
          * 話し方の注文。**issue #20 の本体はこの文字列**。
@@ -91,6 +168,9 @@ class OpenAiSpeech(
         /** 読み出す単位。小さすぎると呼び出し回数だけ増え、大きすぎると鳴り出しが遅れる */
         private const val CHUNK_BYTES = 4096
 
+        /** 250文字の上限を十分に超える約3分ぶん。異常応答でメモリを使い切らないための保険。 */
+        private const val MAX_PCM_BYTES = 8 * 1024 * 1024
+
         /**
          * リクエスト本文。
          *
@@ -103,10 +183,12 @@ class OpenAiSpeech(
                 .put("model", model)
                 .put("voice", voice)
                 .put("input", text)
-                // 生 PCM。届いたぶんから鳴らすためで、デコーダを持たずに済む
+                // 生 PCM。1文を検証して静的再生でき、デコーダも要らない
                 .put("response_format", "pcm")
             if (!model.startsWith("tts-1")) body.put("instructions", INSTRUCTIONS)
             return body
         }
+
+        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
     }
 }

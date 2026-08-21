@@ -7,10 +7,12 @@ import android.media.AudioTrack
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -18,14 +20,18 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * AI 音声で喋る。作れないときは端末の読み上げ（[Speaker]）に落とす。
@@ -45,7 +51,12 @@ class CloudVoice(
     private val log: (String, Boolean) -> Unit,
 ) : Voice, VoiceStatus {
 
-    private class Utterance(val text: String, val flush: Boolean, val generation: Int)
+    private class Utterance(
+        val text: String,
+        val flush: Boolean,
+        val generation: Int,
+        val prepared: Deferred<ByteArray>,
+    )
 
     /** AI 音声を使うか。**声の好みは実機で聴かないと決まらない**ので設定パネルから切り替える */
     private val _enabled = MutableStateFlow(true)
@@ -77,6 +88,13 @@ class CloudVoice(
 
     private val cacheDir = File(context.cacheDir, CACHE_DIR)
     private val queue = Channel<Utterance>(Channel.UNLIMITED)
+
+    /** TTS通信は1本だけ。現在の文を再生している間に次の文を先読みする。 */
+    private val preparationGate = Semaphore(1)
+    private val preparations = ConcurrentHashMap.newKeySet<Deferred<ByteArray>>()
+
+    /** 同じ「〇〇座ですね」の先読みを、星図の再描画ごとに重複して送らない。 */
+    private val warmFlights = SingleFlight<String>(scope)
 
     /** [say] で世代を進める。積んであった古い発話は worker が読み飛ばす */
     @Volatile
@@ -124,7 +142,10 @@ class CloudVoice(
             return
         }
         generation++
-        enqueue(Utterance(text, flush = true, generation = generation))
+        current?.cancel()
+        cancelPreparations()
+        fallback.stop()
+        enqueue(text, flush = true)
     }
 
     override fun add(text: String) {
@@ -133,19 +154,20 @@ class CloudVoice(
             fallback.add(text)
             return
         }
-        enqueue(Utterance(text, flush = false, generation = generation))
+        enqueue(text, flush = false)
     }
 
     override fun stop() {
         generation++
-        queued.set(0)
         current?.cancel()
+        cancelPreparations()
         fallback.stop()
         _speaking.value = false
     }
 
     fun shutdown() {
         stop()
+        scope.launch { warmFlights.cancelAll() }
         queue.close()
     }
 
@@ -159,26 +181,44 @@ class CloudVoice(
         val file = cacheFile(text) ?: return
         if (file.isFile) return
         scope.launch {
-            runCatching { synthesize(text) { _, _ -> } }
+            runCatching {
+                warmFlights.getOrStart(file.path) { downloadToCache(text, file) }.await()
+            }
                 .onFailure { Log.w(TAG, "先読みに失敗 ${it.message}") }
         }
     }
 
     private fun usable(): Boolean = _enabled.value && !_broken.value && speech.configured
 
-    private fun enqueue(utterance: Utterance) {
+    private fun enqueue(text: String, flush: Boolean) {
+        val utteranceGeneration = generation
+        val prepared = scope.async(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            preparationGate.withPermit {
+                if (utteranceGeneration != generation) throw CancellationException("古い発話")
+                preparePcm(text)
+            }
+        }
+        preparations += prepared
+        prepared.invokeOnCompletion { preparations -= prepared }
+        prepared.start()
+        val utterance = Utterance(text, flush, utteranceGeneration, prepared)
         // 発話が始まる前に true にしておく。ここが遅れると画面側が「もう終わった」と誤解する
         _speaking.value = true
         queued.incrementAndGet()
         if (queue.trySend(utterance).isFailure) {
             queued.decrementAndGet()
+            prepared.cancel()
             fallback.say(utterance.text)
         }
     }
 
+    private fun cancelPreparations() {
+        preparations.forEach { it.cancel() }
+    }
+
     private suspend fun speakOne(utterance: Utterance) {
         try {
-            play(utterance.text)
+            play(utterance.prepared.await())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -211,53 +251,45 @@ class CloudVoice(
      * AudioTrack は発話ごとに作って捨てる。使い回すと停止と再生の状態が絡まるうえ、
      * 生成の数百 ms に対して確保のコストは小さい。
      */
-    private suspend fun play(text: String) {
-        val track = newTrack().also { this.track = it }
-        var started = false
-        var bytesWritten = 0L
+    private suspend fun play(pcm: ByteArray) {
+        Pcm16FrameAssembler.requireValid(pcm)
+        val track = newTrack(pcm.size).also { this.track = it }
         try {
-            synthesize(text) { buffer, length ->
-                var offset = 0
-                while (offset < length) {
-                    val written = track.write(buffer, offset, length - offset)
-                    if (written <= 0) break
-                    offset += written
-                    bytesWritten += written
-                    // 先頭を少し溜めてから鳴らす。届いたぶんをすぐ鳴らすと、
-                    // 電波が細いときに一言ごとに途切れて、かえって人工的に聞こえる
-                    if (!started && bytesWritten >= PREBUFFER_BYTES) {
-                        track.play()
-                        started = true
-                    }
-                }
+            val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+            if (written != pcm.size) {
+                throw IOException("AI音声を書き込めない: $written/${pcm.size} bytes")
             }
-            if (!started) track.play()
-            // 溜めたぶんが鳴り切るまで待つ。ここで返すと次の発話が上から重なる
-            val frames = bytesWritten / BYTES_PER_FRAME
-            while (currentCoroutineContext().isActive && track.playbackHeadPosition < frames) {
-                delay(DRAIN_POLL_MS)
+            val frames = pcm.size / Pcm16FrameAssembler.BYTES_PER_FRAME
+            val durationMs = frames * 1_000L / OpenAiSpeech.SAMPLE_RATE
+            track.play()
+            val drained = withTimeoutOrNull(durationMs + DRAIN_MARGIN_MS) {
+                while (track.playbackHeadPosition.toLong() < frames) delay(DRAIN_POLL_MS)
+                true
+            } == true
+            log(
+                "AI音声再生 ${pcm.size}B・${durationMs}ms・" +
+                    "underrun=${track.underrunCount}・session=${track.audioSessionId}" +
+                    if (drained) "" else "・再生完了待ちtimeout",
+                !drained || track.underrunCount > 0,
+            )
+            if (!drained) {
+                runCatching { track.stop() }
             }
         } finally {
             this.track = null
             runCatching {
-                track.pause()
-                track.flush()
+                track.stop()
                 track.release()
             }
         }
     }
 
-    private fun newTrack(): AudioTrack {
+    private fun newTrack(bytes: Int): AudioTrack {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(OpenAiSpeech.SAMPLE_RATE)
             .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
             .build()
-        val minimum = AudioTrack.getMinBufferSize(
-            OpenAiSpeech.SAMPLE_RATE,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-        )
         return AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -266,43 +298,69 @@ class CloudVoice(
                     .build(),
             )
             .setAudioFormat(format)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            // 溜める量より小さいと、鳴らし始める前に write が詰まって進まなくなる
-            .setBufferSizeInBytes(maxOf(minimum, PREBUFFER_BYTES * 2))
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            // 1文を検証し終えてから全量を載せる。通信速度と再生速度を切り離してノイズを防ぐ
+            .setBufferSizeInBytes(bytes)
             .build()
             .apply { setVolume(volumeValue) }
     }
 
-    /** キャッシュにあればそれを、無ければ作らせて（残せるものは残して）[onPcm] へ流す */
-    private suspend fun synthesize(text: String, onPcm: (ByteArray, Int) -> Unit) {
+    /** キャッシュまたはAPIから、検証済みの1文ぶんPCMを得る。 */
+    private suspend fun preparePcm(text: String): ByteArray {
         val file = cacheFile(text)
         if (file != null && file.isFile) {
-            withContext(Dispatchers.IO) {
-                val buffer = ByteArray(READ_BYTES)
-                file.inputStream().use { input ->
-                    while (currentCoroutineContext().isActive) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (read > 0) onPcm(buffer, read)
-                    }
-                }
-            }
-            return
+            readValidCache(file)?.let { return it }
         }
 
-        val kept = if (file != null) ByteArrayOutputStream() else null
-        speech.stream(text) { buffer, length ->
-            kept?.write(buffer, 0, length)
-            onPcm(buffer, length)
-        }
-        if (file != null && kept != null && kept.size() > 0) {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    cacheDir.mkdirs()
-                    file.writeBytes(kept.toByteArray())
-                    prune()
-                }
+        // 先読みが走っているなら、その通信結果を共有する。
+        // ここで別のTTSリクエストを始めると、弱い回線上で解説文の生成まで奪い合ってしまう
+        val pending = file?.let { cached -> warmFlights.current(cached.path) }
+        if (pending != null) {
+            pending.await()
+            if (file.isFile) {
+                readValidCache(file)?.let { return it }
             }
+        }
+
+        return speech.synthesize(text).also { pcm ->
+            if (file != null) runCatching { writeCache(file, pcm) }
+        }
+    }
+
+    private suspend fun downloadToCache(text: String, file: File) {
+        val pcm = speech.synthesize(text)
+        withContext(Dispatchers.IO) { writeCache(file, pcm) }
+    }
+
+    private fun readValidCache(file: File): ByteArray? = runCatching {
+        val pcm = file.readBytes()
+        Pcm16FrameAssembler.requireValid(pcm)
+        pcm
+    }.getOrElse {
+        // 壊れたPCMを何度も鳴らさない。キャッシュなので消してAPIから作り直せる
+        file.delete()
+        null
+    }
+
+    private fun writeCache(file: File, pcm: ByteArray) {
+        Pcm16FrameAssembler.requireValid(pcm)
+        cacheDir.mkdirs()
+        val temporary = File(cacheDir, "${file.name}.${System.nanoTime()}.tmp")
+        try {
+            temporary.writeBytes(pcm)
+            runCatching {
+                Files.move(
+                    temporary.toPath(),
+                    file.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }.getOrElse {
+                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
+            prune()
+        } finally {
+            temporary.delete()
         }
     }
 
@@ -315,7 +373,7 @@ class CloudVoice(
     private fun cacheFile(text: String): File? {
         if (text.length > CACHE_MAX_CHARS) return null
         val digest = MessageDigest.getInstance("SHA-1")
-            .digest("${speech.signature}|$text".toByteArray(Charsets.UTF_8))
+            .digest("$CACHE_VERSION|${speech.signature}|$text".toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         return File(cacheDir, "$digest.pcm")
     }
@@ -335,16 +393,12 @@ class CloudVoice(
         const val TAG = "CloudVoice"
         const val CACHE_DIR = "tts"
 
-        const val BYTES_PER_FRAME = 2
-
-        /** 鳴らし始める前に溜める量。24kHz / 16bit なので 0.6 秒ぶん */
-        const val PREBUFFER_BYTES = 28_800
-
-        const val READ_BYTES = 4096
         const val DRAIN_POLL_MS = 50L
+        const val DRAIN_MARGIN_MS = 3_000L
 
         const val CACHE_MAX_CHARS = 48
         const val CACHE_MAX_BYTES = 16L * 1024 * 1024
+        const val CACHE_VERSION = "pcm16-static-v1"
 
         /** 端末の読み上げを待つ上限。1 文字あたりの見込み ＋ 立ち上がりぶん */
         const val FALLBACK_BASE_MS = 3_000L

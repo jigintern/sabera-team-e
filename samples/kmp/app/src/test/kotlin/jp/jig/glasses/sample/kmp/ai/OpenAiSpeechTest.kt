@@ -1,9 +1,11 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.EOFException
 
 /**
  * 読み上げの注文が崩れていないことを押さえる。
@@ -42,5 +44,65 @@ class OpenAiSpeechTest {
     fun `キーが無ければ使えないと分かる`() {
         assertFalse(OpenAiSpeech("", "alloy", "gpt-4o-mini-tts").configured)
         assertTrue(OpenAiSpeech("sk-test", "alloy", "gpt-4o-mini-tts").configured)
+    }
+
+    @Test
+    fun `音声も受信前の一時エラーだけ一回再試行する`() = runBlocking {
+        TestHttpServer { call ->
+            if (call == 1) {
+                TestHttpResponse(503, "busy".toByteArray())
+            } else {
+                val pcm = byteArrayOf(1, 2, 3, 4)
+                TestHttpResponse(200, pcm, contentType = "application/octet-stream", requestId = "req-speech")
+            }
+        }.use { server ->
+            val received = ArrayList<Byte>()
+            val traces = ArrayList<OpenAiRequestTrace>()
+            val speech = OpenAiSpeech(
+                apiKey = "sk-test",
+                voice = "alloy",
+                model = "gpt-4o-mini-tts",
+                endpoint = server.endpoint,
+                onTrace = { traces += it },
+            )
+
+            speech.stream("こんばんは。") { buffer, length ->
+                repeat(length) { received += buffer[it] }
+            }
+
+            assertEquals(listOf<Byte>(1, 2, 3, 4), received)
+            assertEquals(2, server.calls.get())
+            assertEquals(listOf(false, true), traces.map { it.completed })
+            assertEquals("req-speech", traces.last().requestId)
+        }
+    }
+
+    @Test
+    fun `途中まで届いた音声は再試行して先頭を重ねない`() = runBlocking {
+        val pcm = byteArrayOf(1, 2, 3, 4)
+        TestHttpServer {
+            TestHttpResponse(
+                status = 200,
+                body = pcm,
+                contentType = "application/octet-stream",
+                declaredLength = 100,
+            )
+        }.use { server ->
+            var received = 0
+            val speech = OpenAiSpeech(
+                apiKey = "sk-test",
+                voice = "alloy",
+                model = "gpt-4o-mini-tts",
+                endpoint = server.endpoint,
+            )
+
+            val error = runCatching {
+                speech.stream("短い文です。") { _, length -> received += length }
+            }.exceptionOrNull()
+
+            assertTrue("EOFではない: $error", error is EOFException)
+            assertEquals(4, received)
+            assertEquals(1, server.calls.get())
+        }
     }
 }
