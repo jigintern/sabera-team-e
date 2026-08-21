@@ -610,6 +610,9 @@ fun StarMapScreen(
             val l = look()
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
+                    // ロールも残す。**首をどちらに傾けたときに何度出たか**が後から読めないと、
+                    // 追従の符号が合っているかを確かめられない
+                    (if (rollFollow) "ロール%+.0f° ".format(drawnRoll) else "") +
                     (if (satelliteMode) "衛星${tracks.size}機 " else "") +
                     (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
