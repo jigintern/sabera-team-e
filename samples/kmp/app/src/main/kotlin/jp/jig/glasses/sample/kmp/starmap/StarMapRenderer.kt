@@ -110,9 +110,10 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawStars: Boolean = true,
         // 主役 1 機の輪郭を出すか。実機で読めるかを確かめられるよう切れるようにしてある
         drawFigures: Boolean = true,
-        // 首の傾きに追従するか。0 なら地平線を水平に固定する（既定）
         // 月・惑星。星と同じ空のものなので、衛星モードでは渡さない
         bodies: List<SkyBodyMark> = emptyList(),
+        // 星座絵（星座線だけでは「なにに見立てたのか」が伝わらない）
+        drawFigureArt: Boolean = true,
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -120,6 +121,15 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val basis = Basis(look.azDeg, look.altDeg)
         val k = projectionScale(width, fovDeg)
         val gray = ByteArray(width * height)
+
+        // **絵 → 線 → 星の順に重ねる。** 絵はいちばん暗い段なので、
+        // あとから星や線を書いても上書きされない（dot は明るいほうを残す）
+        if (drawFigureArt) {
+            for (i in catalog.constellations.indices) {
+                val figure = catalog.figures[catalog.constellations[i].abbr] ?: continue
+                drawConstellationArt(gray, width, height, figure, precessed.lines[i], lst, site, basis, k)
+            }
+        }
 
         if (drawLines) {
             for (lines in precessed.lines) {
@@ -169,7 +179,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // 線を引くと画面が線で埋まるだけで、どれが衛星かが読めなかった。
         // ただし点を同じ大きさで並べると「点々」にしか見えないので、3 つ描き分ける。
         // **名前つき＝大きい点＋輪・スターリンク＝小さい点・動いているもの＝進行方向の矢印**
-        val namedRadius = (3.0 * width / 196.0).roundToInt()
+        // **星座に重ねるので、星より目立たせない**（#36）。輪で「星ではない」と分かる
+        val namedRadius = (2.0 * width / 196.0).roundToInt()
         val crowdRadius = (1.5 * width / 196.0).roundToInt().coerceAtLeast(1)
         for (track in tracks) {
             val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
@@ -222,9 +233,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         } else {
             emptyList()
         }
-        // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
-        val merged = (trackLabels + bodyLabels + starLabels)
-            .take(maxLabels.coerceAtLeast(trackLabels.size + bodyLabels.size))
+        // **星座名が主役で、衛星は枠を 2 つまで借りるだけ**（#36）。
+        // 月・惑星は数が少なく、点だけでは恒星と区別が付かないので先に置く
+        val tracksShown = trackLabels.take(MAX_TRACK_LABELS)
+        val room = (maxLabels - tracksShown.size - bodyLabels.size).coerceAtLeast(0)
+        val merged = bodyLabels + starLabels.take(room) + tracksShown
         return StarMap(width, height, gray, merged)
     }
 
@@ -454,6 +467,62 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             )
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
+    }
+
+    /**
+     * 星座絵を 1 つ敷く。
+     *
+     * **その星座の星座線を投影した外接矩形へ、正規化した絵を写すだけ。**
+     * 星の位置へ厳密に貼るのではないので、絵は星より暗く細くして「下敷き」に見せる。
+     *
+     * 視野に入っていない星座は矩形が画面の外へ出るので、[line] の中で捨てられる。
+     * **矩形が画面よりずっと大きいときは描かない**（星座の端がかすっただけで
+     * 画面いっぱいに絵が広がると、見えている星と対応が取れなくなる）。
+     */
+    private fun drawConstellationArt(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        figure: ConstellationFigure,
+        lines: List<List<DoubleArray>>,
+        lst: Double,
+        site: Site,
+        basis: Basis,
+        k: Double,
+    ) {
+        var minX = Double.MAX_VALUE
+        var minY = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var maxY = -Double.MAX_VALUE
+        var count = 0
+        for (seg in lines) {
+            for (p in seg) {
+                val aa = toApparentAltAz(p[0], p[1], lst, site.latDeg)
+                val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
+                minX = min(minX, q[0])
+                minY = min(minY, q[1])
+                maxX = max(maxX, q[0])
+                maxY = max(maxY, q[1])
+                count++
+            }
+        }
+        if (count < 2) return
+        val boxWidth = maxX - minX
+        val boxHeight = maxY - minY
+        // 小さすぎる（遠い星座の端）・大きすぎる（真上に広がっている）ものは敷かない
+        if (boxWidth < width * ART_MIN_SPAN || boxHeight < height * ART_MIN_SPAN) return
+        if (boxWidth > width * ART_MAX_SPAN || boxHeight > height * ART_MAX_SPAN) return
+        if (maxX < 0 || maxY < 0 || minX > width || minY > height) return
+
+        val radius = (lineRadius(width) - 1).coerceAtLeast(0)
+        for (stroke in figure) {
+            var previous: DoubleArray? = null
+            for (point in stroke) {
+                val q = doubleArrayOf(minX + point[0] * boxWidth, minY + point[1] * boxHeight)
+                previous?.let { line(gray, width, height, it, q, ART_VALUE, radius) }
+                previous = q
+            }
+        }
     }
 
     /**
@@ -742,7 +811,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
     }
 
-    private fun lineRadius(width: Int): Int = if (width >= 400) 1 else 0
+    /**
+     * 星座線の太さ。**点と同じく画素数に比例させる。**
+     *
+     * 528px で半径 1（3px・0.18°）だと、緑 8 階調の実機では**線が見えなかった**。
+     * 星の半径は一番暗い星でも 3（7px）あるので、線だけが細すぎた。
+     */
+    private fun lineRadius(width: Int): Int = (width / 264.0).roundToInt().coerceAtLeast(1)
 
     private fun line(gray: ByteArray, w: Int, h: Int, a: DoubleArray, b: DoubleArray, value: Int, radius: Int) {
         val dx = b[0] - a[0]
@@ -788,11 +863,31 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     private companion object {
-        /** 星座線は星より暗く。転送量の半分以上を占めるので、間に合わないときはここを間引く */
-        const val LINE_VALUE = 110
+        /**
+         * 星座線の明るさ。**3bit に落ちるので「少し暗く」は効かない。**
+         *
+         * 110 は量子化すると 8 階調の 3 で、**一番暗い星と同じ段**だった。
+         * 実機で線が見えなかったのはこれと細さの合わせ技。144 なら段が 4 に上がり、
+         * 中くらい以上の星（5〜7）より暗いまま、線として読める。
+         * **明るさは転送量に効かない**（同じ値が続くので RLE の走長は変わらない）。
+         */
+        const val LINE_VALUE = 144
 
         /** スターリンクの点。名前つきより暗くして、群れとして見せる */
         const val CROWD_VALUE = 170
+
+        /**
+         * 星座絵の明るさ。**3bit の 2 段目**（線が 4・暗い星が 3）。
+         * 星より暗くないと、絵が主役になって星の位置が読めない。
+         */
+        const val ART_VALUE = 80
+
+        /** 星座絵を敷く矩形の下限・上限（画面に対する比） */
+        const val ART_MIN_SPAN = 0.15
+        const val ART_MAX_SPAN = 1.8
+
+        /** 衛星の名前に貸すテキスト枠の数。星座名を押し出さないための上限 */
+        const val MAX_TRACK_LABELS = 2
 
         /** 名前つきの点を囲む輪 */
         const val RING_VALUE = 200
