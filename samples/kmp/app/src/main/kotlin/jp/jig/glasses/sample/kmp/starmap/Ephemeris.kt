@@ -24,14 +24,26 @@ import kotlin.math.sqrt
  * 等級は Astronomical Almanac (1984) の位相角多項式。**Android に依存させず JVM テストで固定する。**
  */
 
-/** 動く合わせ先。恒星と違って毎回計算する */
+/**
+ * 星図に出す太陽系の天体。**地球以外の 8 惑星と月**（水金地火木土天海冥の地は足元）。
+ *
+ * **肉眼で見えないものも出す。** 天王星（5.7 等）から先は目では見えないが、
+ * 「そこに何があるか」を知りたいのがこのアプリなので、名前つきの点として置く。
+ * 見えないことは等級で AI へ伝わる（[ObservedStarFact.magnitude]）。
+ */
 enum class SolarSystemBody(val nameJa: String, val id: Int) {
-    /** 一番確実な合わせ先。名前を知らない人が居ない */
+    /** 一番確実な目印。名前を知らない人が居ない */
     MOON("月", -1),
     VENUS("金星", -2),
     MARS("火星", -3),
     JUPITER("木星", -4),
     SATURN("土星", -5),
+    MERCURY("水星", -6),
+    URANUS("天王星", -7),
+    NEPTUNE("海王星", -8),
+
+    /** 惑星ではないが、水金地火木土天海冥で覚えた並びの最後。14 等なので目では見えない */
+    PLUTO("冥王星", -9),
 }
 
 /** 地心の黄道座標（その日の平均分点）と、見かけの明るさ */
@@ -139,6 +151,9 @@ fun moonPosition(epochMillis: Long): BodyPosition {
 fun planetPosition(body: SolarSystemBody, epochMillis: Long): BodyPosition {
     require(body != SolarSystemBody.MOON) { "月は moonPosition で計算する" }
     val d = schlyterDays(epochMillis)
+    // **冥王星だけはケプラー要素では出せない。** 海王星との 3:2 共鳴で周期的に大きく振れるので、
+    // Schlyter の専用級数（1800〜2100 年で 1〜2′）を使う
+    if (body == SolarSystemBody.PLUTO) return plutoPosition(d)
     val element = elements(body, d)
 
     var eccentric = element.meanAnomaly + element.eccentricity * DEG * sinD(element.meanAnomaly) *
@@ -189,6 +204,12 @@ fun planetPosition(body: SolarSystemBody, epochMillis: Long): BodyPosition {
                 0.014 * sinD(jupiterMean - 3.0 * saturnMean + 32.0)
             helioLat += -0.020 * cosD(2.0 * jupiterMean - 4.0 * saturnMean - 2.0) +
                 0.018 * sinD(2.0 * jupiterMean - 6.0 * saturnMean - 49.0)
+        }
+        SolarSystemBody.URANUS -> {
+            val uranusMean = norm360(142.5905 + 0.011725806 * d)
+            helioLon += 0.040 * sinD(saturnMean - 2.0 * uranusMean + 6.0) +
+                0.035 * sinD(saturnMean - 3.0 * uranusMean + 33.0) -
+                0.015 * sinD(jupiterMean - uranusMean + 20.0)
         }
         else -> Unit
     }
@@ -263,12 +284,21 @@ private fun planetMagnitude(
         ).coerceIn(-1.0, 1.0)
     val phase = kotlin.math.acos(cosPhase) * DEG
     val base = 5.0 * log10(helioRadius * geoDistance)
+    val hundredth = phase / 100.0
     return when (body) {
+        // 水星は位相角が 0〜180° まで回るので、3 次まで要る（内惑星なので細く欠ける）
+        SolarSystemBody.MERCURY ->
+            -0.36 + base + 3.80 * hundredth - 2.73 * hundredth * hundredth +
+                2.00 * hundredth * hundredth * hundredth
         SolarSystemBody.VENUS ->
             -4.40 + base + 0.0009 * phase + 0.000239 * phase * phase - 6.5e-7 * phase * phase * phase
         SolarSystemBody.MARS -> -1.52 + base + 0.016 * phase
         SolarSystemBody.JUPITER -> -9.40 + base + 0.005 * phase
         SolarSystemBody.SATURN -> -8.88 + base + 0.044 * phase
+        // 外の 3 つは位相角が 3° も動かないので、距離だけで決まる
+        SolarSystemBody.URANUS -> -7.19 + base
+        SolarSystemBody.NEPTUNE -> -6.87 + base
+        SolarSystemBody.PLUTO -> -1.01 + base
         SolarSystemBody.MOON -> -12.7
     }
 }
@@ -315,7 +345,77 @@ private fun elements(body: SolarSystemBody, d: Double): Elements = when (body) {
         eccentricity = 0.055546 - 9.499e-9 * d,
         meanAnomaly = norm360(316.9670 + 0.0334442282 * d),
     )
+    SolarSystemBody.MERCURY -> Elements(
+        node = 48.3313 + 3.24587e-5 * d,
+        inclination = 7.0047 + 5.00e-8 * d,
+        perihelion = 29.1241 + 1.01444e-5 * d,
+        axis = 0.387098,
+        eccentricity = 0.205635 + 5.59e-10 * d,
+        meanAnomaly = norm360(168.6562 + 4.0923344368 * d),
+    )
+    SolarSystemBody.URANUS -> Elements(
+        node = 74.0005 + 1.3978e-5 * d,
+        inclination = 0.7733 + 1.9e-8 * d,
+        perihelion = 96.6612 + 3.0565e-5 * d,
+        axis = 19.18171 - 1.55e-8 * d,
+        eccentricity = 0.047318 + 7.45e-9 * d,
+        meanAnomaly = norm360(142.5905 + 0.011725806 * d),
+    )
+    SolarSystemBody.NEPTUNE -> Elements(
+        node = 131.7806 + 3.0173e-5 * d,
+        inclination = 1.7700 - 2.55e-7 * d,
+        perihelion = 272.8461 - 6.027e-6 * d,
+        axis = 30.05826 + 3.313e-8 * d,
+        eccentricity = 0.008606 + 2.15e-9 * d,
+        meanAnomaly = norm360(260.2471 + 0.005995147 * d),
+    )
+    SolarSystemBody.PLUTO -> error("冥王星は plutoPosition で計算する")
     SolarSystemBody.MOON -> error("月は moonPosition で計算する")
+}
+
+/**
+ * 冥王星の地心黄道座標。
+ *
+ * 海王星との 3:2 共鳴で軌道要素が周期的に大きく動くので、ケプラー要素では出せない。
+ * Schlyter の級数（平均近点角 P と土星との組み合わせ S の三角級数）で日心座標を出し、
+ * 太陽の地心ベクトルを足して地心へ移す。**1800〜2100 年の外では使えない。**
+ */
+private fun plutoPosition(d: Double): BodyPosition {
+    val s = 50.03 + 0.033459652 * d
+    val p = 238.95 + 0.003968789 * d
+
+    val helioLon = 238.9508 + 0.00400703 * d -
+        19.799 * sinD(p) + 19.848 * cosD(p) +
+        0.897 * sinD(2.0 * p) - 4.956 * cosD(2.0 * p) +
+        0.610 * sinD(3.0 * p) + 1.211 * cosD(3.0 * p) -
+        0.341 * sinD(4.0 * p) - 0.190 * cosD(4.0 * p) +
+        0.128 * sinD(5.0 * p) - 0.034 * cosD(5.0 * p) -
+        0.038 * sinD(6.0 * p) + 0.031 * cosD(6.0 * p) +
+        0.020 * sinD(s - p) - 0.010 * cosD(s - p)
+    val helioLat = -3.9082 -
+        5.453 * sinD(p) - 14.975 * cosD(p) +
+        3.527 * sinD(2.0 * p) + 1.673 * cosD(2.0 * p) -
+        1.051 * sinD(3.0 * p) + 0.328 * cosD(3.0 * p) +
+        0.179 * sinD(4.0 * p) - 0.292 * cosD(4.0 * p) +
+        0.019 * sinD(5.0 * p) + 0.100 * cosD(5.0 * p) -
+        0.031 * sinD(6.0 * p) - 0.026 * cosD(6.0 * p) +
+        0.011 * cosD(s - p)
+    val helioRadius = 40.72 +
+        6.68 * sinD(p) + 6.90 * cosD(p) -
+        1.18 * sinD(2.0 * p) - 0.03 * cosD(2.0 * p) +
+        0.15 * sinD(3.0 * p) - 0.14 * cosD(3.0 * p)
+
+    val sun = sunEcliptic(d)
+    val x = helioRadius * cosD(helioLat) * cosD(helioLon) + sun[1] * cosD(sun[0])
+    val y = helioRadius * cosD(helioLat) * sinD(helioLon) + sun[1] * sinD(sun[0])
+    val z = helioRadius * sinD(helioLat)
+    val geoDistance = sqrt(x * x + y * y + z * z)
+    return BodyPosition(
+        lonDeg = norm360(atan2(y, x) * DEG),
+        latDeg = atan2(z, hypot(x, y)) * DEG,
+        distanceAu = geoDistance,
+        magnitude = planetMagnitude(SolarSystemBody.PLUTO, helioRadius, geoDistance, sun[1]),
+    )
 }
 
 /** 太陽の地心黄経[度]。日食や合の検算に使う（[sunPosition] とは独立な系統） */
@@ -346,8 +446,17 @@ fun bodiesInView(
     }.sortedBy { it.distanceFromCenterDeg }
 }
 
-/** 肉眼で見える惑星の下限。水星は入れていない（低空にしか出ず、合わせ先にも解説にも向かない） */
-const val BODY_LIMIT_MAGNITUDE = 3.0
+/**
+ * 星図に出す太陽系天体の等級の下限。
+ *
+ * **肉眼の限界（6 等）では切らない。** 天王星・海王星・冥王星は目に見えないが、
+ * 「いまその方向に何があるか」を知りたいのがこのアプリなので、名前つきの点として出す。
+ * 冥王星が 16 等まで暗くなるので、そこが入る値にしてある。
+ */
+const val BODY_LIMIT_MAGNITUDE = 17.0
+
+/** ここより暗いものは肉眼では見えない。AI に「見えている」と言わせないために渡す */
+const val NAKED_EYE_MAGNITUDE = 6.0
 
 private const val KEPLER_ITERATIONS = 5
 private const val EARTH_RADIUS_KM = 6378.137

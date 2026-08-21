@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import jp.jig.glasses.sample.kmp.starmap.NAKED_EYE_MAGNITUDE
 import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -404,8 +405,10 @@ data class ExplainRequest(
         if (visibleBodies.isNotEmpty()) {
             append("視野内には")
             append(
-                visibleBodies.joinToString("、") {
-                    "${it.nameJa}（等級%.1f、中心から%.1f度）".format(it.magnitude, it.distanceFromCenterDeg)
+                visibleBodies.joinToString("、") { body ->
+                    "${body.nameJa}（等級%.1f、中心から%.1f度".format(body.magnitude, body.distanceFromCenterDeg) +
+                        // **天王星から先は目では見えない。** 等級だけ渡すと「見えています」と言われる
+                        if (body.magnitude > NAKED_EYE_MAGNITUDE) "、肉眼では見えない）" else "）"
                 },
             )
             append("も入っています。これも端末が計算した確定値です。")
