@@ -246,6 +246,8 @@ fun StarMapScreen(
     var fovMeasured by remember { mutableStateOf(storedGeometry.measured) }
     // 画角を測っている間は星図を出さない（端の線が星と紛れる／首を動かすと消える）
     var patternShown by remember { mutableStateOf(false) }
+    // 星で画角を測るときの 2 点。同じ星を左端・右端の線に合わせた視線を貯める
+    val fovPoints = remember { mutableStateListOf<Look>() }
     val fov = fovDeg.toFloat()
     val limitMag = ObservationDefaults.LIMIT_MAGNITUDE.toFloat()
 
@@ -1304,6 +1306,63 @@ fun StarMapScreen(
                             },
                             modifier = Modifier.weight(1f),
                         ) { Text(if (patternShown) "目印を消す" else "画角の目印を出す") }
+                    }
+                    if (patternShown) {
+                        // **星で測る。** 同じ星を左端・右端の線に合わせれば、
+                        // 2 つの視線の角距離がそのまま横の画角になる（巻尺も壁も要らない）
+                        Text(
+                            "明るい星を中央の高さで左端の線に合わせて押し、" +
+                                "右端の線に来るまで水平に首を振ってもう一度押す" +
+                                if (fovPoints.isEmpty()) "" else "（1 点目を取得済み）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF8A9BA8),
+                        )
+                        Row {
+                            OutlinedButton(
+                                onClick = {
+                                    val point = latchedLook()
+                                    fovPoints += point
+                                    log(
+                                        "画角の測点%d 方位%.1f° 高度%.1f°".format(
+                                            fovPoints.size,
+                                            point.azDeg,
+                                            point.altDeg,
+                                        ),
+                                    )
+                                    if (fovPoints.size >= 2) {
+                                        val measured = FovPattern.fovFromEdgeAlignment(
+                                            fovPoints[0],
+                                            fovPoints[1],
+                                        )
+                                        val clamped = GlassGeometryPrefs.clampFov(measured)
+                                        log(
+                                            "画角を星で測った: %.1f°%s".format(
+                                                measured,
+                                                if (clamped != measured) "（%.0f° に丸めた）".format(clamped) else "",
+                                            ),
+                                        )
+                                        fovDeg = clamped
+                                        fovSlider = clamped.toFloat()
+                                        geometryPrefs.saveFov(clamped)
+                                        fovMeasured = true
+                                        fovPoints.clear()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(if (fovPoints.isEmpty()) "星が左端に合った" else "星が右端に合った")
+                            }
+                            if (fovPoints.isNotEmpty()) {
+                                Spacer(Modifier.padding(4.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        fovPoints.clear()
+                                        log("画角の測点を捨てた")
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) { Text("測点をやり直す") }
+                            }
+                        }
                     }
                     Slider(
                         value = fovSlider,

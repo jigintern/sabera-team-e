@@ -38,6 +38,41 @@ class FovPatternTest {
     }
 
     @Test
+    fun `星を左端と右端に合わせた2点から画角が出る`() {
+        // 画角 35° の投影で、端の線の位置に星が来る視線をそれぞれ作る
+        for (trueFov in listOf(30.0, 35.0, 42.0)) {
+            val scale = projectionScale(width, trueFov)
+            val spanPx = (width - (FovPattern.EDGE_THICKNESS - 1) * 2) / 2.0
+            // 中心から端の線までの角度（r = 2 tan(θ/2) の逆）
+            val edgeDeg = 2.0 * Math.toDegrees(kotlin.math.atan(spanPx / scale / 2.0))
+            // 水平に振るので、同じ高度で方位だけ違う 2 つの視線
+            val first = Look(100.0, 0.0)
+            val second = Look(100.0 + edgeDeg * 2.0, 0.0)
+            assertEquals(trueFov, FovPattern.fovFromEdgeAlignment(first, second), 0.05)
+        }
+    }
+
+    @Test
+    fun `高いところの星でも同じ画角になる`() {
+        val trueFov = 35.0
+        val scale = projectionScale(width, trueFov)
+        val spanPx = (width - (FovPattern.EDGE_THICKNESS - 1) * 2) / 2.0
+        val edgeDeg = 2.0 * Math.toDegrees(kotlin.math.atan(spanPx / scale / 2.0))
+        // 高度 40° で水平に振ると、方位の変化は角距離より大きくなる（cos で割る）
+        val altitude = 40.0
+        val deltaAz = 2.0 * Math.toDegrees(
+            kotlin.math.asin(
+                kotlin.math.sin(edgeDeg * RAD) / kotlin.math.cos(altitude * RAD),
+            ),
+        )
+        val recovered = FovPattern.fovFromEdgeAlignment(
+            Look(200.0, altitude),
+            Look(200.0 + deltaAz, altitude),
+        )
+        assertEquals("方位の差ではなく角距離で計算している", trueFov, recovered, 0.4)
+    }
+
+    @Test
     fun `印の間隔から画角が出る`() {
         assertEquals(35.0, FovPattern.fovDeg(markSpacingMeters = 1.261, wallDistanceMeters = 2.0), 0.02)
         assertEquals(22.4, FovPattern.fovDeg(markSpacingMeters = 0.792, wallDistanceMeters = 2.0), 0.05)
