@@ -10,6 +10,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import app.jigglass.glass.GlassManager
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
+import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
 
 /**
  * ホームから観測を始め、未接続なら接続確認、接続済みなら方位合わせを経て星図へ進む。
@@ -25,6 +26,11 @@ fun GlassesApp(manager: GlassManager) {
     var pitchStd by rememberSaveable { mutableDoubleStateOf(0.0) }
     var calibrationSamples by rememberSaveable { mutableLongStateOf(0L) }
     var calibratedAt by rememberSaveable { mutableLongStateOf(0L) }
+    // 段階 2（天体アライメント）まで進んだかと、その残差。
+    // 残差の意味が合わせ方で変わるので、必ず一緒に持ち回す
+    var celestial by rememberSaveable { mutableStateOf(false) }
+    var residualDeg by rememberSaveable { mutableDoubleStateOf(-1.0) }
+    var targetNames by rememberSaveable { mutableStateOf<String?>(null) }
     val client by manager.connectedDevice.collectAsState(initial = null)
     val constellation = rememberSeasonalConstellation()
 
@@ -61,6 +67,9 @@ fun GlassesApp(manager: GlassManager) {
                         pitchStd = result.pitchStdDeg
                         calibrationSamples = result.sampleCount.toLong()
                         calibratedAt = result.calibratedAt
+                        celestial = result.source == CalibrationSource.CELESTIAL
+                        residualDeg = result.residualDeg ?: -1.0
+                        targetNames = result.targetNames
                         screen = AppScreen.STAR_MAP
                     },
                     onHome = { screen = AppScreen.HOME },
@@ -88,6 +97,13 @@ fun GlassesApp(manager: GlassManager) {
                             headingStdDeg = headingStd,
                             pitchStdDeg = pitchStd,
                             sampleCount = calibrationSamples.toInt(),
+                            source = if (celestial) {
+                                CalibrationSource.CELESTIAL
+                            } else {
+                                CalibrationSource.PHONE_SYNC
+                            },
+                            residualDeg = residualDeg.takeIf { it >= 0.0 },
+                            targetNames = targetNames,
                         )
                     },
                     constellation = constellation,

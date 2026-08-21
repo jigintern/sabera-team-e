@@ -67,6 +67,8 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
+import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
+import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
@@ -587,6 +589,19 @@ fun StarMapScreen(
         if (calibratedAt == null) return@LaunchedEffect
         while (lastImuAt == 0L) delay(POLL_MS)
         val baseAt = System.currentTimeMillis()
+        // 合わせ方と残差を最初に残す。あとでログを読むとき、
+        // 「どの精度で始めた観測なのか」が分からないと数字の意味が決まらない
+        log(
+            initialCalibration?.let { result ->
+                when (result.source) {
+                    CalibrationSource.CELESTIAL -> "方位合わせ=天体（%s）残差=%s".format(
+                        result.targetNames ?: "?",
+                        result.residualDeg?.let { "%.2f°".format(it) } ?: "未計測",
+                    )
+                    CalibrationSource.PHONE_SYNC -> "方位合わせ=スマホ同期 ばらつき=±%.1f°".format(result.headingStdDeg)
+                }
+            } ?: "方位合わせ=なし",
+        )
         log("ドリフト監視 開始 基準yaw=%.1f°".format(glassYaw))
         var previousYaw = glassYaw
         var previousFused = yawNow()
@@ -1055,6 +1070,23 @@ fun StarMapScreen(
                                 it.pitchStdDeg,
                                 it.sampleCount,
                             )
+                    } ?: "まだ",
+                )
+                StatusRow(
+                    "合わせ方",
+                    initialCalibration?.let { result ->
+                        when (result.source) {
+                            CalibrationSource.CELESTIAL -> {
+                                val residual = result.residualDeg
+                                "天体（${result.targetNames ?: "?"}）・" +
+                                    if (residual == null) {
+                                        "ずれ未計測"
+                                    } else {
+                                        "ずれ%.1f°・%s".format(residual, alignmentGrade(residual))
+                                    }
+                            }
+                            CalibrationSource.PHONE_SYNC -> "スマホ同期（地磁気の誤差 ±5〜15° が残る）"
+                        }
                     } ?: "まだ",
                 )
             Spacer(Modifier.height(16.dp))
