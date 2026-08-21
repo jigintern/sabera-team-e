@@ -71,7 +71,7 @@ fun ConnectionCheckScreen(
 
             Card(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xE6152028)),
+                colors = CardDefaults.cardColors(containerColor = SaberaSurface),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -80,7 +80,7 @@ fun ConnectionCheckScreen(
                     Text(
                         text = if (connected) "●  接続済み" else "グラスが接続されていません",
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (connected) Color(0xFF75E6A3) else Color.White,
+                        color = if (connected) SaberaGreen else Color.White,
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(10.dp))
@@ -162,7 +162,7 @@ fun ConnectionCheckScreen(
             Spacer(Modifier.height(8.dp))
             TextButton(
                 onClick = onHome,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF75E6A3)),
+                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
             ) {
                 Text("ホーム")
             }
@@ -172,10 +172,10 @@ fun ConnectionCheckScreen(
 
 @Composable
 private fun connectionButtonColors() = ButtonDefaults.buttonColors(
-    containerColor = Color(0xFF75E6A3),
-    contentColor = Color(0xFF052010),
-    disabledContainerColor = Color(0xFF75E6A3).copy(alpha = 0.45f),
-    disabledContentColor = Color(0xFF052010).copy(alpha = 0.65f),
+    containerColor = SaberaGreen,
+    contentColor = SaberaOnAccent,
+    disabledContainerColor = SaberaGreen.copy(alpha = 0.45f),
+    disabledContentColor = SaberaOnAccent.copy(alpha = 0.65f),
 )
 
 private fun connectionErrorMessage(error: Throwable): String {

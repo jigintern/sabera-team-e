@@ -2,10 +2,8 @@
 
 **`app/` が team-e のアプリ本体。** Kotlin + Jetpack Compose から Sabera App SDK を直接呼ぶ。
 
-| モジュール | 中身 |
-|---|---|
-| **`app/`** | **アプリ本体。ここを書き換えて育てる** |
-| `snippets/` | ドキュメント用のコード例。**アプリではない**（壊すと CI が落ちる） |
+`app/` が唯一のGradleモジュール。上流SDKのコード例とAPIリファレンスは、
+[公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を参照する。
 
 > **Android 実機のみ。** iOS は上流でも SDK 0.0.10 のまま追従していないので、team-e では扱わない。
 
@@ -21,10 +19,10 @@
 cd samples/kmp
 ./gradlew :app:installDebug              # 実機にインストール
 ./gradlew :app:testDebugUnitTest         # JVM テスト
-./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck   # コード例の検証（CI に無いので手元で）
+./gradlew :app:assembleDebug              # デバッグAPKを作る
 ```
 
-仕様は [docs/team-e/](../../docs/team-e/)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
+仕様は [docs/team-e/index.md](../../docs/team-e/index.md)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
 
 ## ライセンス
 

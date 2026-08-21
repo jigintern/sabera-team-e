@@ -15,36 +15,11 @@
 *.iws
 .idea/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-**/.dart_tool/
-**/.flutter-plugins
-**/.flutter-plugins-dependencies
-**/.pub-cache/
-**/.pub/
-**/build/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android
-**/android/app/debug
-**/android/app/profile
-**/android/app/release
-**/android/local.properties
-**/android/.gradle/
-
-# KMP
+# Android / KMP
 **/.gradle/
+**/.kotlin/
 **/local.properties
-
-# Jekyll (docs)
-docs/.sass-cache/
-docs/_site/
+**/build/
 
 # 星表の取得キャッシュ
 tools/.cache/

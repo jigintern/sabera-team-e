@@ -42,8 +42,6 @@ class Compass(context: Context) : SensorEventListener {
     var accuracy: Int = SensorManager.SENSOR_STATUS_UNRELIABLE
         private set
 
-    val available: Boolean get() = rotationVector != null
-
     fun start() {
         rotationVector?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
     }

@@ -1,7 +1,8 @@
 # コントリビューションガイド
 
 team-e でこのリポジトリを触るときの手順とルール。
-AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様は [docs/team-e/](docs/team-e/)。
+AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様は
+[docs/team-e/index.md](docs/team-e/index.md)。
 
 ## 環境をつくる
 
@@ -11,8 +12,7 @@ AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様
 |---|---|
 | **Android 実機** | **BLE 必須。エミュレータでは動かない** |
 | Android Studio / JDK 17 | |
-| Python 3 | ドキュメント生成スクリプト |
-| Ruby 3.4 + Bundler | ドキュメントサイトを手元で見るときだけ |
+| Python 3 | 同梱データと天球シミュレータの生成 |
 
 ### 2. GitHub PAT を設定する（最初の関門）
 
@@ -53,7 +53,7 @@ cp .env.example .env   # OPENAI_API_KEY= に手で書き込む
 cd samples/kmp
 ./gradlew :app:installDebug              # 実機にインストール
 ./gradlew :app:testDebugUnitTest         # JVM テスト（座標変換・SGP4・AI 周り）
-./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck   # ドキュメントのコード例
+./gradlew :app:assembleDebug              # デバッグAPKを作る
 ```
 
 アプリ起動 → デバイス選択ダイアログでグラスを選ぶ、で接続まで完了。
@@ -64,9 +64,8 @@ cd samples/kmp
 | パス | |
 |---|---|
 | **`samples/kmp/app/`** | **アプリ本体。ここを書き換えて育てる** |
-| `samples/kmp/snippets/` | **ドキュメント用のコード例。アプリではない**（壊すと CI が落ちる） |
 | `docs/team-e/` | team-e の仕様書 |
-| `docs/` の他 | SDK のドキュメントサイト。**team-e の仕様は混ぜない** |
+| `docs/github-pat.md` | SDK取得に必要なPATの設定 |
 | `data/` / `tools/` | 同梱データと生成スクリプト。`data/` は**すべて生成物なので手で編集しない** |
 
 ## 進め方
@@ -83,9 +82,8 @@ git switch -c feat/star-catalog
 git push -u origin feat/star-catalog
 ```
 
-- CI（`.github/workflows/docs.yml`）はすべての PR と main への push で回る。**落ちたまま放置しない**
-- **コード例のコンパイルと ktlint は CI から外してある**（SDK 取得に PAT が要るため）。
-  **触ったら必ず手元で回す**
+- CI（`.github/workflows/checks.yml`）はすべてのPRとmainへのpushで回る。**落ちたまま放置しない**
+- private SDKのPATをCIへ置かないため、アプリのビルドとJVMテストは変更者が手元で実行する
 
 ### コミットメッセージ
 
@@ -115,23 +113,12 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 
 | 書くもの | 置き場所 |
 |---|---|
-| team-e の仕様・設計判断 | [`docs/team-e/`](docs/team-e/) |
+| team-e の仕様・設計判断 | [`docs/team-e/index.md`](docs/team-e/index.md) |
 | 決まった技術的前提・SDK の制約 | [AGENTS.md](AGENTS.md) |
-| SDK の使い方・API リファレンス | `docs/`（上流と共有。team-e の話は混ぜない） |
+| SDK の使い方・API リファレンス | [上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/) |
 
-書き方の作法 → [docs/authoring.md](docs/authoring.md)。要点：
-
-- 公開 API 名は**バッククォートで囲むだけ**で該当ページにリンクされる。`[...](...)` は書かない
-- コード例は Markdown に直接書かない。出処は `samples/kmp/snippets/` の Kotlin
-- `docs/_data/api_links.yml` と `docs/_site/` は生成物。手で編集しない
-
-`docs/` は **GitHub Pages に公開していない**（上流が公開しているため）。
-読むだけなら **<https://jig-sabera.github.io/sabera-sdk/>** が早い。
-見た目を確かめたいときだけ：
-
-```bash
-cd docs && bundle install && bundle exec jekyll serve   # http://127.0.0.1:4000/
-```
+`docs/team-e/`は通常のMarkdownとして管理する。API名はバッククォートで囲み、
+上流の特定ページを根拠にするときだけ通常のMarkdownリンクを張る。
 
 ## 困ったとき
 
@@ -139,8 +126,6 @@ cd docs && bundle install && bundle exec jekyll serve   # http://127.0.0.1:4000/
 |---|---|
 | **ビルドが 401 / 認証エラー** | PAT が `~/.gradle/gradle.properties` にあるか。`read:packages` スコープが付いているか。プロパティ名が `GitHubPackagesUsername` / `GitHubPackagesPassword` か |
 | **グラスが見つからない** | エミュレータでは動かない。Bluetooth と位置情報の権限が許可されているか |
-| **CI の sync-snippets が落ちる** | `samples/kmp/snippets/` を直したあと `python3 scripts/sync-snippets.py` を忘れている。実行して差分をコミットする |
-| **`:snippets` のコンパイルが落ちる** | SDK の実 API と食い違っている。`:snippets` はドキュメント専用で、アプリの都合で書き換えない |
 | **グラスの画面に何も出ない** | キャンバス（`sendCanvasImage` / `sendCanvasElements`）は送るだけで出るが、**上限を超えると `IllegalArgumentException` で落ちる**。用途別ページは先に開く必要がある。→ [グラス出力の制約](docs/team-e/glass-output.md) |
 | **星図が点いては消える** | 転送中は前の絵が消える。**首が止まってから送る**（0.4 秒静止 ＋ 6° 以上のずれ） |
 

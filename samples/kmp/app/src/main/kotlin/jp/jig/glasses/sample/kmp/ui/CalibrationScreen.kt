@@ -46,11 +46,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.jigglass.glass.GlassClient
+import jp.jig.glasses.sample.kmp.starmap.CalibrationMarker
 import jp.jig.glasses.sample.kmp.starmap.Compass
 import jp.jig.glasses.sample.kmp.starmap.Locator
+import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.Site
+import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -76,7 +78,7 @@ fun CalibrationScreen(
     val compass = remember { Compass(context) }
     val locator = remember { Locator(context) }
 
-    var site by remember { mutableStateOf(Site(DEFAULT_LAT, DEFAULT_LON)) }
+    var site by remember { mutableStateOf(ObservationDefaults.site) }
     var siteStatus by remember { mutableStateOf("観測地を確認中") }
     var locateNow by remember { mutableIntStateOf(0) }
     var glassYaw by remember { mutableStateOf<Double?>(null) }
@@ -110,7 +112,7 @@ fun CalibrationScreen(
         onDispose {
             imuJob.cancel()
             commandManager.stopImuData()
-            commandManager.removeCanvasImage(CALIBRATION_MARKER_ID)
+            commandManager.removeCanvasImage(CalibrationMarker.IMAGE_ID)
         }
     }
 
@@ -118,12 +120,12 @@ fun CalibrationScreen(
         commandManager.startImuData()
         commandManager.clearCanvas()
         commandManager.sendCanvasImage(
-            id = CALIBRATION_MARKER_ID,
-            x = (PANEL_WIDTH - CALIBRATION_MARKER_SIZE) / 2,
-            y = (PANEL_HEIGHT - CALIBRATION_MARKER_SIZE) / 2,
-            width = CALIBRATION_MARKER_SIZE,
-            height = CALIBRATION_MARKER_SIZE,
-            grayscale = calibrationCrossMarker(CALIBRATION_MARKER_SIZE),
+            id = CalibrationMarker.IMAGE_ID,
+            x = (PANEL_WIDTH - CalibrationMarker.SIZE) / 2,
+            y = (PANEL_HEIGHT - CalibrationMarker.SIZE) / 2,
+            width = CalibrationMarker.SIZE,
+            height = CalibrationMarker.SIZE,
+            grayscale = CalibrationMarker.grayscale(),
         )
     }
 
@@ -137,7 +139,9 @@ fun CalibrationScreen(
             )
             return@LaunchedEffect
         }
-        val located = locator.lastKnown() ?: withTimeoutOrNull(LOCATION_TIMEOUT_MS) { locator.current() }
+        val located = locator.lastKnown() ?: withTimeoutOrNull(ObservationDefaults.LOCATION_TIMEOUT_MS) {
+            locator.current()
+        }
         if (located == null) {
             siteStatus = "測位できないため鯖江を仮使用"
         } else {
@@ -209,7 +213,7 @@ fun CalibrationScreen(
                             facingReady = facingReady,
                         ),
                         style = MaterialTheme.typography.titleMedium,
-                        color = if (ready) SABERA_GREEN else Color.White,
+                        color = if (ready) SaberaGreen else Color.White,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -280,9 +284,9 @@ fun CalibrationScreen(
                 enabled = ready,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = SABERA_GREEN,
-                    contentColor = Color(0xFF052010),
-                    disabledContainerColor = SABERA_GREEN.copy(alpha = 0.30f),
+                    containerColor = SaberaGreen,
+                    contentColor = SaberaOnAccent,
+                    disabledContainerColor = SaberaGreen.copy(alpha = 0.30f),
                     disabledContentColor = Color.White.copy(alpha = 0.55f),
                 ),
             ) {
@@ -290,7 +294,7 @@ fun CalibrationScreen(
             }
             TextButton(
                 onClick = onHome,
-                colors = ButtonDefaults.textButtonColors(contentColor = SABERA_GREEN),
+                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
             ) {
                 Text("ホーム")
             }
@@ -350,7 +354,7 @@ private fun CompassDial(
                     cap = StrokeCap.Round,
                 )
                 drawLine(
-                    color = if (ready) SABERA_GREEN else Color(0xFFFFC66D),
+                    color = if (ready) SaberaGreen else SaberaWarning,
                     start = center,
                     end = northTip,
                     strokeWidth = 4.dp.toPx(),
@@ -375,7 +379,7 @@ private fun CompassDial(
                     )
                     close()
                 }
-                drawPath(arrow, if (ready) SABERA_GREEN else Color(0xFFFFC66D))
+                drawPath(arrow, if (ready) SaberaGreen else SaberaWarning)
                 drawCircle(Color.White, radius = 3.dp.toPx(), center = center)
             }
         }
@@ -385,7 +389,7 @@ private fun CompassDial(
         } else {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    cardinalDirection(headingDegrees),
+                    cardinalDirection8(headingDegrees),
                     style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                 )
@@ -406,7 +410,7 @@ private fun AlignmentTarget(
 ) {
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        val color = if (ready) SABERA_GREEN else Color.White.copy(alpha = 0.86f)
+        val color = if (ready) SaberaGreen else Color.White.copy(alpha = 0.86f)
         drawCircle(color.copy(alpha = 0.28f), radius = 82.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
         drawCircle(color, radius = 28.dp.toPx(), center = center, style = Stroke(3.dp.toPx()))
         drawLine(color, Offset(center.x - 55.dp.toPx(), center.y), Offset(center.x - 34.dp.toPx(), center.y), 3.dp.toPx())
@@ -448,7 +452,7 @@ private fun PrecisionRow(
         Text(
             if (ready) "✓" else "—",
             modifier = Modifier.weight(0.10f),
-            color = if (ready) SABERA_GREEN else Color.White.copy(alpha = 0.45f),
+            color = if (ready) SaberaGreen else Color.White.copy(alpha = 0.45f),
             fontSize = 13.sp,
             maxLines = 1,
             textAlign = TextAlign.End,
@@ -482,37 +486,6 @@ private fun compactSiteStatus(status: String): String = when {
     else -> "仮設定"
 }
 
-private fun cardinalDirection(headingDegrees: Double): String {
-    val directions = listOf("北", "北東", "東", "南東", "南", "南西", "西", "北西")
-    val index = ((headingDegrees + 22.5) / 45.0).toInt() % directions.size
-    return directions[index]
-}
-
-private fun calibrationCrossMarker(size: Int): ByteArray {
-    val gray = ByteArray(size * size)
-    val center = size / 2
-    val gap = size / 8
-    val arm = size / 2 - 2
-    for (thickness in -CALIBRATION_MARKER_THICKNESS..CALIBRATION_MARKER_THICKNESS) {
-        for (distance in gap..arm) {
-            for (direction in intArrayOf(distance, -distance)) {
-                val x = center + direction
-                val y = center + thickness
-                if (x in 0 until size && y in 0 until size) gray[y * size + x] = 255.toByte()
-                if (y in 0 until size && x in 0 until size) gray[x * size + y] = 255.toByte()
-            }
-        }
-    }
-    return gray
-}
-
-private val SABERA_GREEN = Color(0xFF75E6A3)
-private const val CALIBRATION_MARKER_ID = 1
-private const val CALIBRATION_MARKER_SIZE = 128
-private const val CALIBRATION_MARKER_THICKNESS = 2
 private const val MAX_TILT_DIFFERENCE_DEG = 3.0
 private const val SENSOR_POLL_MS = 100L
 private const val IMU_FRESH_MS = 1_000L
-private const val LOCATION_TIMEOUT_MS = 8_000L
-private const val DEFAULT_LAT = 35.9432
-private const val DEFAULT_LON = 136.1846

@@ -2,10 +2,14 @@ package jp.jig.glasses.sample.kmp.satellite
 
 import android.content.Context
 import jp.jig.glasses.sample.kmp.starmap.Look
+import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.SkyMotion
 import jp.jig.glasses.sample.kmp.starmap.SkyTrack
+import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
 import jp.jig.glasses.sample.kmp.starmap.enu
 import kotlin.math.roundToInt
+import kotlin.math.hypot
 
 /**
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。
@@ -77,12 +81,7 @@ class SatelliteScene(
         /** 「南南西 高度 45° 720km」のような表示 */
         val where: String
             get() {
-                val points = listOf(
-                    "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-                    "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
-                )
-                val i = ((azDeg + 11.25) / 22.5).toInt() % 16
-                return "${points[i]} 高度 ${altDeg.roundToInt()}° ${rangeKm.roundToInt()}km"
+                return "${cardinalDirection16(azDeg)} 高度 ${altDeg.roundToInt()}° ${rangeKm.roundToInt()}km"
             }
     }
 
@@ -97,9 +96,9 @@ class SatelliteScene(
     ): List<SkyTrack> {
         val forward = enu(look.azDeg, look.altDeg)
         // **fovDeg は視野の「横幅」なので、視線からの角度は半分で見る。**
-        // 画像は 16:10 なので対角の半分は横の半分の約 1.18 倍。
-        // 画面の端に入ってくる機体も拾いたいので、さらに 1.3 倍の余裕を取る
-        val radiusDeg = fovDeg * 0.5 * 1.18 * 1.3
+        // パネルの対角まで含め、端へ入ってくる機体を少し早めに拾う。
+        val diagonalScale = hypot(1.0, PANEL_HEIGHT.toDouble() / PANEL_WIDTH)
+        val radiusDeg = fovDeg * 0.5 * diagonalScale * VIEW_MARGIN_SCALE
         val cosLimit = kotlin.math.cos(radiusDeg * (Math.PI / 180.0))
 
         fun inView(azDeg: Double, altDeg: Double): Boolean {
@@ -250,6 +249,9 @@ class SatelliteScene(
 
         /** 点だけ打つスターリンクの数。多すぎると星図が点で埋まる */
         const val MAX_STARLINK = 8
+
+        /** 画面端へ入る直前から候補へ含める余裕。 */
+        internal const val VIEW_MARGIN_SCALE = 1.3
 
         /** 同梱した TLE を読む。**10,748 機ぶんあるので IO スレッドで呼ぶこと** */
         fun load(context: Context): SatelliteScene {

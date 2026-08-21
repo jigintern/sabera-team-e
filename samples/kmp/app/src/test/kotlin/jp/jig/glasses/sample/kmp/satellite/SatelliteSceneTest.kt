@@ -1,16 +1,24 @@
 package jp.jig.glasses.sample.kmp.satellite
 
 import jp.jig.glasses.sample.kmp.starmap.Constellation
+import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
+import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.Site
+import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
+import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.Star
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
+import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
+import jp.jig.glasses.sample.kmp.starmap.canvasBufferUsageBytes
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.hypot
 
 /**
  * 衛星を星図と同じ座標系に乗せるところまでの通し確認。
@@ -25,7 +33,7 @@ class SatelliteSceneTest {
         .map { File(it, "data") }
         .first { File(it, "satellites.tle").exists() }
 
-    private val sabae = Site(35.9432, 136.1846)
+    private val sabae = ObservationDefaults.site
     private val observer = Observer(sabae.latDeg, sabae.lonDeg)
 
     private fun scene(): SatelliteScene = SatelliteScene(
@@ -63,20 +71,6 @@ class SatelliteSceneTest {
         return StarCatalog(stars, cons, emptyMap())
     }
 
-    private fun compressedBytes(gray: ByteArray, width: Int, height: Int): Int {
-        var bytes = 0
-        var i = 0
-        val count = width * height
-        while (i < count) {
-            val v = (gray[i].toInt() and 0xFF) ushr 5
-            var run = 1
-            while (i + run < count && run < 32 && ((gray[i + run].toInt() and 0xFF) ushr 5) == v) run++
-            bytes++
-            i += run
-        }
-        return bytes
-    }
-
     @Test
     fun `いちばん高い衛星を向くとその機体が視野に入る`() {
         val scene = scene()
@@ -84,7 +78,12 @@ class SatelliteSceneTest {
         val target = scene.aboveHorizon(observer, now).firstOrNull()
         checkNotNull(target) { "名前つきの衛星が 1 機も空に出ていない" }
 
-        val tracks = scene.tracksInView(observer, now, Look(target.azDeg, target.altDeg), fovDeg = 35.0)
+        val tracks = scene.tracksInView(
+            observer,
+            now,
+            Look(target.azDeg, target.altDeg),
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+        )
         assertTrue("視野に何も入らない", tracks.isNotEmpty())
         val named = tracks.filter { it.labelled }
         assertTrue("狙った衛星が入っていない", named.any { it.name == target.name })
@@ -103,28 +102,32 @@ class SatelliteSceneTest {
         val now = System.currentTimeMillis()
         val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
         val look = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, look, fovDeg = 35.0)
+        val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
 
-        val width = 528
-        val height = 330
+        val width = STAR_MAP_WIDTH
+        val height = STAR_MAP_HEIGHT
         val map = renderer.render(
-            site = sabae, epochMillis = now, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
-            width = width, height = height, drawLines = true, maxLabels = 8, tracks = tracks,
+            site = sabae, epochMillis = now, look = look,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
+            width = width, height = height, drawLines = true, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
         )
-        val used = width * height * 2 + compressedBytes(map.gray, width, height)
-        println("衛星 ${tracks.size} 機を焼いた 528×330: バッファ使用 $used バイト（上限 380,000）")
-        assertTrue("バッファを超える: $used", used <= 380_000)
+        val used = map.canvasBufferUsageBytes()
+        println("衛星 ${tracks.size} 機を焼いた ${width}×${height}: バッファ使用 $used バイト")
+        assertTrue("バッファを超える: $used", used <= CANVAS_IMAGE_BUFFER_BYTES)
         assertTrue("衛星の名前が出ていない", map.labels.any { it.text.startsWith("●") || it.text.startsWith("○") })
 
         // 実際の衛星モードは星も星座線も描かない。上の値は星座モードとの合わせ技での上限で、
         // 送るのはこちら。真っ黒な背景ばかりになるので圧縮後がぐっと縮む
         val satelliteOnly = renderer.render(
-            site = sabae, epochMillis = now, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
-            width = width, height = height, drawLines = false, maxLabels = 8, tracks = tracks,
+            site = sabae, epochMillis = now, look = look,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
+            width = width, height = height, drawLines = false, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
             drawStars = false,
         )
-        val usedAlone = width * height * 2 + compressedBytes(satelliteOnly.gray, width, height)
-        println("衛星だけの 528×330: バッファ使用 $usedAlone バイト")
+        val usedAlone = satelliteOnly.canvasBufferUsageBytes()
+        println("衛星だけの ${width}×${height}: バッファ使用 $usedAlone バイト")
         assertTrue("衛星だけのほうが重い: $usedAlone >= $used", usedAlone < used)
         assertTrue(
             "星座名が混ざっている",
@@ -154,7 +157,7 @@ class SatelliteSceneTest {
 
         // 狙った衛星のちょうど反対側を向く。視野 35° なら絶対に入らないはず
         val away = Look((target.azDeg + 180.0) % 360.0, -target.altDeg.coerceAtMost(80.0))
-        val tracks = scene.tracksInView(observer, now, away, fovDeg = 35.0)
+        val tracks = scene.tracksInView(observer, now, away, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
         assertTrue("反対側を向いたのに狙った衛星が入っている", tracks.none { it.name == target.name })
 
         // 視野の半分より外にいるものが混ざっていないか。
@@ -163,7 +166,9 @@ class SatelliteSceneTest {
         for (t in tracks) {
             val v = jp.jig.glasses.sample.kmp.starmap.enu(t.nowAzDeg, t.nowAltDeg)
             val sep = Math.toDegrees(Math.acos((v dot forward).coerceIn(-1.0, 1.0)))
-            assertTrue("${t.name} が視線から $sep° も離れている", sep < 35.0 * 0.5 * 1.18 * 1.3 + 0.1)
+            val diagonalScale = hypot(1.0, PANEL_HEIGHT.toDouble() / PANEL_WIDTH)
+            val limit = ObservationDefaults.STAR_MAP_FOV_DEG * 0.5 * diagonalScale * SatelliteScene.VIEW_MARGIN_SCALE
+            assertTrue("${t.name} が視線から $sep° も離れている", sep < limit + 0.1)
         }
     }
 
@@ -239,14 +244,23 @@ class SatelliteSceneTest {
         val now = System.currentTimeMillis()
         val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
         val drawnLook = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = 35.0)
+        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
 
         val map = renderer.render(
-            site = sabae, epochMillis = now, look = drawnLook, fovDeg = 35.0, limitMagnitude = 5.0,
-            width = 528, height = 330, drawLines = true, maxLabels = 8, tracks = tracks,
+            site = sabae, epochMillis = now, look = drawnLook,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
+            width = STAR_MAP_WIDTH, height = STAR_MAP_HEIGHT,
+            drawLines = true, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
         )
         val fromRender = map.labels.filter { it.text.startsWith("●") || it.text.startsWith("○") }
-        val fromLabels = renderer.trackLabels(drawnLook, 35.0, 528, 330, tracks)
+        val fromLabels = renderer.trackLabels(
+            drawnLook,
+            ObservationDefaults.STAR_MAP_FOV_DEG,
+            STAR_MAP_WIDTH,
+            STAR_MAP_HEIGHT,
+            tracks,
+        )
         assertEquals("描画と印の数が合わない", fromRender.size, fromLabels.size)
         for ((a, b) in fromRender.zip(fromLabels)) {
             assertEquals("名前が違う", a.text, b.text)
@@ -256,7 +270,13 @@ class SatelliteSceneTest {
 
         // **別の視線で計算すると当然ずれる。** ここを取り違えると絵と印が食い違う
         val otherLook = Look((drawnLook.azDeg + 10.0) % 360.0, drawnLook.altDeg)
-        val shifted = renderer.trackLabels(otherLook, 35.0, 528, 330, tracks)
+        val shifted = renderer.trackLabels(
+            otherLook,
+            ObservationDefaults.STAR_MAP_FOV_DEG,
+            STAR_MAP_WIDTH,
+            STAR_MAP_HEIGHT,
+            tracks,
+        )
         if (fromLabels.isNotEmpty() && shifted.isNotEmpty()) {
             assertTrue(
                 "視線を変えたのに印が動かない（画像を焼いた視線を使えていない疑い）",
@@ -273,11 +293,17 @@ class SatelliteSceneTest {
         val look = Look(target.azDeg, target.altDeg)
 
         val started = System.nanoTime()
-        val onlyNamed = scene.tracksInView(observer, now, look, fovDeg = 35.0, maxStarlink = 0)
+        val onlyNamed = scene.tracksInView(
+            observer,
+            now,
+            look,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            maxStarlink = 0,
+        )
         val namedMs = (System.nanoTime() - started) / 1e6
 
         val started2 = System.nanoTime()
-        scene.tracksInView(observer, now, look, fovDeg = 35.0)
+        scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
         val allMs = (System.nanoTime() - started2) / 1e6
 
         assertTrue("スターリンクが混ざっている", onlyNamed.all { it.labelled })

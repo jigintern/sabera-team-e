@@ -14,7 +14,7 @@
 ## 進捗状況
 
 - 実装は `samples/kmp/app`
-- 仕様は [docs/team-e/](docs/team-e/)
+- 仕様は [docs/team-e/index.md](docs/team-e/index.md)
 
 | | 状態 |
 |---|---|
@@ -22,7 +22,7 @@
 | 首の向きに追従する | **実機で確認済み。** 首が止まってから 1 枚（転送中は前の絵が消える） |
 | 方位合わせ | **実機で確認済み。** グラスの十字とスマホのマーカーを重ねる |
 | 観測地の測位 | **実機で確認済み。** 融合 → GPS → 基地局。取れなければ手入力 |
-| AI 解説と読み上げ | **実機で確認済み。** 星図画像＋星座名を OpenAI へ → `TextToSpeech` |
+| AI 解説と読み上げ | **実機で確認済み。** OpenAIで解説と音声を生成し、失敗時は端末の`TextToSpeech`へ戻る |
 | 衛星の軌道計算（SGP4 / SDP4） | **JVM テストのみ。** 参照実装と 4mm 差。24 機＋スターリンク 10,748 機を同梱 |
 | 衛星の描画とモード切り替え | **実機未確認** |
 
@@ -45,12 +45,11 @@ cd samples/kmp
 |---|---|
 | [AGENTS.md](AGENTS.md) | 技術的な前提・SDK の制約・未決定事項。AI エージェント向けだが人間が読んでもよい |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 環境構築・進め方・コミット規約・困ったとき |
-| [docs/team-e/](docs/team-e/) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
+| [docs/team-e/index.md](docs/team-e/index.md) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
 | `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
-| `samples/kmp/snippets/` | ドキュメント用のコード例。**アプリではない**（壊すと CI が落ちる） |
 | `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
 | `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
-| `docs/` | SDK のドキュメントサイト（公開はせず手元で読む） |
+| [docs/github-pat.md](docs/github-pat.md) | privateなSDKを取得するためのPAT設定 |
 
 ## SDK について
 
@@ -64,9 +63,9 @@ cd samples/kmp
 - **グラスから音は鳴らせない**（スピーカーが無い）。読み上げはスマホから
 - 制約の詳細 → [グラス出力の制約](docs/team-e/glass-output.md)
 
-手元のファイル：[Getting Started](docs/getting-started.md) /
-[API リファレンス](docs/api/) / [メソッドの追加履歴](docs/api-history.md) /
-[GitHub PAT の作り方](docs/github-pat.md)
+SDKの使い方・APIリファレンス・追加履歴は
+[上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を正とする。
+このリポジトリには[GitHub PATの作り方](docs/github-pat.md)だけを置く。
 
 ### SDK の取得設定
 

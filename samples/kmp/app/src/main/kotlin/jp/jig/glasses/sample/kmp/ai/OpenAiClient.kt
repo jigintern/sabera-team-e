@@ -5,8 +5,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 星座の解説を OpenAI に作らせる。
@@ -34,15 +32,7 @@ class OpenAiClient(
         require(configured) { "API キーが設定されていない" }
         val body = buildRequestBody(model, request, reasoningEffort).toString().toByteArray(Charsets.UTF_8)
 
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            // 夜の屋外は電波が悪い。返らないまま待ち続けるより、切って「圏外です」と喋るほうがよい
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Authorization", "Bearer $apiKey")
-        }
+        val connection = OpenAiHttp.openPost(endpoint, apiKey)
 
         try {
             connection.outputStream.use { it.write(body) }
@@ -59,9 +49,6 @@ class OpenAiClient(
 
     companion object {
         const val CHAT_COMPLETIONS = "https://api.openai.com/v1/chat/completions"
-
-        private const val CONNECT_TIMEOUT_MS = 15_000
-        private const val READ_TIMEOUT_MS = 30_000
 
         /**
          * 出力の上限。

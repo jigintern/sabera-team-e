@@ -22,10 +22,10 @@
         android:required="true" />
 
     <application
-        android:name=".GlassesSampleApplication"
-        android:label="Glasses SDK KMP Sample"
+        android:name=".SaberaApplication"
+        android:label="SABERA 星空ガイド"
         android:supportsRtl="true"
-        android:theme="@style/Theme.GlassesSample">
+        android:theme="@style/Theme.Sabera">
 
         <activity
             android:name=".MainActivity"

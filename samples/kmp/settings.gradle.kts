@@ -22,6 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "sabera-app-sdk-kmp-sample"
+rootProject.name = "sabera-team-e"
 include(":app")
-include(":snippets")
