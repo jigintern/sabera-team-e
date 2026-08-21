@@ -3,6 +3,12 @@ package jp.jig.glasses.sample.kmp.ui
 import android.hardware.SensorManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -97,9 +104,11 @@ fun CalibrationScreen(
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var lastEstimatedImuAt by remember { mutableLongStateOf(0L) }
     var estimate by remember { mutableStateOf<CalibrationEstimate?>(null) }
-    // 自動確定と手動のボタンが同じ結果を二度渡さないための札。
-    // onCalibrated で画面は切り替わるが、そのあとの合成が 1 回走ることがある
+    // 二度渡さないための札。onCalibrated で画面は切り替わるが、
+    // そのあとの合成が 1 回走ることがある
     var committed by remember { mutableStateOf(false) }
+    // 精度条件が揃ってからの進み具合（0..1）。的の外周のゲージがこれで満ちる
+    var holdProgress by remember { mutableFloatStateOf(0f) }
 
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -208,10 +217,6 @@ fun CalibrationScreen(
     // 常時弾かれ、観測画面から先の確認が何もできなかった
     val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady
 
-    // **条件が揃わないまま夜を終わらせない。** 星座の同定に要るのは ±20° で、
-    // 磁気精度や仰角差が渋いまま合わせても、どこに何があるかは伝わる
-    val canCommit = imuFresh && headingReady && estimate != null
-
     /**
      * 観測画面へ渡して確定する。
      *
@@ -233,15 +238,26 @@ fun CalibrationScreen(
     }
 
     /**
-     * 揃ったまま数秒止まっていたら、ボタンを押させずに観測へ進む。
+     * 揃ったまま数秒止まっていたら、そのまま観測へ進む。**確定の操作は無い。**
      *
      * **押す動作そのものが精度を壊す。** スマホを顔の前にかざして十字と重ねている姿勢では
      * 画面のボタンは見えず、指を伸ばせば頭とスマホの両方が動く。
-     * 押させないほうが UX も精度も良くなる、数の少ない場面。
+     *
+     * 進み具合は文字ではなく[的の外周][AlignmentTarget]で見せる。**かざしている人が
+     * 読めるのは形だけ**で、腕を伸ばした先の文章は読まれない。
      */
     LaunchedEffect(ready) {
-        if (!ready) return@LaunchedEffect
-        delay(AUTO_CONFIRM_MS)
+        if (!ready) {
+            holdProgress = 0f
+            return@LaunchedEffect
+        }
+        val startedAt = System.currentTimeMillis()
+        while (true) {
+            val held = System.currentTimeMillis() - startedAt
+            holdProgress = (held.toFloat() / AUTO_CONFIRM_MS).coerceIn(0f, 1f)
+            if (held >= AUTO_CONFIRM_MS) break
+            delay(AUTO_CONFIRM_TICK_MS)
+        }
         // 待っている数秒で崩れていることがあるので、確定の直前にもう一度見る
         val measured = estimate?.takeIf { it.stable } ?: return@LaunchedEffect
         commit(measured)
@@ -278,24 +294,25 @@ fun CalibrationScreen(
                 ) {
                     AlignmentTarget(
                         ready = ready,
+                        progress = holdProgress,
                         modifier = Modifier.fillMaxWidth().height(230.dp),
                     )
-                    Text(
-                        text = if (ready) {
-                            "この位置のまま止めていてください。自動で観測へ進みます"
-                        } else {
-                            calibrationInstruction(
+                    // **揃ってからは何も書かない。** 外周のゲージが満ちるのが答えで、
+                    // 腕の先のスマホの文章は読まれない。書くのは直すことがあるときだけ
+                    if (!ready) {
+                        Text(
+                            text = calibrationInstruction(
                                 imuFresh = imuFresh,
                                 headingReady = headingReady,
                                 compassReady = compassReady,
                                 facingReady = facingReady,
                                 stabilityReady = stabilityReady,
-                            )
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (ready) SaberaGreen else Color.White,
-                        textAlign = TextAlign.Center,
-                    )
+                            ),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     // 歪んでいても押せる。**ただし黙って通さない。**
                     // ここで合わせた方位には歪みぶんの誤差が丸ごと乗る
                     magnetic?.takeIf { it.distorted }?.reason?.let { reason ->
@@ -385,25 +402,8 @@ fun CalibrationScreen(
             }
 
             Spacer(Modifier.weight(1f))
-            Button(
-                onClick = { estimate?.let { commit(it) } },
-                enabled = canCommit,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SaberaGreen,
-                    contentColor = SaberaOnAccent,
-                    disabledContainerColor = SaberaGreen.copy(alpha = 0.30f),
-                    disabledContentColor = Color.White.copy(alpha = 0.55f),
-                ),
-            ) {
-                Text(
-                    when {
-                        ready -> "いま合わせて観測へ"
-                        canCommit -> "この精度のまま観測へ"
-                        else -> "センサーを待っています"
-                    },
-                )
-            }
+            // **確定のボタンは置かない。** 押せるものがあると押しに行き、
+            // その動作で頭とスマホが動く。進むのは的の外周が満ちたときだけ
             TextButton(
                 onClick = onHome,
                 colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
@@ -516,15 +516,63 @@ private fun CompassDial(
     }
 }
 
+/**
+ * 合わせる的。**外周が精度のゲージになっている。**
+ *
+ * かざしている人が読めるのは形だけで、腕を伸ばした先の文章は読まれない。
+ * 精度条件が揃っている間だけ [progress] が伸び、満ちたらそのまま観測へ進む。
+ * 崩れたら 0 に戻るので、**「あと少し」が手の動きとして分かる**。
+ */
 @Composable
 private fun AlignmentTarget(
     ready: Boolean,
+    progress: Float,
     modifier: Modifier = Modifier,
 ) {
+    // 実測値をそのまま描くと 50ms ごとに角度が飛ぶので、なめらかに追わせる
+    val swept by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = GAUGE_TWEEN_MS),
+        label = "hold",
+    )
+    // 満ちていく間の脈。**止まっている待ちと、進んでいる待ちを見分けるため**に付ける
+    val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = GAUGE_PULSE_MS),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "pulse",
+    )
+
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val color = if (ready) SaberaGreen else Color.White.copy(alpha = 0.86f)
-        drawCircle(color.copy(alpha = 0.28f), radius = 82.dp.toPx(), center = center, style = Stroke(2.dp.toPx()))
+        val ringRadius = 82.dp.toPx()
+        drawCircle(color.copy(alpha = 0.28f), radius = ringRadius, center = center, style = Stroke(2.dp.toPx()))
+
+        if (swept > 0f) {
+            // 外へ広がって消える輪。伸びている間だけ出す
+            val spread = ringRadius + pulse * GAUGE_PULSE_SPREAD_DP.dp.toPx()
+            drawCircle(
+                SaberaGreen.copy(alpha = (1f - pulse) * 0.45f * swept.coerceAtMost(1f)),
+                radius = spread,
+                center = center,
+                style = Stroke(6.dp.toPx()),
+            )
+            // 12 時から時計回りに満ちる
+            drawArc(
+                color = SaberaGreen,
+                startAngle = -90f,
+                sweepAngle = 360f * swept,
+                useCenter = false,
+                topLeft = Offset(center.x - ringRadius, center.y - ringRadius),
+                size = Size(ringRadius * 2, ringRadius * 2),
+                style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round),
+            )
+        }
+
         drawCircle(color, radius = 28.dp.toPx(), center = center, style = Stroke(3.dp.toPx()))
         drawLine(color, Offset(center.x - 55.dp.toPx(), center.y), Offset(center.x - 34.dp.toPx(), center.y), 3.dp.toPx())
         drawLine(color, Offset(center.x + 34.dp.toPx(), center.y), Offset(center.x + 55.dp.toPx(), center.y), 3.dp.toPx())
@@ -607,6 +655,16 @@ private const val IMU_FRESH_MS = 1_000L
 
 /** 磁気の期待値（WMM）の評価は 1 秒ごとで足りる */
 private const val MAGNETIC_POLL_MS = 1_000L
+
+/** ゲージを描き直す間隔。60fps まで刻む必要はない */
+private const val AUTO_CONFIRM_TICK_MS = 50L
+
+/** 実測の進み具合を追いかける時間。飛びを均すだけなので短く */
+private const val GAUGE_TWEEN_MS = 120
+
+/** 外へ広がる輪の周期と広がり */
+private const val GAUGE_PULSE_MS = 900
+private const val GAUGE_PULSE_SPREAD_DP = 14
 
 /**
  * 精度条件が揃ったまま、これだけ続いたら自動で確定する。
