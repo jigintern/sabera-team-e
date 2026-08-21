@@ -566,7 +566,13 @@ fun StarMapScreen(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
                     (if (satelliteMode) "衛星${tracks.size}機 " else "") +
                     (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
-                    "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
+                    "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms" +
+                    // **解説の主役はこの並びの先頭。** ログだけで
+                    // 「グラスに出た星座」と「喋った星座」を突き合わせられるようにする
+                    shown.constellationNames().take(LOGGED_LABELS)
+                        .takeIf { it.isNotEmpty() }
+                        ?.let { " ラベル=" + it.joinToString("→") }
+                        .orEmpty(),
             )
             Log.d(TAG, "送信 ${map.width}x${map.height} 圧縮後=${compressed}B 使用=${used}B")
             // 6DoF は画像転送中も流れるため、転送完了の目印にはならない。実測したパケット時間で待つ。
@@ -1368,6 +1374,9 @@ private fun OpenAiRequestTrace.logLine(): String = buildString {
     append(if (completed) "完了" else "中断")
     requestId?.let { append(" requestId=").append(it) }
 }
+
+/** 送信ログに出す星座ラベルの数。主役（先頭）と、その次までが分かれば突き合わせられる */
+private const val LOGGED_LABELS = 3
 
 /**
  * AI へ渡す星座の数。
