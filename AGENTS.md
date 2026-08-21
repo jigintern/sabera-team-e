@@ -17,8 +17,8 @@
 
 - **SABERA** = スマートグラス。このリポジトリ = SABERA App SDK で **team-e** がアプリを作る場所
 - 目標 = **空にかざしたグラスの視界と星座を重ね、AI に頼むと今見えている星座を解説してくれるアプリ**
-- 続けて**人工衛星モード**（星座と切り替えて、いま通っている衛星を星図と同じ座標で出す。
-  **星座とは排他で、衛星モードには星を描かない**）
+- **人工衛星も同じ星図に重ねる**（#36）。名前つきだけで、点は星より小さく、名前は枠 2 つまで
+- **星座絵（星座絵の折れ線）を星より暗い段で敷く。** 線だけでは「なにに見立てたのか」が伝わらない
 
 **現在のフェーズ = 実装中。** `samples/kmp/app` がアプリ本体で、実機で動いているものと
 テストだけのものは [index.md](docs/team-e/index.md) の表で分けている。
@@ -71,6 +71,7 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 
 ```bash
 python3 tools/build-star-catalog.py      # data/ の星表を作り直す
+python3 tools/build-constellation-figures.py  # data/ の星座絵を作り直す
 python3 tools/build-satellites.py        # data/ の TLE を取り直す
 python3 tools/build-simulator.py --check # 天球シミュレータ生成物の差分を検査
 ```
