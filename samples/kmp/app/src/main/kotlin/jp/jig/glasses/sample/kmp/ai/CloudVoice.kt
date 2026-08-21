@@ -78,6 +78,9 @@ class CloudVoice(
     private val cacheDir = File(context.cacheDir, CACHE_DIR)
     private val queue = Channel<Utterance>(Channel.UNLIMITED)
 
+    /** 同じ「〇〇座ですね」の先読みを、星図の再描画ごとに重複して送らない。 */
+    private val warmFlights = SingleFlight<String>(scope)
+
     /** [say] で世代を進める。積んであった古い発話は worker が読み飛ばす */
     @Volatile
     private var generation = 0
@@ -124,6 +127,8 @@ class CloudVoice(
             return
         }
         generation++
+        current?.cancel()
+        fallback.stop()
         enqueue(Utterance(text, flush = true, generation = generation))
     }
 
@@ -146,6 +151,7 @@ class CloudVoice(
 
     fun shutdown() {
         stop()
+        scope.launch { warmFlights.cancelAll() }
         queue.close()
     }
 
@@ -159,7 +165,9 @@ class CloudVoice(
         val file = cacheFile(text) ?: return
         if (file.isFile) return
         scope.launch {
-            runCatching { synthesize(text) { _, _ -> } }
+            runCatching {
+                warmFlights.getOrStart(file.path) { downloadToCache(text, file) }.await()
+            }
                 .onFailure { Log.w(TAG, "先読みに失敗 ${it.message}") }
         }
     }
@@ -277,17 +285,19 @@ class CloudVoice(
     private suspend fun synthesize(text: String, onPcm: (ByteArray, Int) -> Unit) {
         val file = cacheFile(text)
         if (file != null && file.isFile) {
-            withContext(Dispatchers.IO) {
-                val buffer = ByteArray(READ_BYTES)
-                file.inputStream().use { input ->
-                    while (currentCoroutineContext().isActive) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        if (read > 0) onPcm(buffer, read)
-                    }
-                }
-            }
+            readCache(file, onPcm)
             return
+        }
+
+        // 先読みが走っているなら、その通信結果を共有する。
+        // ここで別のTTSリクエストを始めると、弱い回線上で解説文の生成まで奪い合ってしまう
+        val pending = file?.let { cached -> warmFlights.current(cached.path) }
+        if (pending != null) {
+            pending.await()
+            if (file.isFile) {
+                readCache(file, onPcm)
+                return
+            }
         }
 
         val kept = if (file != null) ByteArrayOutputStream() else null
@@ -302,6 +312,28 @@ class CloudVoice(
                     file.writeBytes(kept.toByteArray())
                     prune()
                 }
+            }
+        }
+    }
+
+    private suspend fun downloadToCache(text: String, file: File) {
+        val kept = ByteArrayOutputStream()
+        speech.stream(text) { buffer, length -> kept.write(buffer, 0, length) }
+        if (kept.size() <= 0) return
+        withContext(Dispatchers.IO) {
+            cacheDir.mkdirs()
+            file.writeBytes(kept.toByteArray())
+            prune()
+        }
+    }
+
+    private suspend fun readCache(file: File, onPcm: (ByteArray, Int) -> Unit) = withContext(Dispatchers.IO) {
+        val buffer = ByteArray(READ_BYTES)
+        file.inputStream().use { input ->
+            while (currentCoroutineContext().isActive) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > 0) onPcm(buffer, read)
             }
         }
     }

@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
@@ -54,9 +55,12 @@ import jp.jig.glasses.sample.kmp.ai.NarrationPhase
 import jp.jig.glasses.sample.kmp.ai.CloudVoice
 import jp.jig.glasses.sample.kmp.ai.Narrator
 import jp.jig.glasses.sample.kmp.ai.OpenAiClient
+import jp.jig.glasses.sample.kmp.ai.OpenAiRequestTrace
 import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
+import jp.jig.glasses.sample.kmp.glass.GlassBrightness
+import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
@@ -90,9 +94,11 @@ import jp.jig.glasses.sample.kmp.starmap.toCanvasElements
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
@@ -229,6 +235,16 @@ fun StarMapScreen(
     var sightings by remember { mutableStateOf<List<SatelliteScene.Sighting>>(emptyList()) }
     var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
 
+    // SDK 0.6.0 は設定値の同期結果を公開していないため、
+    // 最後にこのアプリから送った値だけをグラスごとに覚える
+    val brightnessPrefs = remember(client.deviceIdentifier) {
+        GlassBrightnessPrefs(context, client.deviceIdentifier)
+    }
+    val initialBrightness = remember(brightnessPrefs) { brightnessPrefs.load() }
+    var brightnessLevel by remember { mutableStateOf(initialBrightness.level) }
+    var brightnessConfigured by remember { mutableStateOf(initialBrightness.configured) }
+    var brightnessSendJob by remember { mutableStateOf<Job?>(null) }
+
     // 衛星の輪郭。実物大ではないアイコンなので、邪魔なら切れるようにしておく
     var showFigures by remember { mutableStateOf(true) }
 
@@ -352,6 +368,66 @@ fun StarMapScreen(
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
 
+    // BRIGHTNESS_LEVEL は設定を送っただけでは見た目が変わらず、次の再描画で反映される。
+    // その場で送り直せるよう、実際にグラスへ送った最後の画像だけを持つ
+    var lastSentMap by remember { mutableStateOf<StarMap?>(null) }
+
+    fun applyBrightness(level: Int) {
+        val normalized = GlassBrightness.normalize(level)
+        if (normalized == brightnessLevel && brightnessConfigured) return
+        brightnessLevel = normalized
+        brightnessSendJob?.cancel()
+        brightnessSendJob = scope.launch {
+            // スライダーを横切った途中の段階を全部BLEへ積まない。指が止まった最新値だけ送る
+            delay(BRIGHTNESS_CHANGE_DEBOUNCE_MS)
+            sendGate.withLock {
+                // sendCanvasImage() は呼び出し直後に返る。ここを中断すると次の値の再描画が重なるため、
+                // 見積り転送時間までは排他を保つ
+                withContext(NonCancellable) {
+                    sending = true
+                    try {
+                        // 自動調整が有効な間は手動値が表示へ反映されない。
+                        // OFF を先に処理させ、最新のスライダー値だけを続けて送る
+                        commandManager.sendSetting(CommandManager.SettingKey.BRIGHTNESS_AUTO, false)
+                        delay(BRIGHTNESS_SETTING_GAP_MS)
+                        commandManager.sendSetting(CommandManager.SettingKey.BRIGHTNESS_LEVEL, normalized)
+                        brightnessPrefs.save(normalized)
+                        brightnessConfigured = true
+
+                        val map = lastSentMap
+                        if (map == null) {
+                            log(
+                                "グラスの明るさ: 手動 ${normalized + 1}/${GlassBrightness.levelRange.count()}" +
+                                    "（${GlassBrightness.label(normalized)}）を保存。次の描画で反映",
+                            )
+                        } else {
+                            val startedAt = System.currentTimeMillis()
+                            commandManager.sendCanvasImage(
+                                id = STAR_MAP_IMAGE_ID,
+                                x = (PANEL_WIDTH - map.width) / 2,
+                                y = (PANEL_HEIGHT - map.height) / 2,
+                                width = map.width,
+                                height = map.height,
+                                grayscale = map.gray,
+                            )
+                            val redrawMs = (
+                                (map.compressedSizeBytes() + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
+                                ) * packetMs.toLong()
+                            delay(redrawMs + SETTLE_MS)
+                            waitMs = System.currentTimeMillis() - startedAt
+                            log(
+                                "グラスの明るさ: 手動 ${normalized + 1}/${GlassBrightness.levelRange.count()}" +
+                                    "（${GlassBrightness.label(normalized)}）を送信し、星図を再描画",
+                            )
+                        }
+                    } finally {
+                        sending = false
+                    }
+                }
+            }
+        }
+    }
+
     fun look(): Look = Look((normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0, glassPitch)
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
@@ -423,6 +499,7 @@ fun StarMapScreen(
                 height = map.height,
                 grayscale = map.gray,
             )
+            lastSentMap = map
             // 衛星モードで視野に 1 機も無いと真っ黒な絵だけが出る。
             // 切り替わったのか壊れたのか見分けが付かないので、そのことを書いておく
             val shown = if (satelliteMode && tracks.isEmpty()) {
@@ -565,11 +642,13 @@ fun StarMapScreen(
                 val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
                 r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh, showFigures)
             }
-            if (moved.isEmpty()) return
             // 衛星モードは星座名を出さないので、送り直すのは印だけ。
-            // 前のフレームより数が減ったぶんは batched が空文字で消す
+            // 前のフレームより数が減ったぶんは batched が空文字で消す。
+            // 0 機になったときも早期 return しない。ここで全スロットを消さないと、
+            // 視野から出た衛星名の末尾だけが右上などに残り続ける
             val elements = StarMap(map.width, map.height, map.gray, moved).toCanvasElements()
-            for (batch in elements.batched(shownLabels)) {
+            val previousCount = if (elements.isEmpty()) CANVAS_TEXT_SLOTS else shownLabels
+            for (batch in elements.batched(previousCount)) {
                 commandManager.sendCanvasElements(batch)
             }
             shownLabels = elements.size
@@ -602,6 +681,7 @@ fun StarMapScreen(
                 apiKey = BuildConfig.OPENAI_API_KEY,
                 voice = BuildConfig.OPENAI_TTS_VOICE,
                 model = BuildConfig.OPENAI_TTS_MODEL,
+                onTrace = { trace -> scope.launch { log(trace.logLine()) } },
             ),
             fallback = speaker,
             scope = scope,
@@ -618,6 +698,7 @@ fun StarMapScreen(
                 apiKey = BuildConfig.OPENAI_API_KEY,
                 model = BuildConfig.OPENAI_MODEL,
                 reasoningEffort = BuildConfig.OPENAI_REASONING_EFFORT,
+                onTrace = { trace -> scope.launch { log(trace.logLine()) } },
             ),
             log = { text, failed -> log(text, failed) },
         )
@@ -746,9 +827,16 @@ fun StarMapScreen(
         }
         satelliteMode = !satelliteMode
         // 切り替えの準備中に前のモードの絵を残すと、切り替わったように見えない
-        commandManager.clearCanvas()
-        shownLabels = 0
         drawnLook = null
+        lastSentMap = null
+        // 画像転送中に clearCanvas を積むと、その後ろから旧フレームの文字が届いて再表示される。
+        // 転送が終わってから消し、次の追従描画に渡す
+        scope.launch {
+            sendGate.withLock {
+                commandManager.clearCanvas()
+                shownLabels = 0
+            }
+        }
         log(if (satelliteMode) "人工衛星モードへ" else "星座モードへ")
     }
 
@@ -919,8 +1007,9 @@ fun StarMapScreen(
             Spacer(Modifier.height(4.dp))
             NarrationPanel(
                 status = when {
+                    speaking && narration.phase == NarrationPhase.GENERATING -> "解説を受信しながら読み上げています"
+                    speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
                     narration.phase == NarrationPhase.GENERATING -> "星座を調べています…"
-                    narration.phase == NarrationPhase.SPEAKING || speaking -> "解説を読み上げています"
                     BuildConfig.OPENAI_API_KEY.isEmpty() -> "AI解説を使うにはAPIキーの設定が必要です"
                     else -> "グラスのツルを1回タップすると解説します"
                 },
@@ -937,11 +1026,17 @@ fun StarMapScreen(
             }
 
             if (showDetails) {
-            StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
-            StatusRow(
-                "方位合わせ",
-                calibratedAt?.let { "${(System.currentTimeMillis() - it) / 1000} 秒前" } ?: "まだ",
-            )
+                BrightnessSettingsCard(
+                    level = brightnessLevel,
+                    configured = brightnessConfigured,
+                    onLevelChange = { applyBrightness(it) },
+                )
+                Spacer(Modifier.height(16.dp))
+                StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
+                StatusRow(
+                    "方位合わせ",
+                    calibratedAt?.let { "${(System.currentTimeMillis() - it) / 1000} 秒前" } ?: "まだ",
+                )
             Spacer(Modifier.height(16.dp))
             CommandButton("方位を合わせる", onClick = onRecalibrate)
             Row {
@@ -952,9 +1047,14 @@ fun StarMapScreen(
                 Spacer(Modifier.padding(4.dp))
                 OutlinedButton(
                     onClick = {
-                        commandManager.clearCanvas()
-                        shownLabels = 0
-                        log("表示を消した")
+                        lastSentMap = null
+                        scope.launch {
+                            sendGate.withLock {
+                                commandManager.clearCanvas()
+                                shownLabels = 0
+                                log("表示を消した")
+                            }
+                        }
                     },
                     modifier = Modifier.weight(1f),
                 ) { Text("表示を消す") }
@@ -1156,6 +1256,27 @@ private const val DRIFT_LOG_MS = 60_000L
 
 /** 記録の大きさを拾い直す間隔。設定パネルを開いている間だけ動く */
 private const val LOG_SIZE_POLL_MS = 2_000L
+
+/** 自動調整 OFF をファームが処理してから手動値を送るまでの待ち時間 */
+private const val BRIGHTNESS_SETTING_GAP_MS = 100L
+
+/** スライダーを横切った途中の段階をBLEへ積まず、最後の段階だけ送るための待ち時間 */
+private const val BRIGHTNESS_CHANGE_DEBOUNCE_MS = 200L
+
+private fun OpenAiRequestTrace.logLine(): String = buildString {
+    append(if (operation == "text") "AI文章" else "AI音声")
+    append(" 試行")
+    append(attempt)
+    append(" 初回")
+    append(firstByteMs?.let { "${it}ms" } ?: "なし")
+    append(" 全体")
+    append(totalMs)
+    append("ms ")
+    append(bytes)
+    append("B ")
+    append(if (completed) "完了" else "中断")
+    requestId?.let { append(" requestId=").append(it) }
+}
 
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L

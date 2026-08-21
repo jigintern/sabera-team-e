@@ -104,32 +104,73 @@ class Narrator(
             pngBase64 = input.pngBase64,
         )
 
+        val received = StringBuilder()
+        val completedText = StringBuilder()
+        var completedSentences = 0
+        var sentenceAccumulator = SentenceAccumulator()
+
+        /** 受信した文をその場で画面へ出し、句点まで揃ったものから読み上げへ積む。 */
+        fun accept(delta: String) {
+            received.append(delta)
+            _state.value = NarrationState(NarrationPhase.GENERATING, received.toString(), constellation)
+            for (sentence in sentenceAccumulator.append(delta)) {
+                completedText.append(sentence)
+                speaker.add(sentence)
+                completedSentences++
+            }
+        }
+
         val explanation = try {
             try {
-                client.explain(ask)
+                client.explain(ask, ::accept)
             } catch (e: EmptyReplyException) {
                 // 空応答はモデル側の都合で起きるので、1 回だけ頼み直す。
-                // API エラーと通信断では繰り返さない（つながらないものを待たせると無言が倍になる）
+                // API エラーと通信断では繰り返さない
+                // （つながらないものを待たせると無言が倍になる）
                 log("応答が空だったので 1 回だけ頼み直す（${e.message}）", true)
-                client.explain(ask)
+                received.clear()
+                completedText.clear()
+                completedSentences = 0
+                sentenceAccumulator = SentenceAccumulator()
+                client.explain(ask, ::accept)
             }
         } catch (e: CancellationException) {
             // 停止トグルで畳まれた場合。失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
-            Log.e(TAG, "解説の生成に失敗", e)
+            // JVMテストでも通信断経路を通せるよう、Androidログ自体の失敗は本処理へ影響させない
+            runCatching { Log.e(TAG, "解説の生成に失敗", e) }
             val kind = classifyFailure(e)
-            val fallback = fallbackLine(kind, constellation, input.azDeg, input.altDeg)
+            // 句点まで届いた文は既に読み上げキューに入っている。全文の読み直しはせず、
+            // 不完全な末尾だけ捨てて短い案内で閉じる
+            sentenceAccumulator.discard()
+            val hasPartialResponse = received.isNotBlank() || completedSentences > 0
+            val fallback = if (hasPartialResponse) {
+                interruptedLine(kind)
+            } else {
+                fallbackLine(kind, constellation, input.azDeg, input.altDeg)
+            }
             speaker.add(fallback)
-            _state.value = NarrationState(NarrationPhase.FAILED, "$opening$fallback", constellation)
+            val completed = completedText.toString().trim()
+            val shown = if (completed.isEmpty()) "$opening$fallback" else "$completed\n$fallback"
+            _state.value = NarrationState(NarrationPhase.FAILED, shown, constellation)
             // 生のメッセージを必ず載せる。実機で何が起きたかはここだけが頼り
-            log("解説を作れない[$kind]: ${e.message}", true)
+            log(
+                "解説を作れない[$kind] 受信${received.length}文字・" +
+                    "完了${completedSentences}文: ${e.message}",
+                true,
+            )
             return
         }
 
-        speaker.add(explanation)
+        // モデルが最後の句点を省いたときだけ残りをここで積む。
+        // 既に積んだ文は二重に送らない
+        sentenceAccumulator.flush().takeIf { it.isNotEmpty() }?.let {
+            speaker.add(it)
+            completedSentences++
+        }
         _state.value = NarrationState(NarrationPhase.SPEAKING, explanation, constellation)
-        log("解説を読み上げ中（${explanation.length} 文字）", false)
+        log("解説を読み上げ中（${explanation.length} 文字・${completedSentences}文）", false)
     }
 
     /**
@@ -244,6 +285,13 @@ fun fallbackLine(kind: FailureKind, subject: String, azDeg: Double, altDeg: Doub
         FailureKind.NETWORK -> "いまは通信ができません。"
     }
     return reason + "$subject は${compass(azDeg)}の空、高度 ${altDeg.toInt()} 度あたりに出ています。"
+}
+
+/** 途中まで解説できた場合は、内容を繰り返さず短く閉じる。 */
+fun interruptedLine(kind: FailureKind): String = when (kind) {
+    FailureKind.NETWORK -> "続きの通信が途切れたため、解説はここまでです。"
+    FailureKind.EMPTY -> "続きの解説をうまく作れなかったため、ここまでです。"
+    FailureKind.API -> "途中でAIとの接続が切れたため、解説はここまでです。"
 }
 
 /** 方位角[度]を 16 方位の日本語に。読み上げるので「南南西」まで刻む */

@@ -34,4 +34,12 @@ class GlassCanvasFrameTest {
         assertTrue(batches.all { batch -> batch.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES })
         assertEquals(listOf(3, 4), batches.flatten().filter { it.text.isEmpty() }.map { it.id })
     }
+
+    @Test
+    fun `表示対象がなくなったら全テキストスロットを消す`() {
+        val batches = emptyList<CommandManager.CanvasElement>().batched(previousCount = CANVAS_TEXT_SLOTS)
+
+        assertEquals((0 until CANVAS_TEXT_SLOTS).toList(), batches.flatten().map { it.id })
+        assertTrue(batches.flatten().all { it.text.isEmpty() })
+    }
 }

@@ -1,10 +1,14 @@
 package jp.jig.glasses.sample.kmp.ai
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.EOFException
 import java.io.IOException
+import java.io.InputStreamReader
 
 /**
  * 星座の解説を OpenAI に作らせる。
@@ -21,34 +25,111 @@ class OpenAiClient(
     /** 推論の強さ。**空なら送らない**（推論を持たないモデルに送ると 400 で弾かれる） */
     private val reasoningEffort: String = "",
     private val endpoint: String = CHAT_COMPLETIONS,
+    private val onTrace: (OpenAiRequestTrace) -> Unit = {},
 ) {
 
     val configured: Boolean get() = apiKey.isNotEmpty()
 
     /**
-     * 解説を 1 本もらう。失敗は例外で返す（呼び出し側が「喋る内容」に翻訳する）。
+     * 解説をSSEで受け取る。[onDelta]には生成途中の差分をすぐ渡す。
+     *
+     * 通信断・408・409・429・5xxは、**本文を1文字も受け取っていない場合だけ**
+     * 1回再試行する。途中まで受け取ったあとにやり直すと、同じ文章を二重に表示・
+     * 読み上げてしまうため。
      */
-    suspend fun explain(request: ExplainRequest): String = withContext(Dispatchers.IO) {
+    suspend fun explain(request: ExplainRequest, onDelta: (String) -> Unit = {}): String = withContext(Dispatchers.IO) {
         require(configured) { "API キーが設定されていない" }
         val body = buildRequestBody(model, request, reasoningEffort).toString().toByteArray(Charsets.UTF_8)
+        var lastFailure: Throwable? = null
+        for (attempt in 1..MAX_ATTEMPTS) {
+            var received = false
+            try {
+                return@withContext streamOnce(body, attempt) { delta ->
+                    if (delta.isNotEmpty()) received = true
+                    onDelta(delta)
+                }
+            } catch (error: Throwable) {
+                if (received || attempt >= MAX_ATTEMPTS || !OpenAiHttp.isTransientFailure(error)) {
+                    throw error
+                }
+                lastFailure = error
+                delay(RETRY_BASE_MS * attempt)
+            }
+        }
+        throw lastFailure ?: IOException("AI文章の生成に失敗")
+    }
 
+    private fun streamOnce(body: ByteArray, attempt: Int, onDelta: (String) -> Unit): String {
+        val startedAt = System.nanoTime()
+        var firstByteMs: Long? = null
+        var bytes = 0L
+        var requestId: String? = null
+        var completed = false
         val connection = OpenAiHttp.openPost(endpoint, apiKey)
+        connection.setRequestProperty("Accept", "text/event-stream")
 
         try {
             connection.outputStream.use { it.write(body) }
             val status = connection.responseCode
-            val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.use { it.readBytes().toString(Charsets.UTF_8) }
-                .orEmpty()
-            if (status !in 200..299) throw IOException(errorMessage(status, text))
-            parseReply(text)
+            requestId = connection.getHeaderField("x-request-id")
+            if (status !in 200..299) {
+                val detail = connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                throw OpenAiStatusException(status, requestId, errorMessage(status, detail))
+            }
+
+            val text = StringBuilder()
+            var finishReason = ""
+            var refusal = ""
+            var streamDone = false
+            BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (!line.startsWith(SSE_DATA_PREFIX)) continue
+                    val data = line.removePrefix(SSE_DATA_PREFIX).trimStart()
+                    val event = parseStreamData(data)
+                    if (event.error.isNotEmpty()) throw IOException("AIストリームエラー: ${event.error}")
+                    if (event.done) {
+                        streamDone = true
+                        break
+                    }
+                    if (event.refusal.isNotEmpty()) refusal += event.refusal
+                    if (event.finishReason.isNotEmpty()) finishReason = event.finishReason
+                    if (event.delta.isNotEmpty()) {
+                        if (firstByteMs == null) firstByteMs = elapsedMs(startedAt)
+                        bytes += event.delta.toByteArray(Charsets.UTF_8).size
+                        text.append(event.delta)
+                        onDelta(event.delta)
+                    }
+                }
+            }
+
+            if (!streamDone) throw EOFException("AI文章のストリームが完了前に切れた")
+
+            if (refusal.isNotBlank()) throw EmptyReplyException("AI が回答を断った: ${refusal.trim()}")
+            val result = text.toString().trim()
+            if (result.isEmpty()) throw EmptyReplyException(emptyReplyMessage(finishReason))
+            completed = true
+            return result
         } finally {
+            val trace = OpenAiRequestTrace(
+                operation = "text",
+                attempt = attempt,
+                requestId = requestId,
+                firstByteMs = firstByteMs,
+                totalMs = elapsedMs(startedAt),
+                bytes = bytes,
+                completed = completed,
+            )
+            runCatching { onTrace(trace) }
             connection.disconnect()
         }
     }
 
     companion object {
         const val CHAT_COMPLETIONS = "https://api.openai.com/v1/chat/completions"
+        private const val SSE_DATA_PREFIX = "data:"
+        private const val MAX_ATTEMPTS = 2
+        private const val RETRY_BASE_MS = 350L
 
         /**
          * 出力の上限。
@@ -121,6 +202,7 @@ class OpenAiClient(
             return JSONObject()
                 .put("model", model)
                 .put("max_completion_tokens", MAX_COMPLETION_TOKENS)
+                .put("stream", true)
                 .put(
                     "messages",
                     JSONArray()
@@ -134,34 +216,30 @@ class OpenAiClient(
                 }
         }
 
-        /**
-         * 応答から本文だけ取り出す。取れなければ例外（黙って空文字を喋らせない）。
-         *
-         * **空だった理由まで持って返す。** 通信は成功しているので、
-         * これを `IOException` にすると呼び出し側が圏外と区別できない。
-         */
-        fun parseReply(json: String): String {
-            val choice = JSONObject(json).optJSONArray("choices")?.optJSONObject(0)
-                ?: throw IOException("応答に choices が無い")
-            val message = choice.optJSONObject("message")
-                ?: throw IOException("応答に message が無い")
-
-            // 断られたときは content が空になり、理由は refusal に入る。捨てると原因が消える
-            val refusal = message.optString("refusal").trim()
-            if (refusal.isNotEmpty()) throw EmptyReplyException("AI が回答を断った: $refusal")
-
-            val text = message.optString("content").trim()
-            if (text.isNotEmpty()) return text
-
-            throw EmptyReplyException(
-                when (choice.optString("finish_reason")) {
-                    // 推論が出力枠を食い潰した典型。reasoning_effort を下げるか枠を広げる
-                    "length" -> "トークン上限で切れて本文が空（推論が枠を使い切った可能性）"
-                    "content_filter" -> "フィルタに引っかかって本文が空"
-                    else -> "本文が空で返ってきた"
-                },
+        /** Chat Completionsのdata-only SSEを1イベントずつ読む。 */
+        internal fun parseStreamData(data: String): StreamEvent {
+            if (data.trim() == "[DONE]") return StreamEvent(done = true)
+            val json = JSONObject(data)
+            val streamError = json.optJSONObject("error")?.optString("message").orEmpty()
+            if (streamError.isNotEmpty()) return StreamEvent(error = streamError)
+            val choice = json.optJSONArray("choices")?.optJSONObject(0)
+                ?: return StreamEvent()
+            val delta = choice.optJSONObject("delta")
+            return StreamEvent(
+                delta = delta?.optString("content").orEmpty(),
+                refusal = delta?.optString("refusal").orEmpty(),
+                finishReason = choice.optString("finish_reason"),
             )
         }
+
+        private fun emptyReplyMessage(finishReason: String): String = when (finishReason) {
+            // 推論が出力枠を食い潰した典型。reasoning_effort を下げるか枠を広げる
+            "length" -> "トークン上限で切れて本文が空（推論が枠を使い切った可能性）"
+            "content_filter" -> "フィルタに引っかかって本文が空"
+            else -> "本文が空で返ってきた"
+        }
+
+        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
 
         /** HTTP エラーを人が読める形に。OpenAI は error.message に理由を入れてくる */
         fun errorMessage(status: Int, body: String): String {
@@ -176,6 +254,14 @@ class OpenAiClient(
         }
     }
 }
+
+internal data class StreamEvent(
+    val delta: String = "",
+    val refusal: String = "",
+    val finishReason: String = "",
+    val error: String = "",
+    val done: Boolean = false,
+)
 
 /**
  * 応答は返ったのに本文が無かった。**通信の失敗ではない**ので `IOException` と分ける。
@@ -208,6 +294,8 @@ fun classifyFailure(e: Throwable): FailureKind = when (e) {
     is java.net.UnknownHostException,
     is java.net.SocketTimeoutException,
     is java.net.ConnectException,
+    is java.net.SocketException,
+    is java.io.EOFException,
     is javax.net.ssl.SSLException,
     -> FailureKind.NETWORK
     // errorMessage() が組み立てた HTTP エラーはここに来る
