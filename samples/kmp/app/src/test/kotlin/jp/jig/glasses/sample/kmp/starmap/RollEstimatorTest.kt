@@ -76,6 +76,30 @@ class RollEstimatorTest {
         assertNull(estimator.rollDeg)
     }
 
+    /**
+     * [AccelAxisProbe] は 1 サンプルごとに基底を作り直して渡してくる。
+     * 参照で比べて巻き戻していた頃は**平滑が毎回消え、生の 1 サンプルが素通りしていた**。
+     */
+    @Test
+    fun `基底を作り直して渡しても平滑は続く`() {
+        val estimator = RollEstimator(axes)
+        estimator.feed(accel(0.0))
+        repeat(20) {
+            // 中身は同じだが毎回別のインスタンス
+            estimator.basis = AccelBasis(Vec3(-1.0, 0.0, 0.0), Vec3(0.0, 0.0, 1.0))
+            estimator.feed(accel(20.0))
+        }
+        assertEquals(20.0, estimator.rollDeg!!, 0.2)
+    }
+
+    @Test
+    fun `基準が実際に動いたら測り直す`() {
+        val estimator = RollEstimator(axes)
+        estimator.feed(accel(10.0))
+        estimator.basis = AccelBasis(Vec3(0.0, -1.0, 0.0), Vec3(0.0, 0.0, 1.0))
+        assertNull(estimator.rollDeg)
+    }
+
     @Test
     fun `軸の割り当ては残り1軸を左右とみなす`() {
         assertEquals(1, AccelAxes(upIndex = 0, upSign = -1, forwardIndex = 2).lateralIndex)

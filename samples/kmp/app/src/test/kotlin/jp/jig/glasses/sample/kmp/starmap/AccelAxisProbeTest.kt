@@ -149,6 +149,37 @@ class AccelAxisProbeTest {
         assertFalse(last.stillCount == 0)
     }
 
+    /**
+     * **確定したあとに一致が落ちても取り消さない。**
+     * 一致はうなずき全体の平均なので、確定後に首を傾ければ（B2 の手順そのもの）下がり続ける。
+     * 実機では確定の 30 秒後に 0.84 → 0.76 まで落ちて「判定中」へ戻り、
+     * そのあいだロールが古い値のまま星図へ焼かれていた。
+     */
+    @Test
+    fun `確定したあとに一致が落ちても取り消さない`() {
+        val probe = AccelAxisProbe()
+        val resolved = feed(probe)
+        assertTrue("先に確定していない: ${resolved.describe()}", resolved.resolvedBasis != null)
+
+        // 首を左右に傾ける動き。回転軸が「右」ではなく「前」まわりなので一致が下がる
+        var at = 1_000_000L
+        var pitch = 0.0
+        var last = resolved
+        repeat(400) { i ->
+            at += 100L
+            pitch = if (i % 2 == 0) 4.0 else -4.0
+            val gyro = truth.forward * 40.0
+            val a = gravity(truth, pitch, 0.0)
+            last = probe.add(a.x, a.y, a.z, gyro.x, gyro.y, gyro.z, pitch, at)
+        }
+
+        assertTrue("一致が落ちていないので回帰を再現できていない", last.nodConcentration < 0.8)
+        val basis = last.resolvedBasis
+        assertTrue("確定が取り消された: ${last.describe()}", basis != null)
+        assertEquals("上がずれた", 0.0, angleBetweenDeg(basis!!.up, truth.up), 1.0)
+        assertEquals("前がずれた", 0.0, angleBetweenDeg(basis.forward, truth.forward), 1.0)
+    }
+
     @Test
     fun `やり直せる`() {
         val probe = AccelAxisProbe()

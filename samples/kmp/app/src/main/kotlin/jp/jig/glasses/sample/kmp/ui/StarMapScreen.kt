@@ -409,8 +409,12 @@ fun StarMapScreen(
                         rollSignLogged = true
                         log(sign.describe(), failed = sign.verdict == RollSignVerdict.INVERTED)
                     }
+                    // **軸が決まる前に測らない。** 初期値の基底は取付のずれを含まないので、
+                    // 判定中のロールは首の傾きではなく取付の角度を返す（実機で +16° 出ていた）。
+                    // 追従の設定は端末に残るため、スイッチを止めるだけでは前のセッションの
+                    // 「入」がそのまま効いてしまう
+                    rollEstimator.update(accelX, accelY, accelZ)?.let { measuredRollDeg = it }
                 }
-                rollEstimator.update(accelX, accelY, accelZ)?.let { measuredRollDeg = it }
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
@@ -1412,9 +1416,10 @@ fun StarMapScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             if (rollFollow) {
-                                "ロール追従あり（傾き %s）".format(
-                                    measuredRollDeg?.let { "%.0f°".format(it) } ?: "測定中",
-                                )
+                                // 設定は端末に残るので、軸が決まる前でも「入」で開く。
+                                // その間は追従していないことを言う（黙って水平のままだと故障に見える）
+                                measuredRollDeg?.let { "ロール追従あり（傾き %.0f°）".format(it) }
+                                    ?: "ロール追従あり（加速度軸の判定待ち・いまは水平で固定）"
                             } else {
                                 "ロール追従なし（地平線を水平に固定・未検証）"
                             },
@@ -1423,8 +1428,10 @@ fun StarMapScreen(
                         )
                         Switch(
                             checked = rollFollow,
-                            // 軸が決まる前に入れると、符号を取り違えたままずれが 2 倍になる
-                            enabled = axisEstimate?.resolvedBasis != null,
+                            // 軸が決まる前に入れると、符号を取り違えたままずれが 2 倍になる。
+                            // ただし**切るほうは常に押せる**。設定は端末に残るので、
+                            // 判定が済むまで押せないと「入」のまま外せなくなる
+                            enabled = rollFollow || axisEstimate?.resolvedBasis != null,
                             onCheckedChange = {
                                 rollFollow = it
                                 geometryPrefs.saveRollFollow(it)

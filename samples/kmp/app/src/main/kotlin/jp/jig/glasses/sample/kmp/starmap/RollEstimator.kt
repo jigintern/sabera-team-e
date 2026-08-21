@@ -106,10 +106,15 @@ class RollEstimator(
 
     var basis: AccelBasis = basis
         set(value) {
-            if (field !== value) {
-                field = value
+            // [AccelAxisProbe] は 1 サンプルごとに基底を作り直すので、参照で比べると
+            // 毎回「別の基底」になって平滑がそのたびに巻き戻り、生の 1 サンプルが素通りする。
+            // 基準が実際に動いたときだけやり直す
+            if (angleBetweenDeg(field.up, value.up) > BASIS_CHANGE_DEG ||
+                angleBetweenDeg(field.forward, value.forward) > BASIS_CHANGE_DEG
+            ) {
                 rollDeg = null
             }
+            field = value
         }
 
     /** 最後に確定したロール[度]。まだ 1 サンプルも使えていなければ null */
@@ -154,5 +159,8 @@ class RollEstimator(
 
         /** 視線が鉛直に近いと、ロールは定義できても測れない */
         const val MIN_PLANAR_MG = 200.0
+
+        /** 基準がこれ以上動いたら別物とみなして測り直す。判定の精錬ぶんでは巻き戻さない */
+        const val BASIS_CHANGE_DEG = 1.0
     }
 }

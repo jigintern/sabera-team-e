@@ -117,6 +117,10 @@ class AccelAxisProbe(
     private var previousPitch: Double? = null
     private var previousAtMs: Long? = null
 
+    // 一度そろった条件は取り消さない（下の [estimate] を参照）
+    private var resolvedOnce = false
+    private var lastResolved: AccelBasis? = null
+
     fun reset() {
         levelSum = Vec3(0.0, 0.0, 0.0)
         cosWeighted = Vec3(0.0, 0.0, 0.0)
@@ -133,6 +137,8 @@ class AccelAxisProbe(
         maxPitch = -Double.MAX_VALUE
         previousPitch = null
         previousAtMs = null
+        resolvedOnce = false
+        lastResolved = null
     }
 
     /**
@@ -227,7 +233,12 @@ class AccelAxisProbe(
             }
         }
 
-        val resolved = if (
+        // **確定は取り消さない。** 一致（[nodConcentration]）はうなずき全体の平均なので、
+        // 確定したあとも首を傾けたり左右を見たりするたびに下がり続ける。実機では確定の 30 秒後に
+        // 0.84 → 0.76 まで落ちて「判定中」へ戻り、そのあいだロールが古い値のまま絵に焼かれていた。
+        // 基底そのもの（上=+X 90% / 前=-Y 89%）は同じ区間で動いていないので、
+        // **条件は「確定してよいか」の入口としてだけ使い、そのあとは解き続けた基底を渡す**
+        if (
             basis != null &&
             stillCount >= minStillSamples &&
             levelCount >= minLevelSamples &&
@@ -235,10 +246,10 @@ class AccelAxisProbe(
             concentration >= minConcentration &&
             spread >= minPitchSpreadDeg
         ) {
-            basis
-        } else {
-            null
+            resolvedOnce = true
         }
+        val resolved = if (resolvedOnce) (basis ?: lastResolved) else null
+        if (resolved != null) lastResolved = resolved
 
         return AccelAxisEstimate(
             up = up,
