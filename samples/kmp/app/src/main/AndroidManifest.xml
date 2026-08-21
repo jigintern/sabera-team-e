@@ -23,7 +23,7 @@
 
     <application
         android:name=".GlassesSampleApplication"
-        android:label="星巡り"
+        android:label="星めぐり"
         android:supportsRtl="true"
         android:theme="@style/Theme.GlassesSample">
 
