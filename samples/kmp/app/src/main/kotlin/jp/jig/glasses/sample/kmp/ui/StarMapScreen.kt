@@ -69,6 +69,7 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
+import jp.jig.glasses.sample.kmp.starmap.FovPattern
 import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
@@ -243,6 +244,8 @@ fun StarMapScreen(
     // ドラッグ中の値は描き直しに使わない。指が止まってから 1 枚だけ送る
     var fovSlider by remember { mutableStateOf(storedGeometry.fovDeg.toFloat()) }
     var fovMeasured by remember { mutableStateOf(storedGeometry.measured) }
+    // 画角を測っている間は星図を出さない（端の線が星と紛れる／首を動かすと消える）
+    var patternShown by remember { mutableStateOf(false) }
     val fov = fovDeg.toFloat()
     val limitMag = ObservationDefaults.LIMIT_MAGNITUDE.toFloat()
 
@@ -633,12 +636,17 @@ fun StarMapScreen(
      */
     var settled by remember { mutableStateOf(true) }
     // 画角とロール追従を変えたら、視線が動いていなくても描き直す（絵が変わるので）
-    LaunchedEffect(renderer, satelliteMode, showFigures, fovDeg, rollFollow) {
+    LaunchedEffect(renderer, satelliteMode, showFigures, fovDeg, rollFollow, patternShown) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
         while (true) {
+            // 画角の目印を出している間は追従を止める。**測り終えて消すと、ここが再開して星図に戻る**
+            if (patternShown) {
+                delay(POLL_MS)
+                continue
+            }
             val now = look()
             val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
             if (step > STILL_DEG) movedAt = System.currentTimeMillis()
@@ -1231,6 +1239,51 @@ fun StarMapScreen(
                         "画角 %.0f°%s".format(fovSlider, if (fovMeasured) "（実測して入れた値）" else "（仮の値）"),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Row {
+                        OutlinedButton(
+                            onClick = {
+                                if (patternShown) {
+                                    patternShown = false
+                                    lastSentMap = null
+                                    log("画角の目印を消した")
+                                    return@OutlinedButton
+                                }
+                                patternShown = true
+                                scope.launch {
+                                    sendGate.withLock {
+                                        withContext(NonCancellable) {
+                                            sending = true
+                                            try {
+                                                val gray = withContext(Dispatchers.Default) {
+                                                    FovPattern.grayscale(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
+                                                }
+                                                commandManager.sendCanvasImage(
+                                                    id = STAR_MAP_IMAGE_ID,
+                                                    x = (PANEL_WIDTH - STAR_MAP_WIDTH) / 2,
+                                                    y = (PANEL_HEIGHT - STAR_MAP_HEIGHT) / 2,
+                                                    width = STAR_MAP_WIDTH,
+                                                    height = STAR_MAP_HEIGHT,
+                                                    grayscale = gray,
+                                                )
+                                                // 星座名が残っていると端の線と紛れる
+                                                val cleared = emptyList<CommandManager.CanvasElement>()
+                                                for (batch in cleared.batched(shownLabels)) {
+                                                    commandManager.sendCanvasElements(batch)
+                                                }
+                                                shownLabels = 0
+                                                lastSentMap = null
+                                                log("画角の目印を出した。壁から2.00mで左右の線の間隔を測る（1.26m→35°）")
+                                                delay(transferMs + SETTLE_MS)
+                                            } finally {
+                                                sending = false
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) { Text(if (patternShown) "目印を消す" else "画角の目印を出す") }
+                    }
                     Slider(
                         value = fovSlider,
                         onValueChange = { fovSlider = it },
