@@ -14,8 +14,26 @@ data class Site(val latDeg: Double, val lonDeg: Double)
 /** グラスの視線。方位角はキャリブレーション済みの絶対値 */
 data class Look(val azDeg: Double, val altDeg: Double)
 
-/** 星座名を置く位置。画像には焼かず sendCanvas のテキストとして重ねる */
-data class Label(val text: String, val x: Int, val y: Int)
+/**
+ * ラベルが何の名前か。
+ *
+ * **AI 解説の主役はこの種別で選ぶ。** 名前の枠は星座・月惑星・衛星で共有していて、
+ * 並び順は「先に消えてほしくないもの」で決まっている（衛星 → 月惑星 → 星座）。
+ * 種別を持たせずに先頭を取ると、月が視野にあるだけで主役が「月」になる。
+ */
+enum class LabelKind {
+    CONSTELLATION,
+    BODY,
+    SATELLITE,
+}
+
+/** 名前を置く位置。画像には焼かず sendCanvas のテキストとして重ねる */
+data class Label(
+    val text: String,
+    val x: Int,
+    val y: Int,
+    val kind: LabelKind = LabelKind.CONSTELLATION,
+)
 
 /**
  * 星図に出す月・惑星。
@@ -33,6 +51,15 @@ data class SkyBodyMark(
 )
 
 class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: List<Label>)
+
+/**
+ * グラスに出した星座名を、視野中心に近い順で返す。
+ *
+ * **AI 解説の主役はここから取る。** 絵とラベルは同じ 1 回の [StarMapRenderer.render] から
+ * 出ているので、ここを根拠にすれば「グラスに出ている星座」と「解説する星座」が食い違わない。
+ */
+fun StarMap.constellationNames(): List<String> =
+    labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
 
 /** いま空に出ている星座と、その方角。方位合わせをせずに試すために使う */
 data class Aimed(val nameJa: String, val azDeg: Double, val altDeg: Double) {
@@ -190,7 +217,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             bodies.mapNotNull { body ->
                 val q = project(enu(body.azDeg, body.altDeg), basis, k, width, height) ?: return@mapNotNull null
                 if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) return@mapNotNull null
-                Label(body.nameJa, q[0].roundToInt(), (q[1] - BODY_LABEL_OFFSET_PX).roundToInt())
+                Label(body.nameJa, q[0].roundToInt(), (q[1] - BODY_LABEL_OFFSET_PX).roundToInt(), LabelKind.BODY)
             }
         } else {
             emptyList()
@@ -201,7 +228,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return StarMap(width, height, gray, merged)
     }
 
-    /** 視線が属する IAU 星座を先頭にし、周辺の星座線に近いものを続ける。 */
+    /**
+     * 視線が属する IAU 星座を先頭にし、周辺の星座線に近いものを続ける。
+     *
+     * **AI 解説の主役には使わない**（グラスに出したラベルを使う。[labels]）。
+     * 中心 1 点の境界判定は、残っている地磁気の誤差 ±5〜15° にいちばん弱い推定で、
+     * 境界際では隣の星座に化ける。ここはラベルが 1 つも無い方向のための保険。
+     */
     fun constellationsNear(site: Site, epochMillis: Long, look: Look, max: Int = 4): List<String> {
         if (max <= 0) return emptyList()
         val d = daysFromJ2000(epochMillis)
@@ -402,15 +435,23 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val found = ArrayList<Pair<Double, Label>>()
         for (i in catalog.constellations.indices) {
             val center = precessed.centers[i] ?: continue
-            // 大きい星座は半分だけ視野に入ることが多い。中心が外に出ているなら、
-            // 見えている頂点のうち視野中心にいちばん近いところに名前を置く
-            val q = screen(center) ?: precessed.lines[i]
+            val visibleCenter = screen(center)
+            // 見えている頂点のうち視野中心にいちばん近いもの。**順位はこれで決める。**
+            // 星座の中心で測ると、視野を横切っている大きな星座が、中心がたまたま近い
+            // 小さな星座に負ける。見ている人にとって近いのは「見えている部分」のほう
+            val nearestVertex = precessed.lines[i]
                 .flatten()
                 .mapNotNull { screen(it) }
                 .minByOrNull { hypot(it[0] - cx, it[1] - cy) }
-                ?: continue
-            val dist = hypot(q[0] - cx, q[1] - cy)
-            found += dist to Label(catalog.constellations[i].nameJa, q[0].roundToInt(), q[1].roundToInt())
+            // 名前を置くのは中心。大きい星座で中心が視野の外なら、見えている近い頂点へ寄せる
+            val at = visibleCenter ?: nearestVertex ?: continue
+            val nearest = listOfNotNull(visibleCenter, nearestVertex)
+                .minOf { hypot(it[0] - cx, it[1] - cy) }
+            found += nearest to Label(
+                catalog.constellations[i].nameJa,
+                at[0].roundToInt(),
+                at[1].roundToInt(),
+            )
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
     }
@@ -458,7 +499,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 ?.takeIf { it > 0.0 && it <= LABEL_SOON_MIN }
                 ?.let { " ${max(1, ceil(it).toInt())}分" }
                 .orEmpty()
-            labels += Label(mark + track.name + soon, at[0].roundToInt(), at[1].roundToInt())
+            labels += Label(mark + track.name + soon, at[0].roundToInt(), at[1].roundToInt(), LabelKind.SATELLITE)
         }
         return labels
     }

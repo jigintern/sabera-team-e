@@ -232,57 +232,7 @@ fun project(v: Vec3, b: Basis, k: Double, w: Int, h: Int): DoubleArray? {
     return doubleArrayOf(w / 2.0 + k * r * x / len, h / 2.0 - k * r * y / len)
 }
 
-/**
- * [project] の逆。画面座標 → 天球の単位ベクトル。
- *
- * 天体アライメントでは「パネルのこの位置に、この天体が重なった」から視線を逆算する。
- * 十字は中央に出すので普段は forward がそのまま返るが、画角を解くには中央以外も要る。
- */
-fun unproject(px: Double, py: Double, b: Basis, k: Double, w: Int, h: Int): Vec3 {
-    val dx = px - w / 2.0
-    val dy = h / 2.0 - py
-    val len = hypot(dx, dy)
-    if (len < 1e-12) return b.forward
-    val theta = 2.0 * atan(len / k / 2.0)
-    val radial = Vec3(
-        b.right.x * dx / len + b.up.x * dy / len,
-        b.right.y * dx / len + b.up.y * dy / len,
-        b.right.z * dx / len + b.up.z * dy / len,
-    )
-    val c = cos(theta)
-    val s = sin(theta)
-    return Vec3(
-        b.forward.x * c + radial.x * s,
-        b.forward.y * c + radial.y * s,
-        b.forward.z * c + radial.z * s,
-    ).normalized()
-}
-
-/** [from] を [to] へ重ねる最小回転を [v] に掛ける（Rodrigues）。天体アライメントの視線の追い込みに使う */
-fun rotateAligning(from: Vec3, to: Vec3, v: Vec3): Vec3 {
-    val axis = (from cross to)
-    val axisLength = sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z)
-    if (axisLength < 1e-12) return v
-    val n = Vec3(axis.x / axisLength, axis.y / axisLength, axis.z / axisLength)
-    val angle = atan2(axisLength, from dot to)
-    val c = cos(angle)
-    val s = sin(angle)
-    val cross = n cross v
-    val dot = n dot v
-    return Vec3(
-        v.x * c + cross.x * s + n.x * dot * (1 - c),
-        v.y * c + cross.y * s + n.y * dot * (1 - c),
-        v.z * c + cross.z * s + n.z * dot * (1 - c),
-    ).normalized()
-}
-
-/** ENU の単位ベクトル → [方位角, 高度]。[enu] の逆 */
-fun horizontalAngles(v: Vec3): DoubleArray = doubleArrayOf(
-    ((atan2(v.x, v.y) * DEG) % 360.0 + 360.0) % 360.0,
-    asin(v.z.coerceIn(-1.0, 1.0)) * DEG,
-)
-
-/** 2 方向のなす角[度]。残差を「度」で出すために使う */
+/** 2 方向のなす角[度]。視野に入っているかを度で判定するのに使う */
 fun angleBetweenDeg(a: Vec3, b: Vec3): Double = acos((a dot b).coerceIn(-1.0, 1.0)) * DEG
 
 /** 横 fovDeg が幅 w に収まるときの倍率。r = 2 tan(θ/2) の θ = fov/2 が w/2 に来る */

@@ -163,8 +163,7 @@ class OpenAiClient(
                 "・その場で口に出す話し言葉で書く。もったいぶった言い回しや体言止めは使わない\n" +
                 "・内容に使える事実は、ユーザーが確定観測として示したものと添付星図の形だけ\n" +
                 "・距離、大きさ、年齢、神話、由来、季節、確定観測にない星の固有名を補わない\n" +
-                "・固有名つきの星が提示された場合だけ、その星を探す目印として使う\n" +
-                "・視野に複数の星座があるときは、最初に挙がっている星座を主役にする"
+                "・固有名つきの星が提示された場合だけ、その星を探す目印として使う"
 
         /**
          * リクエスト本文。画像は data URL で本文に埋める
@@ -348,14 +347,24 @@ data class ExplainRequest(
     /** 星図の PNG を Base64 にしたもの。無しでも解説は作れる */
     val pngBase64: String? = null,
 ) {
+    /**
+     * 解説の主役。**視野中心にいちばん近い星座**で、グラスに出しているラベルの先頭。
+     *
+     * これを渡すだけでは足りず、**依頼文の末尾でもう一度名前で指す**（AGENTS.md の実測どおり、
+     * 箇条書きの途中に置いた「最初に挙がっている星座を主役にする」は効かなかった）。
+     */
+    val subject: String get() = constellations.firstOrNull() ?: "不明"
+
     fun userText(): String = buildString {
         append("いま見ている星座は「")
-        append(constellations.firstOrNull() ?: "不明")
+        append(subject)
         append("」です。")
         if (constellations.size > 1) {
             append("同じ視野には")
             append(constellations.drop(1).joinToString("、"))
-            append("も入っています。")
+            append("も入っていますが、主役は「")
+            append(subject)
+            append("」です。")
         }
         append("\n観測地は北緯 ")
         append("%.3f".format(latDeg))
@@ -368,7 +377,10 @@ data class ExplainRequest(
         append(" 度、仰角 ")
         append(altDeg.toInt())
         append(" 度です。")
-        append("\n確定観測: 視線中心の星座はIAU境界表で判定済みです。")
+        append(
+            "\n確定観測: 星座名は端末がグラスへ出している星図のラベルそのもので、" +
+                "視野中心に近い順に並んでいます。1 番目がいま視界の中心にいちばん近い星座です。",
+        )
         if (headingUncertaintyDeg != null && pitchUncertaintyDeg != null) {
             append("方位合わせのばらつきは方位±")
             append("%.1f".format(headingUncertaintyDeg))
@@ -400,15 +412,17 @@ data class ExplainRequest(
         }
         if (pngBase64 != null) {
             append(
-                "\n添付は、その視野をスマートグラスに出している星図です。" +
+                "\n添付は、いまスマートグラスに出している星図そのものです。" +
                     "黒が空、明るい点が星、細い線が星座線で、緑 1 色の 8 階調でしか描けません。" +
-                    "星座名は端末が計算した確定値なので、画像から同定し直さず、" +
-                    "この絵の中でその星座がどう見えているかを説明してください。",
+                    "上の星座名はこの絵に重ねて出しているラベルと同じものなので、" +
+                    "画像から同定し直さず、この絵の中でその星座がどう見えているかを説明してください。",
             )
         }
         // **ここが最後に来るよう並べてある。** システム側の箇条書きに混ぜた版では
         // どちらも無視された（名前を言い直し、「楽しんでください」で締めた）
-        append("\nこの星座について解説してください。")
+        append("\n「")
+        append(subject)
+        append("」だけを解説してください。ほかの星座に話を移さないでください。")
         append("確定観測に書かれていない事実は補わないでください。")
         append("星座の名前は既に読み上げてあるので、名前を言い直さず続きから話してください。")
         append("最後は言い切って終わり、聞き手への呼びかけや誘いを付けないでください。")

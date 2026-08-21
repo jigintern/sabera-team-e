@@ -7,16 +7,12 @@ import kotlin.math.ln
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/** どうやって方位を決めたか。残差の意味が変わるので、必ず一緒に持ち回す */
-enum class CalibrationSource {
-    /** 段階 1：スマホの十字合わせ。残るのは地磁気そのものの誤差（±5〜15°） */
-    PHONE_SYNC,
-
-    /** 段階 2：天体アライメント。地磁気を計算から追い出したあと */
-    CELESTIAL,
-}
-
-/** 観測画面へ渡す、方位と仰角を同時に補正する結果。 */
+/**
+ * 観測画面へ渡す、方位と仰角を同時に補正する結果。
+ *
+ * 合わせ方は**スマホの十字合わせ 1 通りだけ**なので、どうやって決めたかは持ち回さない。
+ * 残るのは地磁気そのものの誤差（±5〜15°）で、**星座の同定（±20°）には足りる**。
+ */
 data class CalibrationResult(
     val headingOffsetDeg: Double,
     val pitchOffsetDeg: Double,
@@ -24,11 +20,6 @@ data class CalibrationResult(
     val headingStdDeg: Double,
     val pitchStdDeg: Double,
     val sampleCount: Int,
-    val source: CalibrationSource = CalibrationSource.PHONE_SYNC,
-    /** 天体アライメントで測った、合わせた天体と星図のずれ[度]。段階 1 では null */
-    val residualDeg: Double? = null,
-    /** 何に合わせたか。名前は手順の前提ではないが、記録と読み上げには要る */
-    val targetNames: String? = null,
 )
 
 data class CalibrationEstimate(

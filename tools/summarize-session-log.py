@@ -2,7 +2,7 @@
 """観測ログから、実機で確かめたい数字だけを抜き出す。
 
 見たいのは 3 つ。
-- 天体アライメントの残差（±3° に入っていれば星図を空に重ねられる）
+- どの精度で始めた観測か（方位合わせのばらつき。±20° に入っていれば星座は当たる）
 - ドリフト補正が効き続けているか（生のヨーは 44°/分 流れる）
 - 失敗した行（黙って落ちているものを見つける）
 
@@ -22,8 +22,7 @@ def main() -> int:
         return 2
     lines = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines()
 
-    calibration = [l for l in lines if l.startswith(tuple()) or "方位合わせ=" in l]
-    residuals = [(l, m.group(1)) for l in lines for m in [re.search(r"残差=([0-9.]+)°", l)] if m]
+    calibration = [l for l in lines if "方位合わせ=" in l]
     drift = [l for l in lines if "ドリフト監視 経過" in l]
     sends = [l for l in lines if " 送信 " in l or l.split("  ")[-1].startswith("送信")]
     failures = [l for l in lines if "失敗" in l]
@@ -40,13 +39,12 @@ def main() -> int:
     print("=" * 72)
     print(f"行数 {len(lines)}  期間 {lines[0][:14] if lines else '?'} 〜 {lines[-1][:14] if lines else '?'}")
 
-    print("\n## 天体アライメントの残差")
-    if residuals:
-        for line, value in residuals[-3:]:
-            verdict = "星に重なる" if float(value) <= 1.0 else ("重ねられる" if float(value) <= 3.0 else "足りない")
-            print(f"  {value}° （{verdict}）  {line}")
+    print("\n## 方位合わせ")
+    if calibration:
+        for line in calibration[-3:]:
+            print(f"  {line}")
     else:
-        print("  なし（段階 2 をまだ通していない）")
+        print("  なし（方位を合わせずに観測画面へ入っている）")
 
     if drift:
         print("\n## ドリフト補正")
