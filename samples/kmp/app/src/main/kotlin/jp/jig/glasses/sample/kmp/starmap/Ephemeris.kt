@@ -418,6 +418,36 @@ private fun plutoPosition(d: Double): BodyPosition {
     )
 }
 
+/** 月の見え方。**他の星見アプリが必ず出している情報**で、その夜の空の明るさを決める */
+class MoonPhase(val ageDays: Double, val illuminated: Double, val nameJa: String)
+
+/**
+ * 月齢と満ち欠け。
+ *
+ * 太陽との黄経差（離角）だけで決まる。0° が新月、180° が満月。
+ * **月齢は「離角 ÷ 360 × 朔望月」の近似**で、実際の朔望月は 29.27〜29.83 日で揺れるが、
+ * 名前を付けるには十分（新月／三日月／上弦…）。
+ */
+fun moonPhase(epochMillis: Long): MoonPhase {
+    val elongation = norm360(moonPosition(epochMillis).lonDeg - sunEclipticLonDeg(epochMillis))
+    val age = elongation / 360.0 * SYNODIC_MONTH_DAYS
+    return MoonPhase(
+        ageDays = age,
+        illuminated = (1.0 - cosD(elongation)) / 2.0,
+        nameJa = when {
+            age < 1.5 -> "新月"
+            age < 5.5 -> "三日月"
+            age < 9.5 -> "上弦の月"
+            age < 13.0 -> "十三夜の月"
+            age < 16.5 -> "満月"
+            age < 20.5 -> "寝待月"
+            age < 24.5 -> "下弦の月"
+            age < 27.5 -> "有明の月"
+            else -> "新月"
+        },
+    )
+}
+
 /** 太陽の地心黄経[度]。日食や合の検算に使う（[sunPosition] とは独立な系統） */
 fun sunEclipticLonDeg(epochMillis: Long): Double = sunEcliptic(schlyterDays(epochMillis))[0]
 
@@ -457,6 +487,9 @@ const val BODY_LIMIT_MAGNITUDE = 17.0
 
 /** ここより暗いものは肉眼では見えない。AI に「見えている」と言わせないために渡す */
 const val NAKED_EYE_MAGNITUDE = 6.0
+
+/** 朔望月[日]。月齢の目安に使う */
+private const val SYNODIC_MONTH_DAYS = 29.53059
 
 private const val KEPLER_ITERATIONS = 5
 private const val EARTH_RADIUS_KM = 6378.137

@@ -25,6 +25,9 @@ enum class LabelKind {
     CONSTELLATION,
     BODY,
     SATELLITE,
+
+    /** 大三角などの結び。**初心者が最初に見つけるものなので、星座名より先に置く** */
+    ASTERISM,
 }
 
 /** 名前を置く位置。画像には焼かず sendCanvas のテキストとして重ねる */
@@ -87,6 +90,41 @@ data class ObservedStarFact(
  */
 class StarMapRenderer(private val catalog: StarCatalog) {
 
+    /**
+     * 星座ごとの「いちばん明るい星」の等級。**空の濃さで星座を間引くために使う。**
+     *
+     * 星座線のデータは星 ID ではなく座標なので、**頂点の近くにある星から拾う**。
+     * J2000 の座標だけで決まる（時刻に依存しない）ので 1 回で済む。
+     */
+    @Volatile
+    private var brightestCache: DoubleArray? = null
+
+    private fun brightestPerConstellation(): DoubleArray = brightestCache ?: DoubleArray(
+        catalog.constellations.size,
+    ) { i ->
+        var best = 99.0
+        for (seg in catalog.constellations[i].lines) {
+            for (point in seg) {
+                for (star in catalog.stars) {
+                    if (star.magnitude >= best) continue
+                    if (kotlin.math.abs(star.decDeg - point[1]) > VERTEX_MATCH_DEG) continue
+                    val dRa = normalizeDeg(star.raDeg - point[0]) * kotlin.math.cos(point[1] * RAD)
+                    if (kotlin.math.abs(dRa) > VERTEX_MATCH_DEG) continue
+                    best = star.magnitude
+                }
+            }
+        }
+        best
+    }.also { brightestCache = it }
+
+    /** HIP → 星表の添字。結びは HIP で星を指すので、引くたびに探さないよう 1 回だけ作る */
+    @Volatile
+    private var hipIndexCache: Map<Int, Int>? = null
+
+    private fun hipIndex(): Map<Int, Int> = hipIndexCache ?: buildMap {
+        catalog.stars.forEachIndexed { index, star -> put(star.hip, index) }
+    }.also { hipIndexCache = it }
+
     /** 歳差は 26 年で 0.36° なので毎フレーム引き直す必要はない。30 日ぶんまとめる */
     @Volatile
     private var precessedKey = Long.MIN_VALUE
@@ -114,7 +152,16 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         bodies: List<SkyBodyMark> = emptyList(),
         // 星座絵（星座線だけでは「なにに見立てたのか」が伝わらない）
         drawFigureArt: Boolean = true,
+        // 大三角などの結び。**初心者が空で最初に見つけるもの**
+        drawAsterisms: Boolean = true,
+        // 天の川の帯
+        drawMilkyWay: Boolean = true,
+        // 星座の線と名前を出す下限。その星座でいちばん明るい星がこれより暗ければ出さない
+        constellationMagnitude: Double = 99.0,
+        // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
+        drawGuides: Boolean = true,
     ): StarMap {
+        val brightest = brightestPerConstellation()
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
         val lst = localSiderealDeg(d, site.lonDeg)
@@ -122,20 +169,75 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val k = projectionScale(width, fovDeg)
         val gray = ByteArray(width * height)
 
-        // **絵 → 線 → 星の順に重ねる。** 絵はいちばん暗い段なので、
-        // あとから星や線を書いても上書きされない（dot は明るいほうを残す）
+        // **天の川 → 星座絵 → 星座線 → 結び → 星の順に重ねる。**
+        // 下に敷くものほど暗い段にする（dot は明るいほうを残すので、順番に関係なく星が勝つ）
+        if (drawGuides) {
+            drawHorizon(gray, width, height, look, basis, k)
+            drawCardinals(gray, width, height, look, basis, k)
+        }
+
+        if (drawMilkyWay) {
+            for (edge in catalog.milkyWay) {
+                var previous: DoubleArray? = null
+                for (point in edge) {
+                    val aa = toApparentAltAz(point[0], point[1], lst, site.latDeg)
+                    val q = project(enu(aa[0], aa[1]), basis, k, width, height)
+                    if (q != null) previous?.let { line(gray, width, height, it, q, MILKY_WAY_VALUE, 0) }
+                    previous = q
+                }
+            }
+        }
+
         if (drawFigureArt) {
             for (i in catalog.constellations.indices) {
+                if (brightest[i] > constellationMagnitude) continue
                 val figure = catalog.figures[catalog.constellations[i].abbr] ?: continue
                 drawConstellationArt(gray, width, height, figure, precessed.lines[i], lst, site, basis, k)
             }
         }
 
         if (drawLines) {
-            for (lines in precessed.lines) {
+            for ((index, lines) in precessed.lines.withIndex()) {
+                // **見えない星をつないだ線は描かない。** 街では線だけが浮いて見える
+                if (brightest[index] > constellationMagnitude) continue
                 for (seg in lines) {
                     for (i in 0 until seg.size - 1) {
                         drawGreatCircle(gray, width, height, seg[i], seg[i + 1], lst, site, basis, k)
+                    }
+                }
+            }
+        }
+
+        // **結びは星座線より明るく、破線で描く。** 3 点だけなので、実線だと星座線に紛れる
+        val asterismLabels = ArrayList<Label>(catalog.asterisms.size)
+        if (drawAsterisms) {
+            for (asterism in catalog.asterisms) {
+                val points = asterism.hips.mapNotNull { hip ->
+                    val index = hipIndex()[hip] ?: return@mapNotNull null
+                    val position = precessed.stars[index]
+                    val aa = toApparentAltAz(position[0], position[1], lst, site.latDeg)
+                    project(enu(aa[0], aa[1]), basis, k, width, height)
+                }
+                if (points.size < asterism.hips.size) continue
+                val closed = if (asterism.closed) points + points.first() else points
+                var inside = false
+                for (i in 0 until closed.size - 1) {
+                    line(gray, width, height, closed[i], closed[i + 1], ASTERISM_VALUE, 0, dash = ASTERISM_DASH)
+                    if (closed[i][0] in 0.0..width.toDouble() && closed[i][1] in 0.0..height.toDouble()) {
+                        inside = true
+                    }
+                }
+                // 名前は結びの重心へ。**全部の星が視野に入っていなくても、見えている側に出す**
+                if (inside) {
+                    val cx = points.sumOf { it[0] } / points.size
+                    val cy = points.sumOf { it[1] } / points.size
+                    if (cx in 0.0..width.toDouble() && cy in 0.0..height.toDouble()) {
+                        asterismLabels += Label(
+                            asterism.nameJa,
+                            cx.roundToInt(),
+                            cy.roundToInt(),
+                            LabelKind.ASTERISM,
+                        )
                     }
                 }
             }
@@ -166,12 +268,28 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                     ring(gray, width, height, q, radius, 255)
                     dot(gray, width, height, q[0], q[1], 160, 1, round = true)
                 } else {
-                    // 惑星は恒星と同じ描き方。等級の対応も同じにしないと明るさの意味が変わる
-                    val t = ((limitMagnitude - body.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
-                    val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
-                    val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
-                    dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+                    drawPlanet(gray, width, height, q, body.nameJa, width / 528.0)
                 }
+            }
+        }
+
+        // 視野中心の印。**AI が解説するのはここの星座**なので、どこを指しているかを見せる
+        if (drawGuides) {
+            val cx = width / 2.0
+            val cy = height / 2.0
+            val gap = width * RETICLE_GAP
+            val arm = width * RETICLE_ARM
+            for (direction in listOf(-1.0, 1.0)) {
+                line(
+                    gray, width, height,
+                    doubleArrayOf(cx + direction * gap, cy), doubleArrayOf(cx + direction * arm, cy),
+                    RETICLE_VALUE, 0,
+                )
+                line(
+                    gray, width, height,
+                    doubleArrayOf(cx, cy + direction * gap), doubleArrayOf(cx, cy + direction * arm),
+                    RETICLE_VALUE, 0,
+                )
             }
         }
 
@@ -218,7 +336,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val trackLabels = trackLabels(look, fovDeg, width, height, tracks, drawFigures)
 
         val starLabels = if (drawStars) {
-            labels(precessed, lst, site, basis, k, width, height, maxLabels)
+            labels(precessed, lst, site, basis, k, width, height, maxLabels, brightest, constellationMagnitude)
         } else {
             emptyList()
         }
@@ -236,8 +354,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // **星座名が主役で、衛星は枠を 2 つまで借りるだけ**（#36）。
         // 月・惑星は数が少なく、点だけでは恒星と区別が付かないので先に置く
         val tracksShown = trackLabels.take(MAX_TRACK_LABELS)
-        val room = (maxLabels - tracksShown.size - bodyLabels.size).coerceAtLeast(0)
-        val merged = bodyLabels + starLabels.take(room) + tracksShown
+        // 結びは 1 つだけ。**「夏の大三角」は星座名より先に知りたい名前**
+        val asterismsShown = asterismLabels.take(MAX_ASTERISM_LABELS)
+        val room = (maxLabels - tracksShown.size - bodyLabels.size - asterismsShown.size)
+            .coerceAtLeast(0)
+        val merged = bodyLabels + asterismsShown + starLabels.take(room) + tracksShown
         return StarMap(width, height, gray, merged)
     }
 
@@ -434,6 +555,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         width: Int,
         height: Int,
         maxLabels: Int,
+        brightest: DoubleArray,
+        constellationMagnitude: Double,
     ): List<Label> {
         if (maxLabels <= 0) return emptyList()
         val cx = width / 2.0
@@ -447,6 +570,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         val found = ArrayList<Pair<Double, Label>>()
         for (i in catalog.constellations.indices) {
+            // **名前だけ出しても、その星座の星が見えていなければ意味が無い**
+            if (brightest[i] > constellationMagnitude) continue
             val center = precessed.centers[i] ?: continue
             val visibleCenter = screen(center)
             // 見えている頂点のうち視野中心にいちばん近いもの。**順位はこれで決める。**
@@ -467,6 +592,57 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             )
         }
         return found.sortedBy { it.first }.take(maxLabels).map { it.second }
+    }
+
+    /**
+     * 地平線。**空と地面の境目が見えると、星図が「空の絵」になる。**
+     *
+     * 高度 0° の大円を方位 1° 刻みで投影して結ぶ。視野の外なら [line] の中で捨てられる。
+     * 破線にしてあるのは、**星座線と見間違えないため**。
+     */
+    private fun drawHorizon(gray: ByteArray, w: Int, h: Int, look: Look, basis: Basis, k: Double) {
+        var previous: DoubleArray? = null
+        var az = look.azDeg - HORIZON_SPAN_DEG
+        while (az <= look.azDeg + HORIZON_SPAN_DEG) {
+            val q = project(enu(az, 0.0), basis, k, w, h)
+            if (q != null) previous?.let { line(gray, w, h, it, q, HORIZON_VALUE, 1, dash = HORIZON_DASH) }
+            previous = q
+            az += 1.0
+        }
+    }
+
+    /**
+     * 方位の文字（北東南西）と、その間の目印を地平線の上に置く。
+     *
+     * **文字は線で描く。** キャンバスのテキスト枠は 8 つしかなく星座名で埋まるので、
+     * 画像に焼くほうが安い（N・E・S・W なら数本の直線で読める）。
+     */
+    private fun drawCardinals(gray: ByteArray, w: Int, h: Int, look: Look, basis: Basis, k: Double) {
+        val size = w * CARDINAL_SIZE
+        for (index in 0 until 8) {
+            val az = index * 45.0
+            if (kotlin.math.abs(normalizeDeg(az - look.azDeg)) > HORIZON_SPAN_DEG) continue
+            val at = project(enu(az, 0.0), basis, k, w, h) ?: continue
+            // 目印の縦棒。地平線から上へ伸ばす
+            val tick = if (index % 2 == 0) size * 1.2 else size * 0.6
+            line(
+                gray, w, h,
+                doubleArrayOf(at[0], at[1]), doubleArrayOf(at[0], at[1] - tick),
+                CARDINAL_VALUE, 1,
+            )
+            val glyph = CARDINAL_GLYPHS[index] ?: continue
+            val left = at[0] - size / 2.0
+            val top = at[1] - tick - size * 1.2
+            for (stroke in glyph) {
+                var previous: DoubleArray? = null
+                for (point in stroke) {
+                    val q = doubleArrayOf(left + point[0] * size, top + point[1] * size)
+                    // 字は太らせる。1px では実機で読めない
+                    previous?.let { line(gray, w, h, it, q, CARDINAL_VALUE, 1) }
+                    previous = q
+                }
+            }
+        }
     }
 
     /**
@@ -819,14 +995,83 @@ class StarMapRenderer(private val catalog: StarCatalog) {
      */
     private fun lineRadius(width: Int): Int = (width / 264.0).roundToInt().coerceAtLeast(1)
 
-    private fun line(gray: ByteArray, w: Int, h: Int, a: DoubleArray, b: DoubleArray, value: Int, radius: Int) {
+    /**
+     * 線分を打つ。[dash] を渡すと破線になる（0 なら実線）。
+     *
+     * **結びは破線にする。** 実線だと星座線に紛れて、どれが「大三角」なのか読めない。
+     */
+    private fun line(
+        gray: ByteArray,
+        w: Int,
+        h: Int,
+        a: DoubleArray,
+        b: DoubleArray,
+        value: Int,
+        radius: Int,
+        dash: Int = 0,
+    ) {
         val dx = b[0] - a[0]
         val dy = b[1] - a[1]
         val steps = max(1, ceil(max(kotlin.math.abs(dx), kotlin.math.abs(dy))).toInt())
         if (steps > 4 * (w + h)) return // 視野の裏側へ回り込んだ線分は捨てる
         for (i in 0..steps) {
+            if (dash > 0 && (i / dash) % 2 == 1) continue
             val f = i.toDouble() / steps
             dot(gray, w, h, a[0] + dx * f, a[1] + dy * f, value, radius)
+        }
+    }
+
+    /**
+     * 惑星を**外形のイラスト**で描く。
+     *
+     * 点で描くと恒星と区別が付かず、名前のラベルが落ちた瞬間に「明るい星」に戻ってしまう。
+     * **輪と数本の線だけで土星と木星は見分けが付く**（緑 8 階調でもリングは読める）。
+     * 実物の見かけの大きさ（木星でも 0.01°）とは関係のない**アイコン**なので、
+     * 星より大きく描いてよい。
+     */
+    private fun drawPlanet(gray: ByteArray, w: Int, h: Int, q: DoubleArray, nameJa: String, scale: Double) {
+        val radius = (PLANET_RADIUS_PX[nameJa] ?: PLANET_DEFAULT_RADIUS_PX) * scale
+        ring(gray, w, h, q, radius, 255)
+        // 中心に小さな点を置くと、輪だけのときより「そこに何かある」と読める
+        dot(gray, w, h, q[0], q[1], 150, 1, round = true)
+        when (nameJa) {
+            "土星" -> {
+                // 環。**少し傾けた 1 本の線**で足りる（楕円を描くと 8 階調では潰れる）
+                val arm = radius * 2.1
+                val tilt = radius * 0.45
+                line(
+                    gray, w, h,
+                    doubleArrayOf(q[0] - arm, q[1] + tilt),
+                    doubleArrayOf(q[0] + arm, q[1] - tilt),
+                    255, 0,
+                )
+            }
+            "木星" -> {
+                // 縞。輪の内側に 2 本
+                for (offset in listOf(-0.35, 0.35)) {
+                    val y = q[1] + radius * offset
+                    val half = radius * 0.85
+                    line(
+                        gray, w, h,
+                        doubleArrayOf(q[0] - half, y),
+                        doubleArrayOf(q[0] + half, y),
+                        200, 0,
+                    )
+                }
+            }
+            "火星" -> {
+                // 極冠のつもりの短い線。**赤い星と言えないので形で示す**
+                line(
+                    gray, w, h,
+                    doubleArrayOf(q[0] - radius * 0.5, q[1] - radius * 0.6),
+                    doubleArrayOf(q[0] + radius * 0.5, q[1] - radius * 0.6),
+                    200, 0,
+                )
+            }
+            "金星" -> {
+                // 満ち欠けする星なので、内側に弧を 1 本入れて三日月に見せる
+                ring(gray, w, h, doubleArrayOf(q[0] + radius * 0.5, q[1]), radius * 0.85, 180)
+            }
         }
     }
 
@@ -885,6 +1130,84 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         /** 星座絵を敷く矩形の下限・上限（画面に対する比） */
         const val ART_MIN_SPAN = 0.15
         const val ART_MAX_SPAN = 1.8
+
+        /** 地平線を引く方位の幅（視野の片側ぶん＋余裕） */
+        const val HORIZON_SPAN_DEG = 30.0
+
+        /** 地平線は破線。星座線と見間違えないため */
+        const val HORIZON_VALUE = 110
+        const val HORIZON_DASH = 5
+
+        /** 方位の文字と目印。**読ませたいので星と同じくらい明るく** */
+        const val CARDINAL_VALUE = 210
+        // 528px で 26px。**これより小さいと緑 8 階調では字に見えない**
+        const val CARDINAL_SIZE = 0.05
+
+        /** 視野中心の印。星より暗く、中心は空けておく */
+        const val RETICLE_VALUE = 150
+        const val RETICLE_GAP = 0.016
+        const val RETICLE_ARM = 0.036
+
+        /**
+         * 方位の文字。**線で描く**（テキスト枠を使わない）。
+         * 正規化 [0,1] の枠に入れた折れ線で、45° 刻みの 8 方位のうち 4 つに文字を置く。
+         */
+        val CARDINAL_GLYPHS: Map<Int, List<List<DoubleArray>>> = mapOf(
+            // N
+            0 to listOf(
+                listOf(doubleArrayOf(0.0, 1.0), doubleArrayOf(0.0, 0.0), doubleArrayOf(1.0, 1.0), doubleArrayOf(1.0, 0.0)),
+            ),
+            // E
+            2 to listOf(
+                listOf(doubleArrayOf(1.0, 0.0), doubleArrayOf(0.0, 0.0), doubleArrayOf(0.0, 1.0), doubleArrayOf(1.0, 1.0)),
+                listOf(doubleArrayOf(0.0, 0.5), doubleArrayOf(0.8, 0.5)),
+            ),
+            // S
+            4 to listOf(
+                listOf(
+                    doubleArrayOf(1.0, 0.0), doubleArrayOf(0.0, 0.0), doubleArrayOf(0.0, 0.5),
+                    doubleArrayOf(1.0, 0.5), doubleArrayOf(1.0, 1.0), doubleArrayOf(0.0, 1.0),
+                ),
+            ),
+            // W
+            6 to listOf(
+                listOf(
+                    doubleArrayOf(0.0, 0.0), doubleArrayOf(0.25, 1.0), doubleArrayOf(0.5, 0.35),
+                    doubleArrayOf(0.75, 1.0), doubleArrayOf(1.0, 0.0),
+                ),
+            ),
+        )
+
+        /** 星座線の頂点と星を同じものと見なす角距離。星座線は星の位置に引かれている */
+        const val VERTEX_MATCH_DEG = 1.0
+
+        /**
+         * 天の川。**星座絵と同じ段**（3bit で 2）。
+         *
+         * 50 だと段が 1 で、実機の緑 8 階調では帯として読めない見込み。
+         * 星（3 以上）と星座線（4）より下なので、下敷きの位置は変わらない。
+         */
+        const val MILKY_WAY_VALUE = 70
+
+        /** 結びは星座線より明るく（3bit で 5）、破線の刻みは 6px */
+        const val ASTERISM_VALUE = 180
+        const val ASTERISM_DASH = 6
+
+        /** 結びの名前に貸すテキスト枠。1 つで足りる */
+        const val MAX_ASTERISM_LABELS = 1
+
+        /** 惑星のアイコンの半径[px]（528px のとき）。実物の見かけとは無関係のアイコン */
+        val PLANET_RADIUS_PX = mapOf(
+            "水星" to 7.0,
+            "金星" to 10.0,
+            "火星" to 8.0,
+            "木星" to 12.0,
+            "土星" to 10.0,
+            "天王星" to 7.0,
+            "海王星" to 7.0,
+            "冥王星" to 5.0,
+        )
+        const val PLANET_DEFAULT_RADIUS_PX = 7.0
 
         /** 衛星の名前に貸すテキスト枠の数。星座名を押し出さないための上限 */
         const val MAX_TRACK_LABELS = 2

@@ -10,7 +10,8 @@
 | `stars.json` | 1,627 | 49 KB | 5 等までの恒星。`[hip, 赤経°, 赤緯°, 等級]` | `python3 tools/build-star-catalog.py` |
 | `constellations.json` | 88 | 22 KB | 星座線と日本語名 | 同上 |
 | `bright-stars.json` | 25 | 3 KB | 1.6 等までの固有名つき恒星 | 同上 |
-| `constellation-figures.json` | 10 | 6 KB | **星座絵**（手描きの折れ線・正規化 [0,1]）。星座線の外接矩形へ写して薄く敷く | `python3 tools/build-constellation-figures.py` |
+| `constellation-figures.json` | 7 | 4 KB | **星座絵**（手描きの折れ線・正規化 [0,1]）。星座線の外接矩形へ写して薄く敷く | `python3 tools/build-constellation-figures.py` |
+| `asterisms.json` | 4 ＋ 天の川 | 9 KB | **大三角などの結び**（HIP 番号）と**天の川の帯**（銀河座標 b=±10°） | `python3 tools/build-asterisms.py` |
 | `satellites.tle` | 24 | 4 KB | 名前で分かる衛星（ISS・みちびき・ひまわり・ハッブル・GPS…） | `python3 tools/build-satellites.py` |
 | `starlink.tle` | 10,748 | **1.8 MB** | スターリンクの群れ | 同上 |
 | `satellites-fetched.txt` | — | 21 B | TLE を取得した日時（UTC） | 同上 |

@@ -43,7 +43,34 @@ class StarMapRendererTest {
                 cons += Constellation(c.getString("abbr"), c.getString("nameJa"), polylines)
             }
         }
-        return StarCatalog(stars, cons, emptyMap(), figures = figures())
+        return StarCatalog(
+            stars,
+            cons,
+            emptyMap(),
+            figures = figures(),
+            asterisms = asterisms(),
+            milkyWay = milkyWay(),
+        )
+    }
+
+    private fun skyGuides(): JSONObject = JSONObject(File(dataDir, "asterisms.json").readText())
+
+    private fun asterisms(): List<Asterism> = skyGuides().getJSONArray("asterisms").let { arr ->
+        (0 until arr.length()).map { i ->
+            val a = arr.getJSONObject(i)
+            val hips = a.getJSONArray("hips")
+            Asterism(a.getString("nameJa"), (0 until hips.length()).map { hips.getInt(it) }, a.getBoolean("closed"))
+        }
+    }
+
+    private fun milkyWay(): List<List<DoubleArray>> = skyGuides().getJSONArray("milkyWay").let { arr ->
+        (0 until arr.length()).map { i ->
+            val edge = arr.getJSONArray(i)
+            (0 until edge.length()).map { j ->
+                val p = edge.getJSONArray(j)
+                doubleArrayOf(p.getDouble(0), p.getDouble(1))
+            }
+        }
     }
 
     /** 星座絵は data/ の生成物。**アプリと同じものを読む**（ここで形を変えると実機とずれる） */
@@ -102,8 +129,9 @@ class StarMapRendererTest {
     }
 
     @Test
-    fun `衛星モードには星も星座名も混ざらない`() {
-        // 星と軌跡は同じ緑 8 階調なので、混ざると「どれが衛星か」が読めなくなる
+    fun `衛星だけを描くときは星も星座名も混ざらない`() {
+        // #36 で衛星は星座に重ねる形になったが、**衛星だけを描く経路そのものは残す**
+        // （星と衛星の点は同じ緑 8 階調なので、混ぜる量を選べる状態にしておく）
         val renderer = StarMapRenderer(catalog())
         val look = Look(180.0, 45.0)
         val empty = renderer.render(
@@ -114,6 +142,10 @@ class StarMapRendererTest {
             limitMagnitude = 5.0,
             drawLines = false,
             drawStars = false,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = false,
+            drawGuides = false,
         )
         assertTrue("衛星が居ないのに光っている", empty.gray.all { (it.toInt() and 0xFF) == 0 })
         assertTrue("星座名が残っている", empty.labels.isEmpty())
@@ -134,6 +166,10 @@ class StarMapRendererTest {
             drawLines = false,
             tracks = listOf(track),
             drawStars = false,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = false,
+            drawGuides = false,
         )
         val lit = withTrack.gray.count { (it.toInt() and 0xFF) > 0 }
         println("衛星モードで光った画素 $lit / ${withTrack.gray.size}、ラベル ${withTrack.labels.map { it.text }}")
@@ -347,6 +383,167 @@ class StarMapRendererTest {
             withBodies.labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text },
             withBodies.constellationNames(),
         )
+    }
+
+    /**
+     * **地平線と方位の文字は画像に焼く。**
+     *
+     * キャンバスのテキスト枠は 8 つしかなく星座名で埋まるので、文字も線で描く。
+     * 空と地面の境目と北東南西が出ると、**星図が「空の絵」として読める**。
+     */
+    @Test
+    fun `低い空では地平線と方位の文字が出る`() {
+        val renderer = StarMapRenderer(catalog())
+        // 高度 6°。視野の縦は 22° なので地平線が画面に入る
+        val look = Look(178.0, 6.0)
+        fun render(guides: Boolean) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 4.2,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = false,
+            drawGuides = guides,
+        )
+        val without = render(false).gray
+        val withGuides = render(true).gray
+        val added = withGuides.indices.count { withGuides[it] != without[it] }
+        println("目印で増えた画素 $added")
+        assertTrue("地平線と方位が描かれていない: $added", added > 200)
+
+        // 下半分（地平線のあたり）に増えていること
+        val lowerHalf = (STAR_MAP_HEIGHT / 2 * STAR_MAP_WIDTH until withGuides.size)
+            .count { withGuides[it] != without[it] }
+        assertTrue("地平線が下半分に無い: $lowerHalf", lowerHalf > 100)
+
+        // 天頂近くでは地平線が入らないので、増えるのは視野中心の印だけ
+        val zenith = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = Look(178.0, 70.0),
+            fovDeg = 35.0,
+            limitMagnitude = 4.2,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = false,
+        )
+        assertTrue("視野中心の印が無い", zenith.gray.isNotEmpty())
+    }
+
+    /**
+     * **空の濃さで、見えない星と星座が落ちる。**
+     *
+     * 街の明かりの下で 5 等まで描くと、**目に見えていない星まで星図に写る**ので、
+     * 見ている人は対応が取れない。かといって絞りすぎるとスカスカになるので、
+     * 段階の間で「星も星座も減るが、消えはしない」ことを押さえる。
+     */
+    @Test
+    fun `空の濃さを上げると星と星座が増える`() {
+        val renderer = StarMapRenderer(catalog())
+        // オリオン座のあたり（明るい星と暗い星座が混じっている）
+        val look = Look(180.0, 45.0)
+        fun render(density: SkyDensity) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = density.limitMagnitude,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            constellationMagnitude = density.constellationMagnitude,
+        )
+
+        val town = render(SkyDensity.TOWN)
+        val standard = render(SkyDensity.STANDARD)
+        val all = render(SkyDensity.ALL)
+        val counts = listOf(town, standard, all).map { map -> map.gray.count { it != 0.toByte() } }
+        val names = listOf(town, standard, all).map { it.constellationNames().size }
+        println("空の濃さ 画素 $counts / 星座名 $names")
+
+        assertTrue("濃さを上げても画素が増えていない: $counts", counts[0] < counts[1] && counts[1] < counts[2])
+        assertTrue("街の空で星座が全部消えている", names[0] > 0)
+        assertTrue("濃さを上げても星座が増えていない: $names", names[0] <= names[1] && names[1] <= names[2])
+        assertTrue("既定でスカスカ（星座が 2 個未満）: ${names[1]}", names[1] >= 2)
+    }
+
+    /**
+     * **大三角は星の位置そのものに引く。**
+     *
+     * 星座絵と違って結びは HIP で星を指すので、**線の端が星の上に来る**。
+     * 名前も出す（初心者が空で最初に見つけるのは星座名より大三角）。
+     */
+    @Test
+    fun `大三角は星の位置に破線で引かれ、名前が出る`() {
+        val catalog = catalog()
+        val triangle = catalog.asterisms.first { it.nameJa == "冬の大三角" }
+        val renderer = StarMapRenderer(catalog)
+        // 3 つの星の重心を向く。冬の大三角が視野に収まる時刻を選んである
+        val d = daysFromJ2000(epoch)
+        val lst = localSiderealDeg(d, site.lonDeg)
+        val positions = triangle.hips.map { hip ->
+            val star = catalog.stars.first { it.hip == hip }
+            toApparentAltAz(star.raDeg, star.decDeg, lst, site.latDeg)
+        }
+        val look = Look(positions.sumOf { it[0] } / 3.0, positions.sumOf { it[1] } / 3.0)
+
+        fun render(guides: Boolean) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 60.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawAsterisms = guides,
+        )
+
+        val without = render(false)
+        val with = render(true)
+        println("冬の大三角: なし ${without.gray.count { it != 0.toByte() }} → あり ${with.gray.count { it != 0.toByte() }}")
+        assertTrue("結びで画素が増えていない", with.gray.count { it != 0.toByte() } > without.gray.count { it != 0.toByte() })
+        assertTrue(
+            "結びの名前が出ていない: ${with.labels.map { it.text }}",
+            with.labels.any { it.kind == LabelKind.ASTERISM && it.text == "冬の大三角" },
+        )
+        assertTrue("結びの名前だけになっている", with.labels.any { it.kind == LabelKind.CONSTELLATION })
+    }
+
+    /** 天の川は帯として敷く。**星座絵と同じ段**（星より暗い） */
+    @Test
+    fun `天の川は星より暗い段で敷かれる`() {
+        val catalog = catalog()
+        val renderer = StarMapRenderer(catalog)
+        // **帯のある向きをデータから探す。** 時刻で決め打ちすると、その夜に地平線の下にある
+        val lst = localSiderealDeg(daysFromJ2000(epoch), site.lonDeg)
+        val onBand = catalog.milkyWay.flatten()
+            .map { toApparentAltAz(it[0], it[1], lst, site.latDeg) }
+            .firstOrNull { it[1] > 30.0 }
+        assertTrue("天の川が空に出ていない時刻を選んでいる", onBand != null)
+        val look = Look(onBand!![0], onBand[1])
+        fun render(band: Boolean) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = band,
+        )
+        val without = render(false).gray.count { it != 0.toByte() }
+        val withBand = render(true)
+        println("天の川: なし $without → あり ${withBand.gray.count { it != 0.toByte() }}")
+        assertTrue("天の川で画素が増えていない", withBand.gray.count { it != 0.toByte() } > without)
+        val levels = withBand.gray.map { (it.toInt() and 0xFF) ushr 5 }.toSet()
+        assertTrue("天の川の段が見当たらない", 2 in levels)
     }
 
     /**

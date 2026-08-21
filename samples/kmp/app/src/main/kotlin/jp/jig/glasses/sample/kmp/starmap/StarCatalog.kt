@@ -22,6 +22,14 @@ class Constellation(val abbr: String, val nameJa: String, val lines: List<List<D
  */
 typealias ConstellationFigure = List<List<DoubleArray>>
 
+/**
+ * 大三角のような星の結び。**初心者が空で最初に見つけるのはこれ。**
+ *
+ * 星座線は 88 星座ぶんあってどれがどれか分からないが、**3 点の結びは覚えられる**。
+ * 星は HIP 番号で指すので、位置は星表と同じ（歳差込み）。
+ */
+class Asterism(val nameJa: String, val hips: List<Int>, val closed: Boolean)
+
 class StarCatalog(
     val stars: List<Star>,
     val constellations: List<Constellation>,
@@ -29,6 +37,10 @@ class StarCatalog(
     val boundaries: ConstellationBoundaryCatalog? = null,
     /** 略号 → 星座絵。持っていない星座は線だけになる */
     val figures: Map<String, ConstellationFigure> = emptyMap(),
+    /** 大三角などの結び */
+    val asterisms: List<Asterism> = emptyList(),
+    /** 天の川の帯の縁（J2000 の赤経・赤緯）。歳差 0.36° は帯の幅 20° に対して無視できる */
+    val milkyWay: List<List<DoubleArray>> = emptyList(),
 ) {
     companion object {
         fun load(context: Context): StarCatalog {
@@ -107,12 +119,42 @@ class StarCatalog(
                 }
             }
 
+            // 結びと天の川も無くても動く（データを足し忘れても星図は出る）
+            val asterisms = ArrayList<Asterism>()
+            val milkyWay = ArrayList<List<DoubleArray>>()
+            runCatching { JSONObject(context.readAsset("asterisms.json")) }.getOrNull()?.let { json ->
+                json.optJSONArray("asterisms")?.let { arr ->
+                    for (i in 0 until arr.length()) {
+                        val a = arr.getJSONObject(i)
+                        val hipsArray = a.getJSONArray("hips")
+                        asterisms += Asterism(
+                            nameJa = a.getString("nameJa"),
+                            hips = (0 until hipsArray.length()).map { hipsArray.getInt(it) },
+                            closed = a.getBoolean("closed"),
+                        )
+                    }
+                }
+                json.optJSONArray("milkyWay")?.let { arr ->
+                    for (i in 0 until arr.length()) {
+                        val edge = arr.getJSONArray(i)
+                        val points = ArrayList<DoubleArray>(edge.length())
+                        for (j in 0 until edge.length()) {
+                            val p = edge.getJSONArray(j)
+                            points += doubleArrayOf(p.getDouble(0), p.getDouble(1))
+                        }
+                        milkyWay += points
+                    }
+                }
+            }
+
             return StarCatalog(
                 stars,
                 constellations,
                 names,
                 ConstellationBoundaryCatalog(boundaryRows, boundaryNames),
                 figures,
+                asterisms,
+                milkyWay,
             )
         }
 
