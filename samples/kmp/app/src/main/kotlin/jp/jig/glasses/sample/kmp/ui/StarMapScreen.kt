@@ -667,6 +667,38 @@ fun StarMapScreen(
         }
     }
 
+    /**
+     * **自動で取れる検証材料はここに残す。** 夜の屋外では画面を見ていられないので、
+     * 実機で確かめたいこと（画角・ロール・加速度軸・視野内の天体）が
+     * 動かしているだけでログに溜まるようにしておく。
+     *
+     * **方位合わせに依存させない。** 画角・加速度軸・ロールは方位と無関係で、
+     * 屋内で磁気が歪んでいるときにこそ先に確かめたいもの。
+     */
+    LaunchedEffect(Unit) {
+        while (lastImuAt == 0L) delay(POLL_MS)
+        while (true) {
+            val inView = withContext(Dispatchers.Default) {
+                bodiesInView(site, System.currentTimeMillis(), look(), fovDeg)
+            }
+            log(
+                "自己診断 画角=%.0f°%s ロール=%s(%s) 天体=%s / 加速度軸: %s".format(
+                    fovDeg,
+                    if (fovMeasured) "(実測)" else "(仮)",
+                    measuredRollDeg?.let { "%.1f°".format(it) } ?: "未測定",
+                    if (rollFollow) "追従" else "固定",
+                    if (inView.isEmpty()) {
+                        "なし"
+                    } else {
+                        inView.joinToString("・") { "%s(%.0f°)".format(it.nameJa, it.distanceFromCenterDeg) }
+                    },
+                    axisEstimate?.describe() ?: "計測待ち",
+                ),
+            )
+            delay(SELF_CHECK_LOG_MS)
+        }
+    }
+
     /** 生のヨーと補正後の方位を定期記録し、補正が実機で効き続けているか確認できるようにする。 */
     LaunchedEffect(calibratedAt) {
         if (calibratedAt == null) return@LaunchedEffect
@@ -708,26 +740,6 @@ fun StarMapScreen(
                         driftRateDps,
                         if (settled) "はい" else "いいえ",
                     ),
-            )
-            // **自動で取れる検証材料はここに全部残す。** 夜の屋外では画面を見ていられないので、
-            // 実機で確かめたいこと（画角・ロール・加速度軸・視野内の天体）が
-            // 動かしているだけでログに溜まるようにしておく
-            val inView = withContext(Dispatchers.Default) {
-                bodiesInView(site, now, look(), fovDeg)
-            }
-            log(
-                "自己診断 画角=%.0f°%s ロール=%s(%s) 天体=%s / 加速度軸: %s".format(
-                    fovDeg,
-                    if (fovMeasured) "(実測)" else "(仮)",
-                    measuredRollDeg?.let { "%.1f°".format(it) } ?: "未測定",
-                    if (rollFollow) "追従" else "固定",
-                    if (inView.isEmpty()) {
-                        "なし"
-                    } else {
-                        inView.joinToString("・") { "%s(%.0f°)".format(it.nameJa, it.distanceFromCenterDeg) }
-                    },
-                    axisEstimate?.describe() ?: "計測待ち",
-                ),
             )
             previousYaw = glassYaw
             previousFused = yawNow()
@@ -1586,6 +1598,12 @@ private const val REDRAW_DEG = 6.0
  * 12° なら端で 3.7° まで残る。**これ以上細かく追うと転送のほうが体験を壊す**
  */
 private const val ROLL_REDRAW_DEG = 12.0
+
+/**
+ * 自己診断を残す間隔。**加速度軸の判定は 20 秒ぶんの静止サンプルで決まる**ので、
+ * それより短く出しても同じ行が並ぶだけ。長すぎると判定できた瞬間を見逃す
+ */
+private const val SELF_CHECK_LOG_MS = 30_000L
 
 /** 画角のスライダーは 1° 刻み。20〜50° の 31 段 */
 private const val FOV_SLIDER_STEPS = 29
