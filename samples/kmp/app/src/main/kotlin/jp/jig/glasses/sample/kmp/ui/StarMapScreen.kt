@@ -100,7 +100,9 @@ import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.starmap.toCanvasElements
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -134,7 +136,13 @@ fun StarMapScreen(
     onRecalibrate: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
+    // ここから launch / async したものが 1 つ失敗すると兄弟が全部キャンセルされる。
+    // 実機では TTS の先読みが圏外で失敗したとき、6DoF の購読とログまで道連れになった
+    val uiScope = rememberCoroutineScope()
+    val scope = remember(uiScope) {
+        CoroutineScope(uiScope.coroutineContext + SupervisorJob(uiScope.coroutineContext[Job]))
+    }
     val commandManager = remember(client) { client.createCommandManager() }
     val imuStarted by commandManager.imuDataStarted.collectAsState()
 
@@ -289,7 +297,9 @@ fun StarMapScreen(
     // 1 パケットあたりの見積り。転送の実時間は測る手段が無いので、目で見て詰められるようにする
     val packetMs = PACKET_MS_DEFAULT
     var sending by remember { mutableStateOf(false) }
-    var shownLabels by remember { mutableStateOf(0) }
+    // **前のフレームの要素そのもの**を持つ。数だけだと、短い名前に変わったときに
+    // 前の名前の末尾が消え残る（実機で「る」が右上に残った）
+    var shownElements by remember { mutableStateOf(emptyList<CommandManager.CanvasElement>()) }
 
     // 6DoF のサンプルが着いた時刻。初回受信待ちとログに使う
     var lastImuAt by remember { mutableStateOf(0L) }
@@ -550,10 +560,10 @@ fun StarMapScreen(
                 map
             }
             val placed = shown.toCanvasElements()
-            for (batch in placed.batched(shownLabels)) {
+            for (batch in placed.batched(shownElements)) {
                 commandManager.sendCanvasElements(batch)
             }
-            shownLabels = placed.size
+            shownElements = placed
             // 印だけ動かすために、この画像を焼いた条件を覚えておく
             drawnLook = look()
             drawnFov = fov.toDouble()
@@ -699,11 +709,10 @@ fun StarMapScreen(
             // 0 機になったときも早期 return しない。ここで全スロットを消さないと、
             // 視野から出た衛星名の末尾だけが右上などに残り続ける
             val elements = StarMap(map.width, map.height, map.gray, moved).toCanvasElements()
-            val previousCount = if (elements.isEmpty()) CANVAS_TEXT_SLOTS else shownLabels
-            for (batch in elements.batched(previousCount)) {
+            for (batch in elements.batched(shownElements)) {
                 commandManager.sendCanvasElements(batch)
             }
-            shownLabels = elements.size
+            shownElements = elements
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -736,7 +745,7 @@ fun StarMapScreen(
                 onTrace = { trace -> scope.launch { log(trace.logLine()) } },
             ),
             fallback = speaker,
-            scope = scope,
+            caller = scope,
             log = { text, failed -> log(text, failed) },
         )
     }
@@ -923,7 +932,7 @@ fun StarMapScreen(
         scope.launch {
             sendGate.withLock {
                 commandManager.clearCanvas()
-                shownLabels = 0
+                shownElements = emptyList()
             }
         }
         log(if (satelliteMode) "人工衛星モードへ" else "星座モードへ")
@@ -1147,7 +1156,7 @@ fun StarMapScreen(
                         scope.launch {
                             sendGate.withLock {
                                 commandManager.clearCanvas()
-                                shownLabels = 0
+                                shownElements = emptyList()
                                 log("表示を消した")
                             }
                         }
