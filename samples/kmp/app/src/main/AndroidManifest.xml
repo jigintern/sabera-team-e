@@ -23,7 +23,7 @@
 
     <application
         android:name=".GlassesSampleApplication"
-        android:label="SABERA"
+        android:label="星しるべ"
         android:supportsRtl="true"
         android:theme="@style/Theme.GlassesSample">
 
