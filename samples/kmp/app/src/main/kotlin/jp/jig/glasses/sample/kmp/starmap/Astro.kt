@@ -79,6 +79,31 @@ fun precess(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
     return doubleArrayOf(ra, asin(bigC.coerceIn(-1.0, 1.0)) * DEG)
 }
 
+/**
+ * 指定日の赤道座標を J2000.0 へ戻す。IAU 星座境界が定義された B1875.0 へ変換する前段で使う。
+ * [precess] が作る回転行列の転置を掛けるため、同じ近似内では正確に逆変換できる。
+ */
+fun inversePrecess(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
+    val basisX = precess(0.0, 0.0, d).let { equatorialVector(it[0], it[1]) }
+    val basisY = precess(90.0, 0.0, d).let { equatorialVector(it[0], it[1]) }
+    val basisZ = precess(0.0, 90.0, d).let { equatorialVector(it[0], it[1]) }
+    val current = equatorialVector(raDeg, decDeg)
+    return equatorialAngles(
+        Vec3(current dot basisX, current dot basisY, current dot basisZ).normalized(),
+    )
+}
+
+private fun equatorialVector(raDeg: Double, decDeg: Double): Vec3 {
+    val ra = raDeg * RAD
+    val dec = decDeg * RAD
+    return Vec3(cos(dec) * cos(ra), cos(dec) * sin(ra), sin(dec))
+}
+
+private fun equatorialAngles(v: Vec3): DoubleArray = doubleArrayOf(
+    ((atan2(v.y, v.x) * DEG) % 360.0 + 360.0) % 360.0,
+    asin(v.z.coerceIn(-1.0, 1.0)) * DEG,
+)
+
 /** 赤道座標 → 地平座標。返すのは [方位角, 高度]（真北基準・東回り） */
 fun toAltAz(raDeg: Double, decDeg: Double, lstDeg: Double, latDeg: Double): DoubleArray {
     val hourAngle = (lstDeg - raDeg) * RAD
@@ -90,6 +115,50 @@ fun toAltAz(raDeg: Double, decDeg: Double, lstDeg: Double, latDeg: Double): Doub
         sin(dec) * cos(lat) - cos(dec) * sin(lat) * cos(hourAngle),
     )
     return doubleArrayOf(((az * DEG) % 360.0 + 360.0) % 360.0, alt * DEG)
+}
+
+/**
+ * 標準大気での Bennett の近似式。地平線では約 0.48° 持ち上がり、10°以上では 0.1°未満になる。
+ * 気温・気圧が無いので低高度の完全補正ではないが、補正しない場合の系統誤差を減らす。
+ */
+fun apparentAltitudeDeg(geometricAltitudeDeg: Double): Double {
+    if (geometricAltitudeDeg < -1.0 || geometricAltitudeDeg >= 90.0) return geometricAltitudeDeg
+    val correction = 1.02 / tan(
+        (geometricAltitudeDeg + 10.3 / (geometricAltitudeDeg + 5.11)) * RAD,
+    ) / 60.0
+    return (geometricAltitudeDeg + correction).coerceAtMost(90.0)
+}
+
+/** 見かけの高度を、星表計算で使う幾何学的高度へ反復で戻す。 */
+fun geometricAltitudeDeg(apparentDeg: Double): Double {
+    var geometric = apparentDeg
+    repeat(8) { geometric -= apparentAltitudeDeg(geometric) - apparentDeg }
+    return geometric
+}
+
+/** 赤道座標 → 大気差を含む見かけの地平座標。 */
+fun toApparentAltAz(raDeg: Double, decDeg: Double, lstDeg: Double, latDeg: Double): DoubleArray {
+    val geometric = toAltAz(raDeg, decDeg, lstDeg, latDeg)
+    geometric[1] = apparentAltitudeDeg(geometric[1])
+    return geometric
+}
+
+/** 地平座標 → その日の赤道座標。星座境界の照合用に [toAltAz] を逆変換する。 */
+fun toRaDec(azDeg: Double, altDeg: Double, lstDeg: Double, latDeg: Double): DoubleArray {
+    val horizontal = enu(azDeg, altDeg)
+    val lat = latDeg * RAD
+    val sinDec = horizontal.y * cos(lat) + horizontal.z * sin(lat)
+    val dec = asin(sinDec.coerceIn(-1.0, 1.0))
+    val cosDecCosHour = -horizontal.y * sin(lat) + horizontal.z * cos(lat)
+    val hourAngle = atan2(-horizontal.x, cosDecCosHour)
+    val ra = ((lstDeg - hourAngle * DEG) % 360.0 + 360.0) % 360.0
+    return doubleArrayOf(ra, dec * DEG)
+}
+
+/** 指定日の赤道座標を Roman (1987) の境界表が使う B1875.0 へ変換する。 */
+fun precessDateToB1875(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
+    val j2000 = inversePrecess(raDeg, decDeg, d)
+    return precess(j2000[0], j2000[1], B1875_DAYS_FROM_J2000)
 }
 
 /**
@@ -135,3 +204,5 @@ fun normalizeDeg(deg: Double): Double {
     if (v < -180.0) v += 360.0
     return if (abs(v) < 1e-12) 0.0 else v
 }
+
+private const val B1875_DAYS_FROM_J2000 = -45_655.74145

@@ -46,14 +46,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.jigglass.glass.GlassClient
+import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimate
+import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimator
 import jp.jig.glasses.sample.kmp.starmap.CalibrationMarker
+import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.Compass
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
-import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,7 +70,7 @@ import kotlin.math.sin
 fun CalibrationScreen(
     client: GlassClient,
     constellation: ConstellationBackground,
-    onCalibrated: (headingOffset: Double, calibratedAt: Long) -> Unit,
+    onCalibrated: (CalibrationResult) -> Unit,
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -77,6 +79,7 @@ fun CalibrationScreen(
     val imuStarted by commandManager.imuDataStarted.collectAsState()
     val compass = remember { Compass(context) }
     val locator = remember { Locator(context) }
+    val estimator = remember { CalibrationEstimator() }
 
     var site by remember { mutableStateOf(ObservationDefaults.site) }
     var siteStatus by remember { mutableStateOf("観測地を確認中") }
@@ -88,6 +91,8 @@ fun CalibrationScreen(
     var phonePitch by remember { mutableStateOf<Double?>(null) }
     var compassAccuracy by remember { mutableIntStateOf(SensorManager.SENSOR_STATUS_UNRELIABLE) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var lastEstimatedImuAt by remember { mutableLongStateOf(0L) }
+    var estimate by remember { mutableStateOf<CalibrationEstimate?>(null) }
 
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -151,11 +156,25 @@ fun CalibrationScreen(
     }
 
     LaunchedEffect(site) {
+        estimator.reset()
+        estimate = null
+        lastEstimatedImuAt = 0L
         while (true) {
             now = System.currentTimeMillis()
             phoneHeading = compass.trueHeadingDeg(site, now)
             phonePitch = compass.pitchDeg
             compassAccuracy = compass.accuracy
+            val heading = phoneHeading
+            val pitch = phonePitch
+            val yaw = glassYaw
+            val glassPitchNow = glassPitch
+            if (
+                heading != null && pitch != null && yaw != null && glassPitchNow != null &&
+                lastImuAt > lastEstimatedImuAt && now - lastImuAt < IMU_FRESH_MS
+            ) {
+                estimate = estimator.add(lastImuAt, heading, pitch, yaw, glassPitchNow)
+                lastEstimatedImuAt = lastImuAt
+            }
             delay(SENSOR_POLL_MS)
         }
     }
@@ -169,7 +188,8 @@ fun CalibrationScreen(
     val headingReady = phoneHeading != null
     val compassReady = compassAccuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM
     val facingReady = tiltDifference != null && tiltDifference <= MAX_TILT_DIFFERENCE_DEG
-    val ready = imuFresh && headingReady && compassReady && facingReady
+    val stabilityReady = estimate?.stable == true
+    val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady
 
     Box(Modifier.fillMaxSize()) {
         SeasonalConstellationBackground(
@@ -211,6 +231,7 @@ fun CalibrationScreen(
                             headingReady = headingReady,
                             compassReady = compassReady,
                             facingReady = facingReady,
+                            stabilityReady = stabilityReady,
                         ),
                         style = MaterialTheme.typography.titleMedium,
                         color = if (ready) SaberaGreen else Color.White,
@@ -265,6 +286,12 @@ fun CalibrationScreen(
                             PrecisionRow("6DoF", if (imuFresh) "受信中" else "待機中", imuFresh)
                             PrecisionRow("磁気精度", compassAccuracyLabel(compassAccuracy), compassReady)
                             PrecisionRow(
+                                "静止精度",
+                                estimate?.let { "±%.1f° / %d件".format(it.headingStdDeg, it.sampleCount) }
+                                    ?: "計測中",
+                                stabilityReady,
+                            )
+                            PrecisionRow(
                                 "位置情報",
                                 compactSiteStatus(siteStatus),
                                 !siteStatus.contains("仮使用"),
@@ -277,9 +304,17 @@ fun CalibrationScreen(
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
-                    val heading = phoneHeading ?: return@Button
-                    val yaw = glassYaw ?: return@Button
-                    onCalibrated(normalizeDeg(heading - yaw), System.currentTimeMillis())
+                    val stable = estimate?.takeIf { it.stable } ?: return@Button
+                    onCalibrated(
+                        CalibrationResult(
+                            headingOffsetDeg = stable.headingOffsetDeg,
+                            pitchOffsetDeg = stable.pitchOffsetDeg,
+                            calibratedAt = System.currentTimeMillis(),
+                            headingStdDeg = stable.headingStdDeg,
+                            pitchStdDeg = stable.pitchStdDeg,
+                            sampleCount = stable.sampleCount,
+                        ),
+                    )
                 },
                 enabled = ready,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
@@ -465,11 +500,13 @@ private fun calibrationInstruction(
     headingReady: Boolean,
     compassReady: Boolean,
     facingReady: Boolean,
+    stabilityReady: Boolean,
 ): String = when {
     !imuFresh -> "グラスの6DoFを待っています"
     !headingReady -> "スマホを立ててください"
     !compassReady -> "スマホを8の字に動かしてください"
     !facingReady -> "スマホを視線に正対させてください"
+    !stabilityReady -> "そのまま1秒ほど止めてください"
     else -> "センサーを確認しています"
 }
 

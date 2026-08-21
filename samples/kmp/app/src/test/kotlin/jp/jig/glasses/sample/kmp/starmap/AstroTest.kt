@@ -74,6 +74,34 @@ class AstroTest {
         assertEquals(20.0, normalizeDeg(-170.0 - 170.0), 1e-9)
     }
 
+    @Test
+    fun `地平座標と赤道座標を往復できる`() {
+        val d = daysFromJ2000(epoch)
+        val lst = localSiderealDeg(d, 136.1846)
+        val horizontal = toAltAz(101.2872, -16.7161, lst, 35.9432)
+        val equatorial = toRaDec(horizontal[0], horizontal[1], lst, 35.9432)
+
+        assertEquals(101.2872, equatorial[0], 1e-9)
+        assertEquals(-16.7161, equatorial[1], 1e-9)
+    }
+
+    @Test
+    fun `歳差を逆変換するとJ2000座標へ戻る`() {
+        val d = daysFromJ2000(epoch)
+        val moved = precess(101.2872, -16.7161, d)
+        val restored = inversePrecess(moved[0], moved[1], d)
+
+        assertEquals(101.2872, restored[0], 1e-8)
+        assertEquals(-16.7161, restored[1], 1e-8)
+    }
+
+    @Test
+    fun `地平線付近の大気差を補正して往復できる`() {
+        assertEquals(0.48, apparentAltitudeDeg(0.0), 0.03)
+        assertEquals(0.0, geometricAltitudeDeg(apparentAltitudeDeg(0.0)), 1e-4)
+        assertTrue("高高度では補正が小さい", apparentAltitudeDeg(45.0) - 45.0 < 0.02)
+    }
+
     private fun angularSeparation(ra1: Double, dec1: Double, ra2: Double, dec2: Double): Double {
         val a = enu(ra1, dec1)
         val b = enu(ra2, dec2)

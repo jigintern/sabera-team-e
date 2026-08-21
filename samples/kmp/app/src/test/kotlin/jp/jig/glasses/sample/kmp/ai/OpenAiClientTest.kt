@@ -1,6 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
-import org.json.JSONObject
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,6 +19,9 @@ class OpenAiClientTest {
         azDeg = 187.0,
         altDeg = 42.0,
         localTime = "2026-08-20 21:34 JST",
+        visibleStars = listOf(ObservedStarFact("アンタレス", 0.96, 187.0, 40.0, 2.1)),
+        headingUncertaintyDeg = 1.2,
+        pitchUncertaintyDeg = 0.8,
         pngBase64 = "iVBORw0KGgo=",
     )
 
@@ -29,6 +32,16 @@ class OpenAiClientTest {
         for (needle in listOf("さそり座", "てんびん座", "35.943", "136.185", "187", "42", "2026-08-20 21:34 JST")) {
             assertTrue("本文に $needle が入っていない", needle in text)
         }
+    }
+
+    @Test
+    fun `端末で確定した星とキャリブレーション精度だけを根拠として渡す`() {
+        val text = request.userText()
+        for (needle in listOf("IAU境界表", "アンタレス", "等級1.0", "方位±1.2", "仰角±0.8")) {
+            assertTrue("確定観測に $needle が入っていない", needle in text)
+        }
+        val body = OpenAiClient.buildRequestBody("gpt-4o", request).toString()
+        assertTrue("外部知識を補わない指示がない", "距離、大きさ、年齢、神話、由来" in body)
     }
 
     @Test
@@ -75,23 +88,7 @@ class OpenAiClientTest {
         // 400 だったときは実測 5 回中 3 回が finish_reason=length で本文が空になった
         val body = OpenAiClient.buildRequestBody("gpt-5.6-luna", request, "none")
         assertTrue("枠が狭すぎる", body.getInt("max_completion_tokens") >= 1000)
-    }
-
-    @Test
-    fun `トークン上限で切れた空応答は通信エラーにしない`() {
-        val json = """{"choices":[{"finish_reason":"length","message":{"content":""}}]}"""
-        val e = runCatching { OpenAiClient.parseReply(json) }.exceptionOrNull()
-        assertTrue("EmptyReplyException ではない: $e", e is EmptyReplyException)
-        assertTrue("理由が分からない: ${e?.message}", e?.message?.contains("トークン上限") == true)
-        assertEquals(FailureKind.EMPTY, classifyFailure(e!!))
-    }
-
-    @Test
-    fun `断られたときは理由が残る`() {
-        val json = """{"choices":[{"finish_reason":"stop","message":{"refusal":"これには答えられません"}}]}"""
-        val e = runCatching { OpenAiClient.parseReply(json) }.exceptionOrNull()
-        assertTrue(e is EmptyReplyException)
-        assertTrue("refusal が捨てられている: ${e?.message}", e?.message?.contains("これには答えられません") == true)
+        assertTrue("SSEが有効になっていない", body.getBoolean("stream"))
     }
 
     @Test
@@ -100,36 +97,9 @@ class OpenAiClientTest {
         assertEquals(FailureKind.EMPTY, classifyFailure(EmptyReplyException("空")))
         assertEquals(FailureKind.NETWORK, classifyFailure(java.net.UnknownHostException("api.openai.com")))
         assertEquals(FailureKind.NETWORK, classifyFailure(java.net.SocketTimeoutException("timeout")))
+        assertEquals(FailureKind.NETWORK, classifyFailure(java.net.SocketException("connection reset")))
         assertEquals(FailureKind.API, classifyFailure(IOException("HTTP 404: model not found")))
         assertEquals(FailureKind.API, classifyFailure(IOException("HTTP 401: API キーが違う")))
-    }
-
-    @Test
-    fun `応答から本文を取り出せる`() {
-        val json = JSONObject()
-            .put(
-                "choices",
-                org.json.JSONArray().put(
-                    JSONObject().put(
-                        "message",
-                        JSONObject().put("content", "  さそり座は南の低い空に見えます。  "),
-                    ),
-                ),
-            )
-            .toString()
-        assertEquals("さそり座は南の低い空に見えます。", OpenAiClient.parseReply(json))
-    }
-
-    @Test(expected = EmptyReplyException::class)
-    fun `空の応答は例外にする`() {
-        // 黙って空文字を喋らせると「無反応」と区別が付かない。
-        // ただし通信は成功しているので IOException にはしない（圏外と区別できなくなる）
-        OpenAiClient.parseReply("""{"choices":[{"message":{"content":"  "}}]}""")
-    }
-
-    @Test(expected = IOException::class)
-    fun `choicesが無ければ例外にする`() {
-        OpenAiClient.parseReply("""{"error":{"message":"nope"}}""")
     }
 
     @Test

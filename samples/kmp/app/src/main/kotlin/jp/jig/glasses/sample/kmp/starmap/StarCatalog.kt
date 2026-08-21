@@ -18,6 +18,7 @@ class StarCatalog(
     val stars: List<Star>,
     val constellations: List<Constellation>,
     val brightNames: Map<Int, String>,
+    val boundaries: ConstellationBoundaryCatalog? = null,
 ) {
     companion object {
         fun load(context: Context): StarCatalog {
@@ -56,7 +57,30 @@ class StarCatalog(
                 }
             }
 
-            return StarCatalog(stars, constellations, names)
+            val boundaryJson = JSONObject(context.readAsset("constellation-boundaries.json"))
+            val boundaryRows = ArrayList<ConstellationBoundary>(boundaryJson.getInt("count"))
+            boundaryJson.getJSONArray("boundaries").let { arr ->
+                for (i in 0 until arr.length()) {
+                    val row = arr.getJSONArray(i)
+                    boundaryRows += ConstellationBoundary(
+                        raLowHours = row.getDouble(0),
+                        raUpHours = row.getDouble(1),
+                        decLowDeg = row.getDouble(2),
+                        abbreviation = row.getString(3),
+                    )
+                }
+            }
+            val boundaryNames = HashMap<String, String>()
+            boundaryJson.getJSONObject("namesJa").let { obj ->
+                for (key in obj.keys()) boundaryNames[key] = obj.getString(key)
+            }
+
+            return StarCatalog(
+                stars,
+                constellations,
+                names,
+                ConstellationBoundaryCatalog(boundaryRows, boundaryNames),
+            )
         }
 
         private fun Context.readAsset(name: String): String =
