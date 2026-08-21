@@ -19,7 +19,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,7 +30,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,46 +45,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GlassClient
-import jp.jig.glasses.sample.kmp.starmap.ACCEPTABLE_RESIDUAL_DEG
-import jp.jig.glasses.sample.kmp.starmap.AlignmentCorrespondence
-import jp.jig.glasses.sample.kmp.starmap.AlignmentGuidance
-import jp.jig.glasses.sample.kmp.starmap.AlignmentHold
-import jp.jig.glasses.sample.kmp.starmap.AlignmentHoldState
-import jp.jig.glasses.sample.kmp.starmap.AlignmentSolution
-import jp.jig.glasses.sample.kmp.starmap.AlignmentTarget
-import jp.jig.glasses.sample.kmp.starmap.AlignmentTargets
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_LABEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimate
 import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimator
 import jp.jig.glasses.sample.kmp.starmap.CalibrationMarker
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
-import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
-import jp.jig.glasses.sample.kmp.starmap.CelestialAlignment
 import jp.jig.glasses.sample.kmp.starmap.Compass
 import jp.jig.glasses.sample.kmp.starmap.Locator
-import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.MagneticQuality
 import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.StarCatalog
-import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
-import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
-import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
-import jp.jig.glasses.sample.kmp.starmap.bridgeToRawYaw
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
-import jp.jig.glasses.sample.kmp.starmap.glassGuidanceText
-import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
-import jp.jig.glasses.sample.kmp.starmap.phoneGuidanceText
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.PI
 import kotlin.math.abs
@@ -109,25 +82,8 @@ fun CalibrationScreen(
     val locator = remember { Locator(context) }
     val estimator = remember { CalibrationEstimator() }
 
-    // 段階 2（天体アライメント）。段階 1 の結果を土台に、十字を明るい星へ重ねて方位を詰める
-    val alignment = remember { CelestialAlignment() }
-    val hold = remember { AlignmentHold() }
-    val yawCorrector = remember { YawDriftCorrector() }
-    var stage by remember { mutableStateOf(CalibrationStage.PHONE_SYNC) }
-    var coarse by remember { mutableStateOf<CalibrationResult?>(null) }
-    // 段階 1 のオフセットは「生のヨー」基準。段階 2 は首を振って何十秒も使うので
-    // ドリフト補正後のヨー基準に置き換えて持つ（最後に生のヨー基準へ戻す）
-    var coarseHeadingCorrectedDeg by remember { mutableStateOf(0.0) }
-    var fusedYaw by remember { mutableStateOf<Double?>(null) }
-    var holdState by remember { mutableStateOf<AlignmentHoldState?>(null) }
-    var targets by remember { mutableStateOf<AlignmentTargets?>(null) }
-    var candidates by remember { mutableStateOf<List<AlignmentTarget>>(emptyList()) }
-    var guidance by remember { mutableStateOf<AlignmentGuidance?>(null) }
-    var manualTargetId by remember { mutableStateOf<Int?>(null) }
-    var solution by remember { mutableStateOf<AlignmentSolution?>(null) }
     var magnetic by remember { mutableStateOf<MagneticQuality?>(null) }
     var lastMagneticAt by remember { mutableLongStateOf(0L) }
-    val correspondences = remember { mutableStateListOf<AlignmentCorrespondence>() }
 
     var site by remember { mutableStateOf(ObservationDefaults.site) }
     var siteStatus by remember { mutableStateOf("観測地を確認中") }
@@ -141,6 +97,9 @@ fun CalibrationScreen(
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var lastEstimatedImuAt by remember { mutableLongStateOf(0L) }
     var estimate by remember { mutableStateOf<CalibrationEstimate?>(null) }
+    // 自動確定と手動のボタンが同じ結果を二度渡さないための札。
+    // onCalibrated で画面は切り替わるが、そのあとの合成が 1 回走ることがある
+    var committed by remember { mutableStateOf(false) }
 
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -157,30 +116,17 @@ fun CalibrationScreen(
     DisposableEffect(commandManager) {
         val imuJob: Job = scope.launch {
             commandManager.imuData.collect { data ->
-                val rawYaw = data.yawDegrees.toDouble()
-                val pitch = -data.pitchDegrees.toDouble()
-                glassYaw = rawYaw
-                glassPitch = pitch
+                // 方位合わせが渡すのは生のヨー基準のオフセット。観測画面のドリフト補正も
+                // 入った時点の生のヨーから始まるので、ここで補正を挟むと基準が二重にずれる
+                glassYaw = data.yawDegrees.toDouble()
+                glassPitch = -data.pitchDegrees.toDouble()
                 lastImuAt = System.currentTimeMillis()
-                // 段階 2 は数十秒かかる。生のヨーは静止中も 0.74°/秒 流れるので、
-                // 観測画面と同じ補正をここでも通す
-                val corrected = yawCorrector.update(
-                    rawYawDeg = rawYaw,
-                    gyroXDps = data.gyroXDps.toDouble(),
-                    gyroYDps = data.gyroYDps.toDouble(),
-                    gyroZDps = data.gyroZDps.toDouble(),
-                    timestampMs = data.timestampMs,
-                )
-                fusedYaw = corrected.yawDeg
-                holdState = hold.add(lastImuAt, corrected.yawDeg, pitch)
             }
         }
         onDispose {
             imuJob.cancel()
             commandManager.stopImuData()
             commandManager.removeCanvasImage(CalibrationMarker.IMAGE_ID)
-            // 観測画面は入口でキャンバスを消さないので、案内の枠はここで消しておく
-            runCatching { commandManager.sendCanvasElements(listOf(guidanceElement(""))) }
         }
     }
 
@@ -259,106 +205,46 @@ fun CalibrationScreen(
     // OS の「磁気精度は高い」はキャリブレーションが済んだかしか言わない。
     // 土地の期待値と比べて明らかに歪んでいるかは、こちらで見る
     // **歪みでは止めない。** 止めていたときは机の上（ノート PC・ディスプレイ・鉄の脚）で
-    // 常時弾かれ、観測画面から先の確認が何もできなかった。
-    // それ以上に、**磁力計を使わない段階 2 まで一緒に塞いでいた**のが逆立ちしていた。
-    // 歪みの答えが天体アライメントなので、そこへ行く道を磁気で閉じてはいけない
+    // 常時弾かれ、観測画面から先の確認が何もできなかった
     val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady
 
-    /** 段階 2 で使う視線。ドリフト補正後のヨー基準で持つ */
-    fun celestialLook(): Look? {
-        val yaw = fusedYaw ?: return null
-        val pitch = glassPitch ?: return null
-        val heading = solution?.headingOffsetDeg ?: coarseHeadingCorrectedDeg
-        val pitchOffset = solution?.pitchOffsetDeg ?: coarse?.pitchOffsetDeg ?: 0.0
-        return Look(
-            azimuthFromYaw(yaw, heading),
-            (pitch + pitchOffset).coerceIn(-90.0, 90.0),
-        )
-    }
+    // **条件が揃わないまま夜を終わらせない。** 星座の同定に要るのは ±20° で、
+    // 磁気精度や仰角差が渋いまま合わせても、どこに何があるかは伝わる
+    val canCommit = imuFresh && headingReady && estimate != null
 
-    LaunchedEffect(stage) {
-        if (stage != CalibrationStage.CELESTIAL || targets != null) return@LaunchedEffect
-        // 星表は 49KB。段階 2 に入るまで読まない
-        val catalog = withContext(Dispatchers.IO) { StarCatalog.load(context) }
-        targets = AlignmentTargets(catalog)
-    }
-
-    LaunchedEffect(stage, targets) {
-        val finder = targets
-        if (stage != CalibrationStage.CELESTIAL || finder == null) return@LaunchedEffect
-        while (true) {
-            val look = celestialLook()
-            if (look != null) {
-                val list = finder.candidates(site, System.currentTimeMillis(), look.azDeg)
-                candidates = list
-                val used = correspondences.map { it.targetName }.toSet()
-                val chosen = manualTargetId?.let { id -> list.firstOrNull { it.id == id } }
-                guidance = when {
-                    chosen != null -> finder.guidanceFor(chosen, list, look)
-                    else -> finder.guide(
-                        candidates = list.filter { it.nameJa !in used },
-                        look = look,
-                        separateFrom = correspondences.firstOrNull()?.let { first ->
-                            list.firstOrNull { it.nameJa == first.targetName }
-                        },
-                    )
-                }
-                // 十字に重なったまま静止が続いたら、その静止区間の平均を対応点にする。
-                // 押した瞬間の値は使わない（ツルに触ると頭が動く）
-                val current = guidance
-                val steady = holdState
-                if (
-                    current != null && steady != null && current.inView &&
-                    !current.ambiguous && steady.confirmed &&
-                    correspondences.none { it.targetName == current.target.nameJa }
-                ) {
-                    correspondences += AlignmentCorrespondence(
-                        atMs = System.currentTimeMillis(),
-                        glassYawDeg = steady.yawDeg,
-                        glassPitchDeg = steady.pitchDeg,
-                        panelX = STAR_MAP_WIDTH / 2.0,
-                        panelY = STAR_MAP_HEIGHT / 2.0,
-                        targetName = current.target.nameJa,
-                        targetAzDeg = current.target.azDeg,
-                        targetAltDeg = current.target.altDeg,
-                    )
-                    // 残差が悪くなっても差し替える。**取り違えを隠さないため**。
-                    // 2 点目の食い違いは「別の星に合わせてしまった」という情報そのもの
-                    solution = alignment.solve(correspondences.toList()) ?: solution
-                    manualTargetId = null
-                    // 同じ静止でもう一度取らないよう窓を空にする
-                    hold.reset()
-                }
-            }
-            delay(GUIDANCE_POLL_MS)
-        }
-    }
-
-    // グラス側の案内。矢印だけで意味が通るようにする（見上げている人は文字を読み込まない）
-    val glassText = if (stage == CalibrationStage.CELESTIAL) glassGuidanceText(guidance, holdState) else ""
-    LaunchedEffect(glassText) {
-        runCatching { commandManager.sendCanvasElements(listOf(guidanceElement(glassText))) }
-    }
-
-    fun finishCelestial() {
-        val solved = solution ?: return
-        val yaw = fusedYaw ?: return
+    /**
+     * 観測画面へ渡して確定する。
+     *
+     * 渡すのは押した瞬間の 1 サンプルではなく、直近の静止区間の平均（[CalibrationEstimator]）。
+     */
+    fun commit(measured: CalibrationEstimate) {
+        if (committed) return
+        committed = true
         onCalibrated(
             CalibrationResult(
-                // 観測画面のドリフト補正は入った時点の生のヨーから始まるので、
-                // 段階 2 で溜めた補正ぶんを足して生のヨー基準へ戻す
-                headingOffsetDeg = bridgeToRawYaw(solved.headingOffsetDeg, yaw, glassYaw ?: yaw),
-                pitchOffsetDeg = solved.pitchOffsetDeg,
+                headingOffsetDeg = measured.headingOffsetDeg,
+                pitchOffsetDeg = measured.pitchOffsetDeg,
                 calibratedAt = System.currentTimeMillis(),
-                // 段階 2 の「ばらつき」は静止のばらつきではなく、対応点どうしの食い違い
-                headingStdDeg = solved.rmsResidualDeg,
-                pitchStdDeg = solved.rmsResidualDeg,
-                sampleCount = solved.count,
-                source = CalibrationSource.CELESTIAL,
-                residualDeg = solved.maxResidualDeg,
-                targetNames = correspondences.joinToString("・") { it.targetName },
+                headingStdDeg = measured.headingStdDeg,
+                pitchStdDeg = measured.pitchStdDeg,
+                sampleCount = measured.sampleCount,
             ),
         )
+    }
+
+    /**
+     * 揃ったまま数秒止まっていたら、ボタンを押させずに観測へ進む。
+     *
+     * **押す動作そのものが精度を壊す。** スマホを顔の前にかざして十字と重ねている姿勢では
+     * 画面のボタンは見えず、指を伸ばせば頭とスマホの両方が動く。
+     * 押させないほうが UX も精度も良くなる、数の少ない場面。
+     */
+    LaunchedEffect(ready) {
+        if (!ready) return@LaunchedEffect
+        delay(AUTO_CONFIRM_MS)
+        // 待っている数秒で崩れていることがあるので、確定の直前にもう一度見る
+        val measured = estimate?.takeIf { it.stable } ?: return@LaunchedEffect
+        commit(measured)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -366,36 +252,6 @@ fun CalibrationScreen(
             constellation = constellation,
             modifier = Modifier.fillMaxSize(),
         )
-
-        if (stage == CalibrationStage.CELESTIAL) {
-            CelestialAlignmentStage(
-                guidance = guidance,
-                holdState = holdState,
-                solution = solution,
-                captured = correspondences.map { it.targetName },
-                candidateCount = candidates.size,
-                loaded = targets != null,
-                imuFresh = imuFresh,
-                onAnotherStar = {
-                    val list = candidates
-                    if (list.isNotEmpty()) {
-                        val currentId = guidance?.target?.id
-                        val index = list.indexOfFirst { it.id == currentId }
-                        manualTargetId = list[(index + 1).mod(list.size)].id
-                    }
-                },
-                onFinish = { finishCelestial() },
-                onReset = {
-                    correspondences.clear()
-                    solution = null
-                    manualTargetId = null
-                    hold.reset()
-                },
-                onSkip = { coarse?.let(onCalibrated) },
-            )
-            return@Box
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -426,7 +282,7 @@ fun CalibrationScreen(
                     )
                     Text(
                         text = if (ready) {
-                            "この位置で合わせられます"
+                            "この位置のまま止めていてください。自動で観測へ進みます"
                         } else {
                             calibrationInstruction(
                                 imuFresh = imuFresh,
@@ -451,7 +307,7 @@ fun CalibrationScreen(
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "このまま合わせると方位がずれます。星に合わせれば磁気は使いません",
+                            text = "このまま合わせると方位がずれます。金属や電子機器から離れてください",
                             style = MaterialTheme.typography.bodySmall,
                             color = SaberaWarning.copy(alpha = 0.8f),
                             textAlign = TextAlign.Center,
@@ -530,20 +386,8 @@ fun CalibrationScreen(
 
             Spacer(Modifier.weight(1f))
             Button(
-                onClick = {
-                    val stable = estimate?.takeIf { it.stable } ?: return@Button
-                    onCalibrated(
-                        CalibrationResult(
-                            headingOffsetDeg = stable.headingOffsetDeg,
-                            pitchOffsetDeg = stable.pitchOffsetDeg,
-                            calibratedAt = System.currentTimeMillis(),
-                            headingStdDeg = stable.headingStdDeg,
-                            pitchStdDeg = stable.pitchStdDeg,
-                            sampleCount = stable.sampleCount,
-                        ),
-                    )
-                },
-                enabled = ready,
+                onClick = { estimate?.let { commit(it) } },
+                enabled = canCommit,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SaberaGreen,
@@ -552,40 +396,13 @@ fun CalibrationScreen(
                     disabledContentColor = Color.White.copy(alpha = 0.55f),
                 ),
             ) {
-                Text(if (ready) "この向きで合わせる" else "精度条件を確認中")
-            }
-            // 段階 2 は任意。ここで残るのは地磁気そのものの誤差（±5〜15°）で、
-            // 星図を空に重ねる（±2〜3°）には届かない
-            TextButton(
-                onClick = {
-                    val stable = estimate?.takeIf { it.stable } ?: return@TextButton
-                    val yaw = fusedYaw
-                    val raw = glassYaw
-                    coarse = CalibrationResult(
-                        headingOffsetDeg = stable.headingOffsetDeg,
-                        pitchOffsetDeg = stable.pitchOffsetDeg,
-                        calibratedAt = System.currentTimeMillis(),
-                        headingStdDeg = stable.headingStdDeg,
-                        pitchStdDeg = stable.pitchStdDeg,
-                        sampleCount = stable.sampleCount,
-                    )
-                    // 段階 1 のオフセットは生のヨー基準。段階 2 の間はドリフト補正後のヨーを使う
-                    coarseHeadingCorrectedDeg = if (yaw != null && raw != null) {
-                        // オフセットは方位 ＋ ヨーなので、ヨーの基準が動いた分は同じ向きに足す
-                        normalizeDeg(stable.headingOffsetDeg + normalizeDeg(yaw - raw))
-                    } else {
-                        stable.headingOffsetDeg
-                    }
-                    correspondences.clear()
-                    solution = null
-                    manualTargetId = null
-                    hold.reset()
-                    stage = CalibrationStage.CELESTIAL
-                },
-                enabled = ready,
-                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
-            ) {
-                Text("さらに星に合わせる（精度モード）")
+                Text(
+                    when {
+                        ready -> "いま合わせて観測へ"
+                        canCommit -> "この精度のまま観測へ"
+                        else -> "センサーを待っています"
+                    },
+                )
             }
             TextButton(
                 onClick = onHome,
@@ -597,165 +414,6 @@ fun CalibrationScreen(
     }
 }
 
-/**
- * 段階 2 の画面。**初心者に星を探させない**ので、名前も方位も言わせない。
- * アプリが「右へ」と言い、見えている明るい点に十字を重ねてもらうだけにする。
- * 何に合わせたかは、合ってから教える。
- */
-@Composable
-private fun CelestialAlignmentStage(
-    guidance: AlignmentGuidance?,
-    holdState: AlignmentHoldState?,
-    solution: AlignmentSolution?,
-    captured: List<String>,
-    candidateCount: Int,
-    loaded: Boolean,
-    imuFresh: Boolean,
-    onAnotherStar: () -> Unit,
-    onFinish: () -> Unit,
-    onReset: () -> Unit,
-    onSkip: () -> Unit,
-) {
-    val holdProgress = holdState?.let {
-        (it.heldMs.toFloat() / AlignmentHold.REQUIRED_HOLD_MS).coerceIn(0f, 1f)
-    } ?: 0f
-    val inView = guidance?.inView == true
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 32.dp)
-            .padding(horizontal = 20.dp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("星に合わせる", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-        Text(
-            "名前は知らなくて大丈夫です。案内する方へ首を向けてください",
-            modifier = Modifier.padding(top = 6.dp),
-            color = Color.White.copy(alpha = 0.72f),
-            textAlign = TextAlign.Center,
-        )
-
-        Spacer(Modifier.height(20.dp))
-        Card(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 380.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xED0C151D)),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                AlignmentTarget(
-                    ready = inView,
-                    modifier = Modifier.fillMaxWidth().height(190.dp),
-                )
-                Text(
-                    text = when {
-                        !imuFresh -> "グラスの6DoFを待っています"
-                        !loaded -> "星表を読み込んでいます"
-                        // 候補を使い切ったときに「星がありません」と言うと嘘になる
-                        guidance == null && solution != null ->
-                            "ほかに離れた明るい星がありません。この精度で進められます"
-                        else -> phoneGuidanceText(guidance, holdState)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (inView) SaberaGreen else Color.White,
-                    textAlign = TextAlign.Center,
-                )
-                if (inView && holdState?.steady == true) {
-                    Spacer(Modifier.height(10.dp))
-                    LinearProgressIndicator(
-                        progress = { holdProgress },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = SaberaGreen,
-                        trackColor = Color.White.copy(alpha = 0.18f),
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Card(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 380.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xED152028)),
-        ) {
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                PrecisionRow(
-                    "合わせ先",
-                    guidance?.let { "%s（%.1f等）".format(it.target.nameJa, it.target.magnitude) } ?: "選定中",
-                    guidance != null && !guidance.ambiguous,
-                )
-                PrecisionRow(
-                    "向き",
-                    guidance?.let {
-                        if (it.inView) "視野の中" else "%s へ %.0f°".format(
-                            if (it.turnDeg >= 0) "右" else "左",
-                            abs(it.turnDeg),
-                        )
-                    } ?: "—",
-                    inView,
-                )
-                PrecisionRow(
-                    "取れた点",
-                    if (captured.isEmpty()) "まだ 0 点" else "${captured.size} 点・" + captured.joinToString("・"),
-                    captured.isNotEmpty(),
-                )
-                PrecisionRow(
-                    "ずれ",
-                    solution?.let { "%.1f°".format(it.maxResidualDeg) } ?: "未計測",
-                    solution != null && solution.maxResidualDeg <= ACCEPTABLE_RESIDUAL_DEG,
-                )
-                PrecisionRow("候補", if (loaded) "$candidateCount 個" else "読み込み中", candidateCount > 0)
-                if (solution != null) {
-                    Text(
-                        alignmentGrade(solution.maxResidualDeg) +
-                            if (solution.count < 2) "（もう 1 点合わせると確かめられます）" else "",
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        color = Color.White.copy(alpha = 0.78f),
-                        fontSize = 13.sp,
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.weight(1f))
-        Button(
-            onClick = onFinish,
-            enabled = solution != null,
-            modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(54.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = SaberaGreen,
-                contentColor = SaberaOnAccent,
-                disabledContainerColor = SaberaGreen.copy(alpha = 0.30f),
-                disabledContentColor = Color.White.copy(alpha = 0.55f),
-            ),
-        ) {
-            Text(if (solution == null) "十字を重ねてください" else "この精度で観測へ")
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(
-                onClick = onAnotherStar,
-                enabled = candidateCount > 1,
-                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
-            ) {
-                Text("別の目印にする")
-            }
-            TextButton(
-                onClick = onReset,
-                enabled = captured.isNotEmpty(),
-                colors = ButtonDefaults.textButtonColors(contentColor = SaberaWarning),
-            ) {
-                Text("取り直す")
-            }
-        }
-        TextButton(
-            onClick = onSkip,
-            colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
-        ) {
-            Text("やめてスマホ合わせのまま進む")
-        }
-    }
-}
 
 @Composable
 private fun CompassDial(
@@ -943,26 +601,6 @@ private fun compactSiteStatus(status: String): String = when {
     else -> "仮設定"
 }
 
-/** 案内の 1 行。空文字なら枠ごと消える（[batched] の消し方と同じ） */
-private fun guidanceElement(text: String) = if (text.isEmpty()) {
-    CommandManager.CanvasElement(id = GUIDANCE_ELEMENT_ID, x = 0, y = 0, width = 0, height = 0, text = "")
-} else {
-    CommandManager.CanvasElement(
-        id = GUIDANCE_ELEMENT_ID,
-        x = (PANEL_WIDTH - GUIDANCE_WIDTH) / 2,
-        y = PANEL_HEIGHT - CANVAS_LABEL_HEIGHT - 12,
-        width = GUIDANCE_WIDTH,
-        height = CANVAS_LABEL_HEIGHT,
-        text = text,
-    )
-}
-
-/** 方位合わせの段。段階 2 は任意で、段階 1 の結果を土台にする */
-private enum class CalibrationStage {
-    PHONE_SYNC,
-    CELESTIAL,
-}
-
 private const val MAX_TILT_DIFFERENCE_DEG = 3.0
 private const val SENSOR_POLL_MS = 100L
 private const val IMU_FRESH_MS = 1_000L
@@ -970,9 +608,10 @@ private const val IMU_FRESH_MS = 1_000L
 /** 磁気の期待値（WMM）の評価は 1 秒ごとで足りる */
 private const val MAGNETIC_POLL_MS = 1_000L
 
-/** 候補の選び直しは 0.5 秒ごと。星の位置は 1 秒で 0.004° しか動かない */
-private const val GUIDANCE_POLL_MS = 500L
-
-/** 案内の文字。星図と同時には出さないので、テキストの枠は 1 つでよい */
-private const val GUIDANCE_ELEMENT_ID = 0
-private const val GUIDANCE_WIDTH = 480
+/**
+ * 精度条件が揃ったまま、これだけ続いたら自動で確定する。
+ *
+ * [CalibrationEstimator] の窓が 1.2 秒で、そのうち 0.8 秒ぶんが揃わないと `stable` にならない。
+ * ここで 2 秒足すので、実際には**3 秒ほど止めた区間**を渡すことになる。
+ */
+private const val AUTO_CONFIRM_MS = 2_000L
