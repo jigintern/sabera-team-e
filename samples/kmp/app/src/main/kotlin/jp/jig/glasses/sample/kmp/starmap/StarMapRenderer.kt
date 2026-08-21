@@ -28,6 +28,15 @@ data class Aimed(val nameJa: String, val azDeg: Double, val altDeg: Double) {
         }
 }
 
+/** AIへ渡せる、端末の星表と座標計算だけから得た観測事実。 */
+data class ObservedStarFact(
+    val nameJa: String,
+    val magnitude: Double,
+    val azDeg: Double,
+    val altDeg: Double,
+    val distanceFromCenterDeg: Double,
+)
+
 /**
  * 星図を 1 画素 1 バイトのグレースケールに描く。
  * 3bit への量子化と RLE 圧縮は SDK 側がやるので、ここでは 0-255 のまま置く。
@@ -82,7 +91,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 val star = catalog.stars[i]
                 if (star.magnitude > limitMagnitude) continue
                 val p = precessed.stars[i]
-                val aa = toAltAz(p[0], p[1], lst, site.latDeg)
+                val aa = toApparentAltAz(p[0], p[1], lst, site.latDeg)
                 val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
                 if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
                 // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
@@ -145,22 +154,17 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return StarMap(width, height, gray, merged)
     }
 
-    /**
-     * 視線に近い順に星座名を返す。AI に「いま何を見ているか」を伝えるために使う。
-     *
-     * **これは近似。** 仕様（coordinate-system.md ⑦）が求めるのは IAU 境界による判定で、
-     * そちらは天球を隙間なく分割するので属する星座が一意に決まる。ここでは星座線までの
-     * 角距離が最小の星座を返しているだけなので、線の無い暗い領域では答えがずれる。
-     * 境界表（Roman 1987）を入れるときは**この関数の中身だけ差し替えれば済む**。
-     */
+    /** 視線が属する IAU 星座を先頭にし、周辺の星座線に近いものを続ける。 */
     fun constellationsNear(site: Site, epochMillis: Long, look: Look, max: Int = 4): List<String> {
+        if (max <= 0) return emptyList()
         val d = daysFromJ2000(epochMillis)
         val lst = localSiderealDeg(d, site.lonDeg)
         val precessed = precessed(d)
         val target = enu(look.azDeg, look.altDeg)
+        val primary = constellationAt(site, epochMillis, look)
 
         fun sky(raDec: DoubleArray): Vec3 {
-            val aa = toAltAz(raDec[0], raDec[1], lst, site.latDeg)
+            val aa = toApparentAltAz(raDec[0], raDec[1], lst, site.latDeg)
             return enu(aa[0], aa[1])
         }
 
@@ -202,8 +206,55 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             }
             scored += nearest to catalog.constellations[i].nameJa
         }
-        return scored.sortedByDescending { it.first }.take(max).map { it.second }
+        return buildList {
+            if (primary != null) add(primary)
+            scored.sortedByDescending { it.first }
+                .asSequence()
+                .map { it.second }
+                .filterNot { it == primary }
+                .take((max - size).coerceAtLeast(0))
+                .forEach(::add)
+        }
     }
+
+    /** Roman (1987) の B1875.0 境界表で、視線中心が属する星座を判定する。 */
+    fun constellationAt(site: Site, epochMillis: Long, look: Look): String? {
+        val boundaries = catalog.boundaries ?: return null
+        val d = daysFromJ2000(epochMillis)
+        val date = toRaDec(
+            look.azDeg,
+            geometricAltitudeDeg(look.altDeg),
+            localSiderealDeg(d, site.lonDeg),
+            site.latDeg,
+        )
+        val b1875 = precessDateToB1875(date[0], date[1], d)
+        return boundaries.nameAtB1875(b1875[0], b1875[1])
+    }
+
+    /** 視野に実際に入る固有名つきの明るい星を、中心に近い順で返す。 */
+    fun visibleNamedStars(
+        site: Site,
+        epochMillis: Long,
+        look: Look,
+        fovDeg: Double,
+        max: Int = 5,
+    ): List<ObservedStarFact> {
+        if (max <= 0) return emptyList()
+        val d = daysFromJ2000(epochMillis)
+        val lst = localSiderealDeg(d, site.lonDeg)
+        val precessed = precessed(d)
+        val target = enu(look.azDeg, look.altDeg)
+        return catalog.stars.indices.asSequence().mapNotNull { index ->
+            val name = catalog.brightNames[catalog.stars[index].hip] ?: return@mapNotNull null
+            val position = precessed.stars[index]
+            val aa = toApparentAltAz(position[0], position[1], lst, site.latDeg)
+            val distance = acos((enu(aa[0], aa[1]) dot target).coerceIn(-1.0, 1.0)) * DEG
+            if (distance > fovDeg / 2.0) return@mapNotNull null
+            ObservedStarFact(name, catalog.stars[index].magnitude, aa[0], aa[1], distance)
+        }.sortedBy { it.distanceFromCenterDeg }.take(max).toList()
+    }
+
+    fun knownBrightStarNames(): Set<String> = catalog.brightNames.values.toSet()
 
     /**
      * いま空に出ている星座を、高度の高い順に返す。
@@ -216,7 +267,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val found = ArrayList<Aimed>()
         for (i in catalog.constellations.indices) {
             val center = precessed.centers[i] ?: continue
-            val aa = toAltAz(center[0], center[1], lst, site.latDeg)
+            val aa = toApparentAltAz(center[0], center[1], lst, site.latDeg)
             if (aa[1] < minAltDeg) continue
             found += Aimed(catalog.constellations[i].nameJa, aa[0], aa[1])
         }
@@ -296,7 +347,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val cy = height / 2.0
 
         fun screen(raDec: DoubleArray): DoubleArray? {
-            val aa = toAltAz(raDec[0], raDec[1], lst, site.latDeg)
+            val aa = toApparentAltAz(raDec[0], raDec[1], lst, site.latDeg)
             val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: return null
             return if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) null else q
         }
@@ -576,8 +627,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         basis: Basis,
         k: Double,
     ) {
-        val a = toAltAz(from[0], from[1], lst, site.latDeg)
-        val b = toAltAz(to[0], to[1], lst, site.latDeg)
+        val a = toApparentAltAz(from[0], from[1], lst, site.latDeg)
+        val b = toApparentAltAz(to[0], to[1], lst, site.latDeg)
         val va = enu(a[0], a[1])
         val vb = enu(b[0], b[1])
         val ang = acos((va dot vb).coerceIn(-1.0, 1.0))

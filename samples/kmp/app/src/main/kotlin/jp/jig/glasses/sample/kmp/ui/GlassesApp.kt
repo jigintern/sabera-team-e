@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import app.jigglass.glass.GlassManager
+import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 
 /**
  * ホームから観測を始め、未接続なら接続確認、接続済みなら方位合わせを経て星図へ進む。
@@ -19,6 +20,10 @@ import app.jigglass.glass.GlassManager
 fun GlassesApp(manager: GlassManager) {
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
     var headingOffset by rememberSaveable { mutableDoubleStateOf(0.0) }
+    var pitchOffset by rememberSaveable { mutableDoubleStateOf(0.0) }
+    var headingStd by rememberSaveable { mutableDoubleStateOf(0.0) }
+    var pitchStd by rememberSaveable { mutableDoubleStateOf(0.0) }
+    var calibrationSamples by rememberSaveable { mutableLongStateOf(0L) }
     var calibratedAt by rememberSaveable { mutableLongStateOf(0L) }
     val client by manager.connectedDevice.collectAsState(initial = null)
     val constellation = rememberSeasonalConstellation()
@@ -49,9 +54,13 @@ fun GlassesApp(manager: GlassManager) {
                 CalibrationScreen(
                     client = currentClient,
                     constellation = constellation,
-                    onCalibrated = { offset, at ->
-                        headingOffset = offset
-                        calibratedAt = at
+                    onCalibrated = { result ->
+                        headingOffset = result.headingOffsetDeg
+                        pitchOffset = result.pitchOffsetDeg
+                        headingStd = result.headingStdDeg
+                        pitchStd = result.pitchStdDeg
+                        calibrationSamples = result.sampleCount.toLong()
+                        calibratedAt = result.calibratedAt
                         screen = AppScreen.STAR_MAP
                     },
                     onHome = { screen = AppScreen.HOME },
@@ -71,8 +80,16 @@ fun GlassesApp(manager: GlassManager) {
             } else {
                 StarMapScreen(
                     client = currentClient,
-                    initialHeadingOffset = headingOffset,
-                    initialCalibratedAt = calibratedAt.takeIf { it > 0L },
+                    initialCalibration = calibratedAt.takeIf { it > 0L }?.let {
+                        CalibrationResult(
+                            headingOffsetDeg = headingOffset,
+                            pitchOffsetDeg = pitchOffset,
+                            calibratedAt = it,
+                            headingStdDeg = headingStd,
+                            pitchStdDeg = pitchStd,
+                            sampleCount = calibrationSamples.toInt(),
+                        )
+                    },
                     constellation = constellation,
                     onRecalibrate = { screen = AppScreen.CALIBRATION },
                 )

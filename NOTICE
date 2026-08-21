@@ -49,6 +49,19 @@ data/stars.json, data/constellations.json, data/bright-stars.json
 
 --------------------------------------------------------------------------------
 
+data/constellation-boundaries.json
+
+このファイルは CDS VizieR カタログ VI/42 の星座境界表から生成したものです。
+
+  Identification of a Constellation from a Position
+  Nancy G. Roman, Publications of the Astronomical Society of the Pacific,
+  Volume 99, pages 695-699 (1987)
+  https://cdsarc.cds.unistra.fr/viz-bin/ReadMe/VI/42
+
+座標は B1875.0、境界表は 357 行です。生成手順は tools/build-star-catalog.py にあります。
+
+--------------------------------------------------------------------------------
+
 data/ に同梱する人工衛星の軌道要素（TLE）
 
 これらは CelesTrak から取得したものです。

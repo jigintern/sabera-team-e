@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -137,7 +138,7 @@ class OpenAiClient(
          * **推論トークンと枠を共用する**ので、推論するモデルでは思考だけで使い切ることがある。
          * 400 にしていたときは、実測で 4 回中 4 回が `finish_reason: length` で本文が空だった
          * （プロンプトを 250 文字・指示 9 個に厚くしたぶん悪化した。200 文字の頃は 5 回中 3 回）。
-         * 喋る長さは [SYSTEM_PROMPT]（4〜5 文・250 文字程度）で縛っているので、
+         * 喋る長さは [SYSTEM_PROMPT]（3〜4 文・180 文字程度）で縛っているので、
          * ここを広げても喋る量は増えない。**切られないための余裕**でしかない。
          */
         private const val MAX_COMPLETION_TOKENS = 2000
@@ -147,12 +148,8 @@ class OpenAiClient(
          *
          * 読み上げは記号をそのまま読むので、箇条書きや括弧が混ざると聞けたものではない。
          * 長さを絞るのは、解説中に別の方向を向いても最後まで続ける仕様（app-flow.md）のため。
-         * **250 文字で読み上げは 45 秒前後。** その間は次のタップを受けないので、これ以上は伸ばさない。
-         *
-         * **わざとらしさは言い方から出て、ロマンは中身から出る。**
-         * 飾った言い回しはどの声で読んでも芝居に聞こえるので禁じ、代わりに
-         * **距離や年数といった事実で宇宙の大きさを出させる**（「この光は十七年前に出た」）。
-         * 情緒を言葉づかいで作らせると芝居に戻る（issue #20）。
+         * **根拠の無い距離や神話を補わせない。** 星表が持つ固有名・等級と、端末が計算した
+         * 方角・高度だけを確定観測として渡す。知識を広げるより、いま見えている内容を正しく話す。
          *
          * **箇条書きを増やすほど 1 つずつは薄まる。** 実測で、11 個並べた版は末尾の 2 つが
          * 無視された（名前の言い直しと「楽しんでください」が残った）。**守らせたい注意は
@@ -162,14 +159,11 @@ class OpenAiClient(
             "あなたはプラネタリウムの解説員です。スマートグラス越しに空を見ている人へ、" +
                 "いま視野に入っている星座を解説します。\n" +
                 "・読み上げる文章なので、箇条書き・記号・括弧・見出しを使わず、地の文だけで書く\n" +
-                "・4 文から 5 文、250 文字程度に収める\n" +
+                "・3 文から 4 文、180 文字程度に収める\n" +
                 "・その場で口に出す話し言葉で書く。もったいぶった言い回しや体言止めは使わない\n" +
-                "・星座の探し方（目印になる明るい星や並び）を必ず 1 つ入れる\n" +
-                "・距離や大きさの数字をひとつ入れて、宇宙の広さが体で分かるようにする。" +
-                "「いま見えている光は十七年前に出たもの」のように、聞いた人が自分と引き比べられる形にする\n" +
-                "・知って面白い雑学をひとつ添える\n" +
-                "・神話や由来は一言まで\n" +
-                "・ロマンは事実で出す。飾った言葉で出そうとしない\n" +
+                "・内容に使える事実は、ユーザーが確定観測として示したものと添付星図の形だけ\n" +
+                "・距離、大きさ、年齢、神話、由来、季節、確定観測にない星の固有名を補わない\n" +
+                "・固有名つきの星が提示された場合だけ、その星を探す目印として使う\n" +
                 "・視野に複数の星座があるときは、最初に挙がっている星座を主役にする"
 
         /**
@@ -321,6 +315,13 @@ data class ExplainRequest(
     val altDeg: Double,
     /** 「2026-08-20 21:34 JST」のような、タイムゾーンまで含む表記 */
     val localTime: String,
+    /** 端末の同梱星表から視野内と判定できた固有名星だけ。 */
+    val visibleStars: List<ObservedStarFact> = emptyList(),
+    /** 方位合わせ時の標準偏差。解説に断定精度を伝える。 */
+    val headingUncertaintyDeg: Double? = null,
+    val pitchUncertaintyDeg: Double? = null,
+    /** 応答に視野外の星名が混ざったときの検査用。 */
+    val knownBrightStarNames: Set<String> = emptySet(),
     /** 星図の PNG を Base64 にしたもの。無しでも解説は作れる */
     val pngBase64: String? = null,
 ) {
@@ -344,6 +345,25 @@ data class ExplainRequest(
         append(" 度、仰角 ")
         append(altDeg.toInt())
         append(" 度です。")
+        append("\n確定観測: 視線中心の星座はIAU境界表で判定済みです。")
+        if (headingUncertaintyDeg != null && pitchUncertaintyDeg != null) {
+            append("方位合わせのばらつきは方位±")
+            append("%.1f".format(headingUncertaintyDeg))
+            append("度、仰角±")
+            append("%.1f".format(pitchUncertaintyDeg))
+            append("度です。")
+        }
+        if (visibleStars.isEmpty()) {
+            append("この視野内に、同梱星表で固有名を確認できる明るい星はありません。")
+        } else {
+            append("視野内で確認できる固有名星は")
+            append(
+                visibleStars.joinToString("、") {
+                    "${it.nameJa}（等級%.1f、中心から%.1f度）".format(it.magnitude, it.distanceFromCenterDeg)
+                },
+            )
+            append("です。")
+        }
         if (pngBase64 != null) {
             append(
                 "\n添付は、その視野をスマートグラスに出している星図です。" +
@@ -355,6 +375,7 @@ data class ExplainRequest(
         // **ここが最後に来るよう並べてある。** システム側の箇条書きに混ぜた版では
         // どちらも無視された（名前を言い直し、「楽しんでください」で締めた）
         append("\nこの星座について解説してください。")
+        append("確定観測に書かれていない事実は補わないでください。")
         append("星座の名前は既に読み上げてあるので、名前を言い直さず続きから話してください。")
         append("最後は言い切って終わり、聞き手への呼びかけや誘いを付けないでください。")
     }

@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +19,9 @@ class OpenAiClientTest {
         azDeg = 187.0,
         altDeg = 42.0,
         localTime = "2026-08-20 21:34 JST",
+        visibleStars = listOf(ObservedStarFact("アンタレス", 0.96, 187.0, 40.0, 2.1)),
+        headingUncertaintyDeg = 1.2,
+        pitchUncertaintyDeg = 0.8,
         pngBase64 = "iVBORw0KGgo=",
     )
 
@@ -28,6 +32,16 @@ class OpenAiClientTest {
         for (needle in listOf("さそり座", "てんびん座", "35.943", "136.185", "187", "42", "2026-08-20 21:34 JST")) {
             assertTrue("本文に $needle が入っていない", needle in text)
         }
+    }
+
+    @Test
+    fun `端末で確定した星とキャリブレーション精度だけを根拠として渡す`() {
+        val text = request.userText()
+        for (needle in listOf("IAU境界表", "アンタレス", "等級1.0", "方位±1.2", "仰角±0.8")) {
+            assertTrue("確定観測に $needle が入っていない", needle in text)
+        }
+        val body = OpenAiClient.buildRequestBody("gpt-4o", request).toString()
+        assertTrue("外部知識を補わない指示がない", "距離、大きさ、年齢、神話、由来" in body)
     }
 
     @Test

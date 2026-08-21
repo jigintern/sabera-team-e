@@ -66,6 +66,7 @@ import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
@@ -122,8 +123,7 @@ import kotlin.math.roundToInt
 @Composable
 fun StarMapScreen(
     client: GlassClient,
-    initialHeadingOffset: Double,
-    initialCalibratedAt: Long?,
+    initialCalibration: CalibrationResult?,
     constellation: ConstellationBackground,
     onRecalibrate: () -> Unit,
 ) {
@@ -216,8 +216,9 @@ fun StarMapScreen(
         }
     }
 
-    val headingOffset = initialHeadingOffset
-    val calibratedAt = initialCalibratedAt
+    val headingOffset = initialCalibration?.headingOffsetDeg ?: 0.0
+    val pitchOffset = initialCalibration?.pitchOffsetDeg ?: 0.0
+    val calibratedAt = initialCalibration?.calibratedAt
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
@@ -428,13 +429,19 @@ fun StarMapScreen(
         }
     }
 
-    fun look(): Look = Look((normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0, glassPitch)
+    fun look(): Look = Look(
+        (normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0,
+        (glassPitch + pitchOffset).coerceIn(-90.0, 90.0),
+    )
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
     fun latchedLook(): Look {
         val target = System.currentTimeMillis() - LATCH_MS
         val entry = lookHistory.lastOrNull { it.first <= target } ?: return look()
-        return Look((normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0, entry.third)
+        return Look(
+            (normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0,
+            (entry.third + pitchOffset).coerceIn(-90.0, 90.0),
+        )
     }
 
     /** 送れたら true。送らずに帰ったときに「描いた視線」を進めると、次の描き直しが止まる */
@@ -791,8 +798,10 @@ fun StarMapScreen(
         }
 
         narrationJob = scope.launch {
-            val names = withContext(Dispatchers.Default) {
-                r.constellationsNear(site, System.currentTimeMillis(), latched)
+            val observedAt = System.currentTimeMillis()
+            val (names, visibleStars) = withContext(Dispatchers.Default) {
+                r.constellationsNear(site, observedAt, latched) to
+                    r.visibleNamedStars(site, observedAt, latched, fov.toDouble())
             }
             // 送るのはグラスに出ている絵そのもの。別に描き直すと、聞いている人の視界と食い違う
             val png = lastMap?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
@@ -805,6 +814,10 @@ fun StarMapScreen(
                     latDeg = site.latDeg,
                     lonDeg = site.lonDeg,
                     localTime = timestamp.format(Date()),
+                    visibleStars = visibleStars,
+                    headingUncertaintyDeg = initialCalibration?.headingStdDeg,
+                    pitchUncertaintyDeg = initialCalibration?.pitchStdDeg,
+                    knownBrightStarNames = r.knownBrightStarNames(),
                     pngBase64 = png,
                 ),
             )
@@ -1035,7 +1048,14 @@ fun StarMapScreen(
                 StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
                 StatusRow(
                     "方位合わせ",
-                    calibratedAt?.let { "${(System.currentTimeMillis() - it) / 1000} 秒前" } ?: "まだ",
+                    initialCalibration?.let {
+                        "${(System.currentTimeMillis() - it.calibratedAt) / 1000} 秒前・" +
+                            "方位±%.1f° / 仰角±%.1f°（%d件）".format(
+                                it.headingStdDeg,
+                                it.pitchStdDeg,
+                                it.sampleCount,
+                            )
+                    } ?: "まだ",
                 )
             Spacer(Modifier.height(16.dp))
             CommandButton("方位を合わせる", onClick = onRecalibrate)

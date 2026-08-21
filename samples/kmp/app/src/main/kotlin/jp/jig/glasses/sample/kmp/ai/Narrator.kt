@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ai
 
 import android.util.Log
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,8 +40,12 @@ class NarrationInput(
     val latDeg: Double,
     val lonDeg: Double,
     val localTime: String,
+    val visibleStars: List<ObservedStarFact> = emptyList(),
+    val headingUncertaintyDeg: Double? = null,
+    val pitchUncertaintyDeg: Double? = null,
+    val knownBrightStarNames: Set<String> = emptySet(),
     /** 星図の PNG（Base64）。作れなければ null で、そのときは文字だけで頼む */
-    val pngBase64: String?,
+    val pngBase64: String? = null,
 )
 
 /** 人工衛星モードで喋るときに渡すもの。端末が計算した確定値だけ */
@@ -101,7 +106,15 @@ class Narrator(
             azDeg = input.azDeg,
             altDeg = input.altDeg,
             localTime = input.localTime,
+            visibleStars = input.visibleStars,
+            headingUncertaintyDeg = input.headingUncertaintyDeg,
+            pitchUncertaintyDeg = input.pitchUncertaintyDeg,
+            knownBrightStarNames = input.knownBrightStarNames,
             pngBase64 = input.pngBase64,
+        )
+        val guard = ExplanationGuard(
+            visibleStarNames = input.visibleStars.mapTo(mutableSetOf()) { it.nameJa },
+            knownStarNames = input.knownBrightStarNames,
         )
 
         val received = StringBuilder()
@@ -114,6 +127,11 @@ class Narrator(
             received.append(delta)
             _state.value = NarrationState(NarrationPhase.GENERATING, received.toString(), constellation)
             for (sentence in sentenceAccumulator.append(delta)) {
+                val rejection = guard.rejectionReason(sentence)
+                if (rejection != null) {
+                    log("根拠のない解説文を除外[$rejection]: $sentence", true)
+                    continue
+                }
                 completedText.append(sentence)
                 speaker.add(sentence)
                 completedSentences++
@@ -166,11 +184,28 @@ class Narrator(
         // モデルが最後の句点を省いたときだけ残りをここで積む。
         // 既に積んだ文は二重に送らない
         sentenceAccumulator.flush().takeIf { it.isNotEmpty() }?.let {
-            speaker.add(it)
-            completedSentences++
+            val rejection = guard.rejectionReason(it)
+            if (rejection == null) {
+                completedText.append(it)
+                speaker.add(it)
+                completedSentences++
+            } else {
+                log("根拠のない解説文を除外[$rejection]: $it", true)
+            }
         }
-        _state.value = NarrationState(NarrationPhase.SPEAKING, explanation, constellation)
-        log("解説を読み上げ中（${explanation.length} 文字・${completedSentences}文）", false)
+        if (completedSentences == 0) {
+            val fallback = groundedFallback(constellation, input)
+            speaker.add(fallback)
+            _state.value = NarrationState(NarrationPhase.FAILED, fallback, constellation)
+            log("AI解説に根拠のある文が無いため端末の観測事実へ切り替え", true)
+            return
+        }
+        val accepted = completedText.toString().trim()
+        _state.value = NarrationState(NarrationPhase.SPEAKING, accepted, constellation)
+        log(
+            "解説を読み上げ中（受信${explanation.length}文字・採用${accepted.length}文字・${completedSentences}文）",
+            false,
+        )
     }
 
     /**
@@ -268,6 +303,21 @@ class Narrator(
          * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
          */
         fun opening(constellation: String): String = "${constellation}ですね。"
+    }
+}
+
+/** AI本文が全て棄却されたときも、端末が計算した事実だけで必ず応答する。 */
+fun groundedFallback(subject: String, input: NarrationInput): String = buildString {
+    append(subject)
+    append("の領域を、")
+    append(compass(input.azDeg))
+    append("の空、高度 ")
+    append(input.altDeg.toInt())
+    append(" 度あたりで見ています。")
+    if (input.visibleStars.isNotEmpty()) {
+        append("視野では")
+        append(input.visibleStars.take(2).joinToString("と") { it.nameJa })
+        append("が目印です。")
     }
 }
 

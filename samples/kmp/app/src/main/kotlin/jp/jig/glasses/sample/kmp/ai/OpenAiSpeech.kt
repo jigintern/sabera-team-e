@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 
 /**
@@ -61,6 +62,20 @@ class OpenAiSpeech(
         }
     }
 
+    /**
+     * 1文ぶんを最後まで検証してから返す。再生中の通信アンダーランを避ける本番経路。
+     */
+    suspend fun synthesize(text: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        stream(text) { buffer, length ->
+            if (output.size() + length > MAX_PCM_BYTES) {
+                throw IOException("AI音声が長すぎる")
+            }
+            output.write(buffer, 0, length)
+        }
+        return output.toByteArray().also { Pcm16FrameAssembler.requireValid(it) }
+    }
+
     private suspend fun streamOnce(body: ByteArray, attempt: Int, onPcm: (ByteArray, Int) -> Unit) {
         val startedAt = System.nanoTime()
         var firstByteMs: Long? = null
@@ -79,8 +94,13 @@ class OpenAiSpeech(
                 val detail = connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
                 throw SpeechException(status, requestId, OpenAiClient.errorMessage(status, detail))
             }
+            val contentType = connection.contentType.orEmpty().substringBefore(';').lowercase()
+            if (contentType.contains("json") || contentType.contains("text") || contentType.contains("wav")) {
+                throw IOException("AI音声の形式がPCMではない: $contentType")
+            }
             val buffer = ByteArray(CHUNK_BYTES)
             val expectedBytes = connection.contentLengthLong
+            val frames = Pcm16FrameAssembler(onPcm)
             connection.inputStream.use { input ->
                 while (currentCoroutineContext().isActive) {
                     val read = input.read(buffer)
@@ -88,13 +108,14 @@ class OpenAiSpeech(
                     if (read > 0) {
                         if (firstByteMs == null) firstByteMs = elapsedMs(startedAt)
                         bytes += read
-                        onPcm(buffer, read)
+                        frames.append(buffer, read)
                     }
                 }
             }
             if (expectedBytes >= 0 && bytes < expectedBytes) {
                 throw java.io.EOFException("AI音声が完了前に切れた ($bytes/$expectedBytes bytes)")
             }
+            frames.finish()
             completed = true
         } finally {
             runCatching {
@@ -147,6 +168,9 @@ class OpenAiSpeech(
         /** 読み出す単位。小さすぎると呼び出し回数だけ増え、大きすぎると鳴り出しが遅れる */
         private const val CHUNK_BYTES = 4096
 
+        /** 250文字の上限を十分に超える約3分ぶん。異常応答でメモリを使い切らないための保険。 */
+        private const val MAX_PCM_BYTES = 8 * 1024 * 1024
+
         /**
          * リクエスト本文。
          *
@@ -159,7 +183,7 @@ class OpenAiSpeech(
                 .put("model", model)
                 .put("voice", voice)
                 .put("input", text)
-                // 生 PCM。届いたぶんから鳴らすためで、デコーダを持たずに済む
+                // 生 PCM。1文を検証して静的再生でき、デコーダも要らない
                 .put("response_format", "pcm")
             if (!model.startsWith("tts-1")) body.put("instructions", INSTRUCTIONS)
             return body
