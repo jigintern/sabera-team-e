@@ -159,19 +159,23 @@ class Narrator(
             // JVMテストでも通信断経路を通せるよう、Androidログ自体の失敗は本処理へ影響させない
             runCatching { Log.e(TAG, "解説の生成に失敗", e) }
             val kind = classifyFailure(e)
-            // 句点まで届いた文は既に読み上げキューに入っている。全文の読み直しはせず、
-            // 不完全な末尾だけ捨てて短い案内で閉じる
+            // 句点まで届いた文は既に読み上げキューに入っている。途中で切れても、
+            // 不完全な末尾だけ捨ててそのまま終える。失敗案内を足すと余韻が壊れる。
             sentenceAccumulator.discard()
             val hasPartialResponse = received.isNotBlank() || completedSentences > 0
-            val fallback = if (hasPartialResponse) {
-                interruptedLine(kind)
-            } else {
-                fallbackLine(kind, constellation, input.azDeg, input.altDeg)
-            }
-            speaker.add(fallback)
             val completed = completedText.toString().trim()
-            val shown = if (completed.isEmpty()) "$opening$fallback" else "$completed\n$fallback"
-            _state.value = NarrationState(NarrationPhase.FAILED, shown, constellation)
+            val shown = if (hasPartialResponse) {
+                listOf(opening, completed).filter { it.isNotEmpty() }.joinToString("\n")
+            } else {
+                val fallback = fallbackLine(kind, constellation, input.azDeg, input.altDeg)
+                speaker.add(fallback)
+                "$opening$fallback"
+            }
+            _state.value = NarrationState(
+                if (hasPartialResponse) NarrationPhase.IDLE else NarrationPhase.FAILED,
+                shown,
+                constellation,
+            )
             // 生のメッセージを必ず載せる。実機で何が起きたかはここだけが頼り
             log(
                 "解説を作れない[$kind] 受信${received.length}文字・" +
@@ -335,13 +339,6 @@ fun fallbackLine(kind: FailureKind, subject: String, azDeg: Double, altDeg: Doub
         FailureKind.NETWORK -> "いまは通信ができません。"
     }
     return reason + "$subject は${compass(azDeg)}の空、高度 ${altDeg.toInt()} 度あたりに出ています。"
-}
-
-/** 途中まで解説できた場合は、内容を繰り返さず短く閉じる。 */
-fun interruptedLine(kind: FailureKind): String = when (kind) {
-    FailureKind.NETWORK -> "続きの通信が途切れたため、解説はここまでです。"
-    FailureKind.EMPTY -> "続きの解説をうまく作れなかったため、ここまでです。"
-    FailureKind.API -> "途中でAIとの接続が切れたため、解説はここまでです。"
 }
 
 /** 方位角[度]を 16 方位の日本語に。読み上げるので「南南西」まで刻む */

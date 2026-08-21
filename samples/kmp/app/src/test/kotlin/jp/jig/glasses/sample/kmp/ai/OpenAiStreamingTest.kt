@@ -85,7 +85,7 @@ class OpenAiStreamingTest {
     }
 
     @Test
-    fun `Narratorは完了した文を繰り返さず通信断の案内で閉じる`() = runBlocking {
+    fun `Narratorは完了した文だけを残して余計な通信断案内を喋らない`() = runBlocking {
         TestHttpServer {
             sse(listOf(delta("一文目は届きました。二文目は途中で")), declaredExtraBytes = 100)
         }.use { server ->
@@ -96,13 +96,14 @@ class OpenAiStreamingTest {
 
             assertEquals("おとめ座ですね。", voice.spoken[0])
             assertEquals("一文目は届きました。", voice.spoken[1])
-            assertTrue("切断案内がない: ${voice.spoken}", "通信が途切れた" in voice.spoken[2])
+            assertEquals("余計な失敗案内を喋っている: ${voice.spoken}", 2, voice.spoken.size)
             assertTrue("不完全な文を喋っている: ${voice.spoken}", voice.spoken.none { "二文目" in it })
             assertTrue(
                 "受信済み表示を捨てている",
                 "一文目は届きました" in narrator.state.value.text,
             )
             assertTrue("不完全な末尾を表示している", "二文目" !in narrator.state.value.text)
+            assertEquals(NarrationPhase.IDLE, narrator.state.value.phase)
         }
     }
 

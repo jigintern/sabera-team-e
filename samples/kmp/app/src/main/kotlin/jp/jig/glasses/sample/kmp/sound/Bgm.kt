@@ -203,7 +203,7 @@ class Bgm(
         private const val TAG = "Bgm"
 
         /** 既定の音量。屋外のスマホスピーカーでも聞こえる大きさから始める */
-        const val DEFAULT_VOLUME = 0.65f
+        const val DEFAULT_VOLUME = 0.75f
 
         /** 解説中に落とす倍率。0 にしないのは、曲が消えると解説だけ浮くため */
         private const val DUCK_FACTOR = 0.28f
