@@ -78,6 +78,9 @@ import jp.jig.glasses.sample.kmp.starmap.Look
 import jp.jig.glasses.sample.kmp.starmap.AccelAxisEstimate
 import jp.jig.glasses.sample.kmp.starmap.AccelAxisProbe
 import jp.jig.glasses.sample.kmp.starmap.RollEstimator
+import jp.jig.glasses.sample.kmp.starmap.RollSignCheck
+import jp.jig.glasses.sample.kmp.starmap.RollSignEstimate
+import jp.jig.glasses.sample.kmp.starmap.RollSignVerdict
 import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
 import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
 import jp.jig.glasses.sample.kmp.starmap.bodiesInView
@@ -258,6 +261,10 @@ fun StarMapScreen(
     val axisProbe = remember { AccelAxisProbe() }
     var axisEstimate by remember { mutableStateOf<AccelAxisEstimate?>(null) }
     var axesLogged by remember { mutableStateOf(false) }
+    // ロールの符号は人の記憶に頼らず確かめる。重力から出したロールとジャイロを照合する
+    var rollSignCheck by remember { mutableStateOf<RollSignCheck?>(null) }
+    var rollSign by remember { mutableStateOf<RollSignEstimate?>(null) }
+    var rollSignLogged by remember { mutableStateOf(false) }
     var rollFollow by remember { mutableStateOf(storedGeometry.rollFollow) }
     var measuredRollDeg by remember { mutableStateOf<Double?>(null) }
     var drawnRoll by remember { mutableStateOf(0.0) }
@@ -383,6 +390,24 @@ fun StarMapScreen(
                     if (!axesLogged) {
                         axesLogged = true
                         log("加速度軸を自動判定: ${axes.describe()}")
+                    }
+                    val checker = rollSignCheck ?: RollSignCheck(
+                        basis = resolved,
+                        gyroRightHanded = axes.gyroRightHanded ?: true,
+                    ).also { rollSignCheck = it }
+                    val sign = checker.add(
+                        accelXMilliG = accelX,
+                        accelYMilliG = accelY,
+                        accelZMilliG = accelZ,
+                        gyroXDps = data.gyroXDps.toDouble(),
+                        gyroYDps = data.gyroYDps.toDouble(),
+                        gyroZDps = data.gyroZDps.toDouble(),
+                        atMs = data.timestampMs,
+                    )
+                    rollSign = sign
+                    if (!rollSignLogged && sign.verdict != RollSignVerdict.UNKNOWN) {
+                        rollSignLogged = true
+                        log(sign.describe(), failed = sign.verdict == RollSignVerdict.INVERTED)
                     }
                 }
                 rollEstimator.update(accelX, accelY, accelZ)?.let { measuredRollDeg = it }
@@ -706,6 +731,7 @@ fun StarMapScreen(
                     axisEstimate?.describe() ?: "計測待ち",
                 ),
             )
+            rollSign?.let { log(it.describe()) }
             delay(SELF_CHECK_LOG_MS)
         }
     }
@@ -1413,6 +1439,16 @@ fun StarMapScreen(
                             ),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF8A9BA8),
+                    )
+                    // 符号が反転していたら、追従を入れるとずれが 2 倍になる。**目立たせる**
+                    Text(
+                        rollSign?.describe() ?: "ロールの符号: 加速度軸の判定を待っています",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (rollSign?.verdict) {
+                            RollSignVerdict.CORRECT -> SaberaGreen
+                            RollSignVerdict.INVERTED -> SaberaWarning
+                            else -> Color(0xFF8A9BA8)
+                        },
                     )
                     Spacer(Modifier.height(4.dp))
                     // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
