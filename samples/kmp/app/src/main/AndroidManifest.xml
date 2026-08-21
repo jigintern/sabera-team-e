@@ -23,7 +23,7 @@
 
     <application
         android:name=".SaberaApplication"
-        android:label="SABERA 星空ガイド"
+        android:label="星しるべ"
         android:supportsRtl="true"
         android:theme="@style/Theme.Sabera">
 
