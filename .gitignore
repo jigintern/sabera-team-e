@@ -28,3 +28,6 @@ tools/.cache/
 .env
 .env.local
 .env.*.local
+
+# 実機から取り出した観測ログ（tools/pull-session-log.sh）
+logs/

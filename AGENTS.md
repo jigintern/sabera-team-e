@@ -56,6 +56,10 @@ cd samples/kmp
 ```
 
 ```bash
+tools/pull-session-log.sh                # 実機の観測ログを取り出して要約する（--logcat / --clear）
+```
+
+```bash
 python3 tools/build-star-catalog.py      # data/ の星表を作り直す
 python3 tools/build-satellites.py        # data/ の TLE を取り直す
 python3 tools/build-simulator.py --check # 天球シミュレータ生成物の差分を検査
@@ -321,6 +325,9 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
 
 ## エージェントへの指示
 
+- **`optString` を JSON の null に使わない。** Android の org.json は**文字列 "null" を返す**が、
+  JVM テストで使う本物の org.json は空を返す。**この取り違えはテストで絶対に落ちず、実機だけで壊れる**
+  （実際に OpenAI の `refusal: null` を拒否と読み、本文を毎回捨てていた）。`isNull()` で見る
 - **RLE エンコーダを自前で書かない**（0.0.12 で SDK 側に入った）
 - **Opus のデコーダを自前で書かない**（0.3.0 で SDK 側に入った）
 - **キャンバス画像は枚数ではなく面積で設計する。** id は 8 枚までだが、

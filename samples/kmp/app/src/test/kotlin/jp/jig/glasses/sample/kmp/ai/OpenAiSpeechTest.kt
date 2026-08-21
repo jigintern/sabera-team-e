@@ -5,7 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.EOFException
+import java.io.IOException
 
 /**
  * 読み上げの注文が崩れていないことを押さえる。
@@ -100,7 +100,10 @@ class OpenAiSpeechTest {
                 speech.stream("短い文です。") { _, length -> received += length }
             }.exceptionOrNull()
 
-            assertTrue("EOFではない: $error", error is EOFException)
+            // **切れ方は OS とタイミングで変わる**（EOF になることも Connection reset になることもある）。
+            // 製品側は例外の種類ではなく「1 バイトでも届いたか」で再試行を決めているので、
+            // ここも「切れた」ことだけを見る（種類を見ると落ちる日がある）
+            assertTrue("通信の切断ではない: $error", error is IOException)
             assertEquals(4, received)
             assertEquals(1, server.calls.get())
         }

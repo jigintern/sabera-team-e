@@ -27,6 +27,26 @@ class OpenAiStreamingTest {
     }
 
     @Test
+    fun `毎チャンクの refusal が null でも本文を捨てない`() = runBlocking {
+        // 実機で起きていた失敗。本文が 4 文届いているのに「AI が回答を断った」で捨てていた
+        TestHttpServer {
+            sse(
+                listOf(
+                    deltaWithNullRefusal("最初の文です。", JSONObject.NULL),
+                    // Android の org.json が返す答えをそのまま置く
+                    deltaWithNullRefusal("次の文です。", "null"),
+                    done(),
+                ),
+            )
+        }.use { server ->
+            val deltas = ArrayList<String>()
+            val result = client(server).explain(request()) { deltas += it }
+            assertEquals("最初の文です。次の文です。", result)
+            assertEquals(2, deltas.size)
+        }
+    }
+
+    @Test
     fun `本文受信前の一時エラーだけ一回再試行する`() = runBlocking {
         TestHttpServer { call ->
             if (call == 1) {
@@ -145,6 +165,26 @@ class OpenAiStreamingTest {
         ) + "\n\n"
 
     private fun done(): String = "data: [DONE]\n\n"
+
+    /**
+     * 実機で本文が捨てられていた形。OpenAI は毎チャンクに `refusal: null` を載せてくる。
+     *
+     * **Android の org.json は `optString` で JSON の null に文字列 "null" を返す**
+     * （テストで使う本物の org.json は空を返す）。ここでは実機側の答えを直に置いて、
+     * 「"null" は拒否ではない」ことを実装に依らず固定する。
+     */
+    private fun deltaWithNullRefusal(text: String, refusalValue: Any): String = "data: " + JSONObject()
+        .put(
+            "choices",
+            JSONArray().put(
+                JSONObject()
+                    .put(
+                        "delta",
+                        JSONObject().put("content", text).put("refusal", refusalValue),
+                    )
+                    .put("finish_reason", JSONObject.NULL),
+            ),
+        ) + "\n\n"
 
     private fun finish(reason: String): String = "data: " + JSONObject()
         .put(

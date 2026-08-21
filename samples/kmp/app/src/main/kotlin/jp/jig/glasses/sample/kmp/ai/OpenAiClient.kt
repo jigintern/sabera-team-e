@@ -214,17 +214,38 @@ class OpenAiClient(
         internal fun parseStreamData(data: String): StreamEvent {
             if (data.trim() == "[DONE]") return StreamEvent(done = true)
             val json = JSONObject(data)
-            val streamError = json.optJSONObject("error")?.optString("message").orEmpty()
+            val streamError = json.optJSONObject("error")?.textOrEmpty("message").orEmpty()
             if (streamError.isNotEmpty()) return StreamEvent(error = streamError)
             val choice = json.optJSONArray("choices")?.optJSONObject(0)
                 ?: return StreamEvent()
             val delta = choice.optJSONObject("delta")
             return StreamEvent(
-                delta = delta?.optString("content").orEmpty(),
-                refusal = delta?.optString("refusal").orEmpty(),
-                finishReason = choice.optString("finish_reason"),
+                delta = delta?.textOrEmpty("content").orEmpty(),
+                refusal = delta?.flagOrEmpty("refusal").orEmpty(),
+                finishReason = choice.flagOrEmpty("finish_reason"),
             )
         }
+
+        /**
+         * **`optString` を JSON の null に使ってはいけない。**
+         *
+         * 実装で答えが違う。Android の org.json は**文字列 "null" を返し**、
+         * テストで使う本物の org.json（`org.json:json`）は空を返す。
+         * つまり**この取り違えは JVM テストでは絶対に落ちず、実機だけで壊れる**。
+         *
+         * 実際に壊れていた。OpenAI の SSE は毎チャンクに `"refusal": null` を載せるので、
+         * 実機では refusal が "null" として溜まり、**本文が届いているのに
+         * 「AI が回答を断った」として捨てていた**（2026-08-21 の観測ログで判明）。
+         */
+        private fun JSONObject.textOrEmpty(key: String): String =
+            if (isNull(key)) "" else optString(key)
+
+        /**
+         * 中身が意味を持つフラグ（refusal / finish_reason）用。
+         * 上の取り違えが別の経路から入っても壊れないよう、**文字列の "null" も無しとして扱う**。
+         */
+        private fun JSONObject.flagOrEmpty(key: String): String =
+            textOrEmpty(key).takeIf { it != "null" }.orEmpty()
 
         private fun emptyReplyMessage(finishReason: String): String = when (finishReason) {
             // 推論が出力枠を食い潰した典型。reasoning_effort を下げるか枠を広げる
@@ -238,7 +259,7 @@ class OpenAiClient(
         /** HTTP エラーを人が読める形に。OpenAI は error.message に理由を入れてくる */
         fun errorMessage(status: Int, body: String): String {
             val detail = runCatching {
-                JSONObject(body).optJSONObject("error")?.optString("message")
+                JSONObject(body).optJSONObject("error")?.textOrEmpty("message")
             }.getOrNull().orEmpty()
             return when {
                 detail.isNotEmpty() -> "HTTP $status: $detail"
