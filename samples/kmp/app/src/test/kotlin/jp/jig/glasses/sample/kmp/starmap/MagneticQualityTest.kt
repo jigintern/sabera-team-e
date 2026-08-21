@@ -42,12 +42,17 @@ class MagneticQualityTest {
         assertTrue(result.reason!!.contains("弱すぎ"))
     }
 
+    /**
+     * 伏角のずれは**測るが画面には出さない**。「向きが 67° 違います」は読んでも打つ手が
+     * 変わらず、机の上では出っぱなしになる。切り分けは「精度」の詳細行の度数でやる。
+     */
     @Test
-    fun `強さが合っていても向きが違えば歪んでいる`() {
+    fun `強さが合っていても向きのずれは測る`() {
         val result = quality(46.0, 30.0)
-        assertTrue(result.distorted)
-        assertTrue(result.reason!!.contains("向き"))
+        assertTrue(result.inclinationOff)
         assertTrue(result.inclinationDiffDeg > MAX_INCLINATION_DIFF_DEG)
+        assertFalse("伏角では赤字を出さない", result.distorted)
+        assertTrue(result.reason == null)
     }
 
     @Test
@@ -55,6 +60,7 @@ class MagneticQualityTest {
         // 屋外で正しく測れているのに止められるほうが体験としては悪い
         assertFalse(quality(expectedMicroTesla * 1.2, expectedInclinationDeg + 5.0).distorted)
         assertFalse(quality(expectedMicroTesla * 0.8, expectedInclinationDeg - 5.0).distorted)
+        assertFalse(quality(expectedMicroTesla * 1.2, expectedInclinationDeg + 5.0).inclinationOff)
     }
 
     @Test

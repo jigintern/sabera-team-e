@@ -508,7 +508,8 @@ fun CalibrationScreen(
                                 "磁気の歪み",
                                 magnetic?.let { "%.2f倍 / 伏角%.0f°差".format(it.strengthRatio, it.inclinationDiffDeg) }
                                     ?: "計測中",
-                                magnetic?.distorted == false,
+                                // 赤字は強さだけで出すが、この行は切り分け用なので伏角も見る
+                                magnetic?.let { !it.distorted && !it.inclinationOff } == true,
                             )
                             PrecisionRow(
                                 "静止精度",

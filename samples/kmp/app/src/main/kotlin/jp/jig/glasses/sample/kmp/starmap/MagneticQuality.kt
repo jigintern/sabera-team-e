@@ -18,9 +18,16 @@ data class MagneticQuality(
     val expectedMicroTesla: Double,
     val measuredInclinationDeg: Double,
     val expectedInclinationDeg: Double,
+    /** 画面に赤字を出すか。**強さでしか判断しない**（[reason] のコメントを参照） */
     val distorted: Boolean,
     val reason: String?,
 ) {
+    /**
+     * 向きが土地の値から外れているか。**画面には出さない**が、
+     * 「精度」の詳細行に度数がそのまま並ぶので、切り分けはそこでできる。
+     */
+    val inclinationOff: Boolean get() = inclinationDiffDeg > MAX_INCLINATION_DIFF_DEG
+
     val strengthRatio: Double get() = if (expectedMicroTesla <= 0.0) 1.0 else measuredMicroTesla / expectedMicroTesla
     val inclinationDiffDeg: Double get() = abs(measuredInclinationDeg - expectedInclinationDeg)
 }
@@ -32,14 +39,15 @@ fun magneticQuality(
     expectedInclinationDeg: Double,
 ): MagneticQuality {
     val ratio = if (expectedMicroTesla <= 0.0) 1.0 else measuredMicroTesla / expectedMicroTesla
-    val dip = abs(measuredInclinationDeg - expectedInclinationDeg)
+    // **伏角のずれは画面に出さない。** 「磁場の向きが土地の値と 67° 違います」は
+    // 読んでも打つ手が変わらないうえ、机の上では出っぱなしになる。
+    // 強さの異常だけは原因（磁石・鉄）を名指しできるので、そこだけ言う。
+    // 伏角は測り続けて [MagneticQuality.inclinationOff] と詳細行に残す
     val reason = when {
         ratio > MAX_STRENGTH_RATIO ->
             "磁石か鉄が近くにあります（磁場が期待値の %.1f 倍）".format(ratio)
         ratio < MIN_STRENGTH_RATIO ->
             "磁場が弱すぎます（期待値の %.1f 倍）。金属に囲まれていませんか".format(ratio)
-        dip > MAX_INCLINATION_DIFF_DEG ->
-            "磁場の向きが土地の値と %.0f° 違います。2〜3 歩離れてください".format(dip)
         else -> null
     }
     return MagneticQuality(
