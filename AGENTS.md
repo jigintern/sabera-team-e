@@ -44,6 +44,7 @@
 | `starmap/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `starmap/CelestialAlignment.kt` / `AlignmentTargets.kt` / `Ephemeris.kt` | 天体アライメント（方位合わせの段階2）。Android 非依存。**月・惑星の位置はここだけ** |
 | `starmap/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
+| `starmap/RollEstimator.kt` | 3 軸加速度からロール。**軸が未確定なので既定オフ** |
 
 ## 開発コマンド
 

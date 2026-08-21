@@ -165,9 +165,12 @@ fun precessDateToB1875(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
 /**
  * 視線を中心とした接平面の基底。
  * up は天頂を視線に直交する成分だけ残したもので、これが「地平線を水平に固定する」の実体。
- * ロールに追従させるならここだけ差し替える。
+ *
+ * [rollDeg] を渡すと、その分だけ基底を視線まわりに回す＝**首の傾きに追従する**。
+ * 0 のままなら地平線は水平に固定される（既定）。
+ * 正の向きは「首を右に傾けた」で、パネルの上方向が天頂から右へ倒れる側。
  */
-class Basis(azDeg: Double, altDeg: Double) {
+class Basis(azDeg: Double, altDeg: Double, rollDeg: Double = 0.0) {
     val forward: Vec3 = enu(azDeg, altDeg)
     val up: Vec3
     val right: Vec3
@@ -175,8 +178,21 @@ class Basis(azDeg: Double, altDeg: Double) {
     init {
         val f = forward
         val u = Vec3(-f.z * f.x, -f.z * f.y, 1.0 - f.z * f.z)
-        up = if (hypot(hypot(u.x, u.y), u.z) < 1e-9) Vec3(0.0, 1.0, 0.0) else u.normalized()
-        right = f cross up
+        val level = if (hypot(hypot(u.x, u.y), u.z) < 1e-9) Vec3(0.0, 1.0, 0.0) else u.normalized()
+        val levelRight = f cross level
+        if (rollDeg == 0.0) {
+            up = level
+            right = levelRight
+        } else {
+            val c = cos(rollDeg * RAD)
+            val s = sin(rollDeg * RAD)
+            up = Vec3(
+                level.x * c + levelRight.x * s,
+                level.y * c + levelRight.y * s,
+                level.z * c + levelRight.z * s,
+            ).normalized()
+            right = f cross up
+        }
     }
 }
 
