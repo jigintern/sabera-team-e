@@ -1,8 +1,3 @@
----
-title: GitHub PAT の作り方
-nav_order: 3
----
-
 # GitHub PAT の作り方
 
 SDK は private な GitHub Packages で配布しているため、取得には Personal Access Token

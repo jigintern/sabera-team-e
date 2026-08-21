@@ -6,8 +6,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * 解説文を OpenAI に読み上げさせる。
@@ -43,14 +41,7 @@ class OpenAiSpeech(
         require(configured) { "API キーが設定されていない" }
         val body = buildRequestBody(model, voice, text).toString().toByteArray(Charsets.UTF_8)
 
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("Authorization", "Bearer $apiKey")
-        }
+        val connection = OpenAiHttp.openPost(endpoint, apiKey)
 
         try {
             connection.outputStream.use { it.write(body) }
@@ -84,9 +75,6 @@ class OpenAiSpeech(
         /** `response_format = pcm` の形式。AudioTrack に渡すときに要る */
         const val SAMPLE_RATE = 24_000
 
-        const val DEFAULT_MODEL = "gpt-4o-mini-tts"
-        const val DEFAULT_VOICE = "alloy"
-
         /**
          * 話し方の注文。**issue #20 の本体はこの文字列**。
          *
@@ -99,9 +87,6 @@ class OpenAiSpeech(
         const val INSTRUCTIONS =
             "演じずに、ふだんの落ち着いた話し方で読んでください。\n" +
                 "ためたり息を強調したりせず、淡々と。"
-
-        private const val CONNECT_TIMEOUT_MS = 15_000
-        private const val READ_TIMEOUT_MS = 30_000
 
         /** 読み出す単位。小さすぎると呼び出し回数だけ増え、大きすぎると鳴り出しが遅れる */
         private const val CHUNK_BYTES = 4096

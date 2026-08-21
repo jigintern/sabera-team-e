@@ -1,7 +1,7 @@
 # AGENTS.md
 
 このリポジトリで作業する AI エージェント（Claude Code / Codex など）向けの共通ガイド。
-人間向けの手順は [CONTRIBUTING.md](CONTRIBUTING.md)、仕様は [docs/team-e/](docs/team-e/)。
+人間向けの手順は [CONTRIBUTING.md](CONTRIBUTING.md)、仕様は [docs/team-e/index.md](docs/team-e/index.md)。
 
 ## プロジェクト
 
@@ -26,13 +26,22 @@
 | パス | 中身 |
 |---|---|
 | `samples/kmp/app/` | **team-e のアプリ本体**（Kotlin + Compose）。ここを書き換えて育てる |
-| `samples/kmp/snippets/` | ドキュメント用コード例。**アプリではない**（壊すと CI が落ちる） |
 | `docs/team-e/` | **team-e の仕様書** |
-| `docs/` の他 | SDK ドキュメントサイト（Jekyll / just-the-docs）。公開せず手元で読む |
-| `docs/api/` | SDK API リファレンス。雛形は `scripts/gen-api-docs.py` が生成 |
+| `docs/github-pat.md` | private SDK を取得するための GitHub PAT 設定 |
 | `data/` | 同梱データ（星表・星座線・TLE）。**すべて生成物** |
 | `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
-| `scripts/` | ドキュメント生成・同期スクリプト（Python 3） |
+
+### アプリ内の責務
+
+| パス | 責務 |
+|---|---|
+| `ui/GlassesApp.kt` | 4 画面の遷移。画面は `AppScreen` で表し、整数を増やさない |
+| `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
+| `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下記へ委譲する |
+| `ui/ObservationComponents.kt` / `AppTheme.kt` | 星座・衛星で共通の表示部品と色 |
+| `starmap/GlassCanvasFrame.kt` | パネル寸法、画像バッファ、テキスト制限、RLEサイズ見積り |
+| `starmap/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
+| `starmap/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 
 ## 開発コマンド
 
@@ -40,17 +49,13 @@
 cd samples/kmp
 ./gradlew :app:installDebug              # 実機にインストール
 ./gradlew :app:testDebugUnitTest         # JVM テスト（座標変換・SGP4・AI 周り）
-./gradlew :snippets:compileDebugKotlin   # ドキュメントのコード例をコンパイル
-./gradlew :snippets:ktlintCheck          # コード例の lint（:app は対象外）
+./gradlew :app:assembleDebug             # Debug APK を生成
 ```
 
 ```bash
-cd docs && bundle exec jekyll serve      # http://127.0.0.1:4000/
-python3 scripts/sync-snippets.py         # Kotlin のコード例を docs/ へ写す
-python3 scripts/sync-snippets.py --check # 差分を検査（CI と同じ）
-python3 scripts/gen-api-docs.py          # API ページの雛形を生成（既存本文は保持）
 python3 tools/build-star-catalog.py      # data/ の星表を作り直す
 python3 tools/build-satellites.py        # data/ の TLE を取り直す
+python3 tools/build-simulator.py --check # 天球シミュレータ生成物の差分を検査
 ```
 
 ### 前提
@@ -60,13 +65,16 @@ python3 tools/build-satellites.py        # data/ の TLE を取り直す
 - **BLE 実機が必須。エミュレータでは動作確認できない**
 - SDK は private な GitHub Packages 配布。**`read:packages` の PAT が無いとビルドが落ちる**
 - `.editorconfig`（4スペース / 120桁 / intellij_idea）は全 Kotlin に効く
+- **`:app:lintDebug` は現在ツール側でクラッシュする。** AGP 8.7.0 と Kotlin 2.3.10 の解析 API が合わず、
+  `RememberInComposition` / `NullSafeMutableLiveData` detector が `IncompatibleClassChangeError` になる。
+  detector を無効化して通したことにせず、ツールチェーン更新時に戻す
 
 ## 上流 SDK との同期
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk) /
   公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>
 - **`f3db995`（SDK 0.6.0）時点まで取り込み済み**
-- どのメソッドがどの版から使えるかは上流の `docs/api-history.md`
+- どのメソッドがどの版から使えるかは上流リポジトリの `docs/api-history.md`
 - **iOS は追わない。** `Package.swift` は上流でも SDK 0.0.10 のままで、team-e では撤去した
 
 ### SDK には `sources.jar` が付いている（逆アセンブルより先にこれを読む）
@@ -88,42 +96,16 @@ unzip -o */*-sources.jar -d /tmp/sabera-src && ls /tmp/sabera-src/commonMain/app
   `parseResponse` の応答の受け取り先、`FEATURE_VERSION` の読み出し経路。
   **まとめて調べる価値が高い**
 
-### 取り込み直す手順
+### SDK を更新する手順
 
-```bash
-git remote add upstream https://github.com/jig-SABERA/sabera-sdk   # 初回のみ
-git remote set-url --push upstream no_push                          # 誤 push 防止
-git fetch upstream
-git checkout upstream/main -- docs samples scripts
+1. `samples/kmp/app/build.gradle.kts` の SDK バージョンを更新する
+2. 上流の公開ドキュメント、`docs/api-history.md`、取得した `sources.jar` で破壊的変更を確認する
+3. 必要な変更だけを team-e のアプリへ手動で反映する
+4. `:app:testDebugUnitTest` と `:app:assembleDebug` を実行する
+5. BLE やグラス表示に関わる変更は実機で確認し、未確認ならその旨を文書に残す
 
-# 上流が消したファイルは checkout では消えない。残ったものを洗い出す
-comm -23 <(git ls-files docs samples scripts | sort) \
-         <(git ls-tree -r --name-only upstream/main -- docs samples scripts | sort)
-# ↑ team-e 所有のファイルが混ざっていないか見てから git rm
-
-# 上流は docs/_site を追跡しているが team-e では追跡しない
-git rm -r --cached docs/_site && rm -rf docs/_site
-```
-
-**checkout の対象に入れてはいけないもの**（上書きすると team-e の変更が消える）：
-
-| パス | 理由 |
-|---|---|
-| `README.md` / `AGENTS.md` / `CLAUDE.md` / `CONTRIBUTING.md` | team-e 独自ファイル |
-| `docs/team-e/` | team-e の仕様書 |
-| `.github/workflows/docs.yml` | team-e 側で CI 方針を変えている（後述） |
-| `NOTICE` | team-e が星表データ（d3-celestial / XHIP）の帰属を足している |
-| `.gitignore` | `docs/_site/` と `tools/.cache/` の除外は team-e 側の追加 |
-
-- `LICENSE` は上流が変えたときだけ個別に取り込む
-- **上の `comm` は毎回走らせる。** `git checkout <tree> -- <path>` は上流で削除された
-  ファイルを消さないので、0.0.14 で撤去された `enter-ai-page.md` が居残った実例がある
-- **team-e が撤去したものが復活する。** 使わない上流サンプル画面（`CommandScreen` など 12 ファイル）と
-  `samples/flutter/` は削除済みなので、`comm` の逆向き（上流にあって手元に無い）も確認する。
-  **`samples/flutter/` は上流で今も開発が続いている**（jig-SABERA/sabera-sdk#20）ので、
-  取り込むたびに戻ってくる
-- **`Package.swift` は checkout の対象外なので復活しない**（`docs samples scripts` に入っていない）。
-  **広い範囲を checkout するときだけ気をつける**
+上流の `docs/`、`samples/`、`scripts/` をディレクトリ単位で checkout しない。このリポジトリは
+team-e アプリに必要なものだけを保持し、上流のサンプル・SDK ドキュメントサイトは追跡しない。
 
 ## SDK のアーキテクチャ
 
@@ -172,7 +154,8 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 | ナビページ | `enterNavigationPage` / `sendNavi` / `sendNaviLargeImage` | 地図 255 / 上流サンプルは 240×240 | なし |
 
 **team-e が使うのはキャンバスだけ。** 星図を `sendCanvasImage` で置き、星座名を
-`sendCanvasElements` のテキストで手前に重ねる。**退路は画像表示ページ（196×196、星図だけ）。**
+`sendCanvasElements` のテキストで手前に重ねる。
+**画像表示ページ（196×196、星図だけ）の退路は設計済みだが、アプリには未実装。**
 
 絶対に外せない数値：
 
@@ -326,7 +309,7 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
 - グラスへの出力 = **キャンバスに星図画像＋星座名ラベル**
   → [グラス出力の制約](docs/team-e/glass-output.md)
 - 「AI にお願いする」の音声入力は**グラスのマイクで成立する**（PCM16 / 16kHz を WAV に包むだけ）
-- **画像送信が使えない事態に備え、テキストだけでも成立する経路を残す**
+- **画像送信が使えない事態に備え、テキストだけでも成立する経路を設計に残す（アプリ未実装）**
 - → **星座特定・解説生成とグラス出力を分離する。** 出力層だけ差し替えられる形にしておく
 
 ## エージェントへの指示
@@ -345,7 +328,7 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
   送信の呼び出しは積むだけで返るので、転送が追いつかないと古いフレームが順番待ちで残る
 - **`sendCanvasImage` に 576×360 を渡すと必ず `require` で落ちる**（ファームではなく SDK の制限）
 - **手元のファームはキャンバス画像が動くが、`FEATURE_VERSION` の数値は未取得。**
-  配布先のグラスが同じとは限らないので、**退路（196×196）は残す**
+  配布先のグラスが同じとは限らないので、**退路（196×196）の設計は残す。アプリ実装は未着手**
 - **`sendNaviCourse` を方位問題の解決として扱わない**。**`yawDegrees` に返らないと実測済み**
 - **`yawDegrees` をそのまま方位に使わない。** 静止中に 44°/分 流れる。
   **ジャイロの大きさで動きを判定し、動いている間だけ差分を足す**（実装済み）
@@ -353,44 +336,18 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
 - **`SettingKey` の一覧は `sources.jar` から読み取ったもの**で、値の意味と範囲は未確認。
   **動作を断定しない**
 
-## ドキュメントサイトの仕組みと CI の落とし穴
+## 文書と CI
 
-CI（`.github/workflows/docs.yml`）が回すもの：
-
-- `python3 scripts/sync-snippets.py --check` — Kotlin のコード例と `docs/` の差分（全 PR と push）
-- `bundle exec jekyll build` — サイトがビルドできるか（PR のみ）
-
-**コード例のコンパイルと ktlint は CI から外している**（SDK 取得に PAT が要るため）。
-team-e は全員ローカルに PAT を持っているので、検証は手元で行う：
-
-```bash
-cd samples/kmp && ./gradlew :snippets:compileDebugKotlin :snippets:ktlintCheck
-```
-
-よくある落とし方：
-
-| やったこと | 結果 |
-|---|---|
-| `samples/kmp/snippets/**` を直して `sync-snippets.py` を忘れる | **CI が落ちる** |
-| `docs/api/**` のコードブロックを手で書き換える | **CI が落ちる**（出処は Kotlin 側） |
-| `:snippets` をアプリコードの置き場と勘違いして壊す | **CI では気づけない。手元で Gradle を回す** |
-
-編集してはいけない生成物：
-
-- `docs/_data/api_links.yml` — `scripts/gen-api-docs.py` が `SPEC` から生成
-- `docs/_site/` — Jekyll のビルド成果物（`.gitignore` 済み）
-- `data/**` — `tools/build-*.py` の生成物
-
-その他：
-
-- `docs/**` の Markdown では公開 API 名をバッククォートで囲むだけで自動リンクされる
-  （`docs/_plugins/api_autolink.rb`）。`[...](...)` は書かない
-- **GitHub Pages への公開はしていない**（上流が <https://jig-sabera.github.io/sabera-sdk/>
-  で公開しており、team-e が二重に出す必要がないため）
+- `docs/team-e/` は通常の Markdown で管理する。SDK API の説明は複製せず、上流の公開ドキュメントを参照する
+- CI（`.github/workflows/checks.yml`）は `python3 tools/build-simulator.py --check` で
+  天球シミュレータの生成物が最新か検査する
+- private SDK の取得に PAT が必要なため、アプリの JVM テストと APK ビルドは開発者の手元で実行する
+- `data/**` と `tools/simulator/index.html` は生成物。直接編集せず、対応する `tools/build-*.py` を使う
+- GitHub Pages は公開しない。SDK ドキュメントは上流が公開している
 
 ## 決まったこと
 
-実機で動かして確定したもの。詳細は [docs/team-e/](docs/team-e/)。
+実機で動かして確定したもの。詳細は [docs/team-e/index.md](docs/team-e/index.md)。
 
 | 論点 | 決定 |
 |---|---|

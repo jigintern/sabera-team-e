@@ -8,10 +8,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-/** キャンバスの座標系。画像はこの範囲に収める */
-const val PANEL_WIDTH = 576
-const val PANEL_HEIGHT = 360
-
 /** 観測地と時刻。歳差と緯度の行列はここが変わるまで作り直さなくてよい */
 data class Site(val latDeg: Double, val lonDeg: Double)
 
@@ -28,10 +24,7 @@ data class Aimed(val nameJa: String, val azDeg: Double, val altDeg: Double) {
     /** 「南南西 高度 45°」のような表示 */
     val where: String
         get() {
-            val points = listOf("北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-                "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西")
-            val i = ((azDeg + 11.25) / 22.5).toInt() % 16
-            return "${points[i]} 高度 ${altDeg.toInt()}°"
+            return "${cardinalDirection16(azDeg)} 高度 ${altDeg.toInt()}°"
         }
 }
 
@@ -432,7 +425,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 val box = doubleArrayOf(if (sx > 0) endX else endX - size, endY - size / 2.0)
                 // 名前は枠の上に出るので、そのぶんの余白も要る
                 if (box[0] < 2.0 || box[0] + size > width - 2) continue
-                if (box[1] - LABEL_BOX_HEIGHT < 2.0 || box[1] + size > height - 2) continue
+                if (box[1] - CANVAS_LABEL_HEIGHT < 2.0 || box[1] + size > height - 2) continue
                 if (out.any { overlaps(it.box, box, size) }) continue
                 if (candidates.any { (_, other) -> other !== dot && covers(box, size, other) }) continue
                 out += Callout(
@@ -440,7 +433,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                     dot = dot,
                     box = box,
                     size = size,
-                    label = doubleArrayOf(box[0] + size / 2.0, box[1] - LABEL_BOX_HEIGHT / 2.0 - 2.0),
+                    label = doubleArrayOf(box[0] + size / 2.0, box[1] - CANVAS_LABEL_HEIGHT / 2.0 - 2.0),
                 )
                 break
             }
@@ -699,12 +692,6 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** 枠の内側の余白（一辺に対する比）。輪郭が枠に触ると読めない */
         const val ICON_PAD = 0.16
-
-        /**
-         * 名前 1 行の高さ[画素]。**`StarMapScreen` の `LABEL_HEIGHT` と揃える。**
-         * 名前はキャンバスのテキストとして枠の上に出るので、そのぶんの余白を空けて置く
-         */
-        const val LABEL_BOX_HEIGHT = 40.0
 
         /** 引き出し線を出す向き。上→下、右→左の順に試す */
         val ELBOW_SIDES = listOf(

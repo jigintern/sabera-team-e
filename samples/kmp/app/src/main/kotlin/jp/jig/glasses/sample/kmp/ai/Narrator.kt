@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ai
 
 import android.util.Log
+import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -247,10 +248,5 @@ fun fallbackLine(kind: FailureKind, subject: String, azDeg: Double, altDeg: Doub
 
 /** 方位角[度]を 16 方位の日本語に。読み上げるので「南南西」まで刻む */
 fun compass(azDeg: Double): String {
-    val points = listOf(
-        "北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
-        "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西",
-    )
-    val normalized = ((azDeg % 360.0) + 360.0) % 360.0
-    return points[((normalized + 11.25) / 22.5).toInt() % 16]
+    return cardinalDirection16(azDeg)
 }

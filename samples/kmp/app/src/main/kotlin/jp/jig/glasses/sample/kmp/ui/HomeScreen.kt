@@ -58,8 +58,8 @@ fun HomeScreen(
                 onClick = onStart,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF75E6A3),
-                    contentColor = Color(0xFF052010),
+                    containerColor = SaberaGreen,
+                    contentColor = SaberaOnAccent,
                 ),
             ) {
                 Text("スタート")

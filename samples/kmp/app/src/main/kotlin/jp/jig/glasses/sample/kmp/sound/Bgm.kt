@@ -24,7 +24,7 @@ import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
  *
  * どちらも 120 秒。**末尾を先頭にクロスフェードして焼いてある**ので、繰り返しても継ぎ目が出ない。
  */
-enum class BgmTrack(@RawRes val res: Int, val label: String) {
+enum class BgmTrack(@param:RawRes val res: Int, val label: String) {
     /** 日没前後から薄明まで。明るさが移り変わる時間に合う曲 */
     TWILIGHT(R.raw.bgm_twilight, "薄暮"),
 
