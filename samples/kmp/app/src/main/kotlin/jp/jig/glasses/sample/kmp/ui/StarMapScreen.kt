@@ -363,12 +363,17 @@ fun StarMapScreen(
                 val accelX = data.accelXMilliG.toDouble()
                 val accelY = data.accelYMilliG.toDouble()
                 val accelZ = data.accelZMilliG.toDouble()
-                val gyroMagnitude = kotlin.math.sqrt(
-                    data.gyroXDps.toDouble() * data.gyroXDps.toDouble() +
-                        data.gyroYDps.toDouble() * data.gyroYDps.toDouble() +
-                        data.gyroZDps.toDouble() * data.gyroZDps.toDouble(),
+                val axes = axisProbe.add(
+                    accelXMilliG = accelX,
+                    accelYMilliG = accelY,
+                    accelZMilliG = accelZ,
+                    // うなずきの回転軸から「右」を出すので、ジャイロは 3 軸そのまま渡す
+                    gyroXDps = data.gyroXDps.toDouble(),
+                    gyroYDps = data.gyroYDps.toDouble(),
+                    gyroZDps = data.gyroZDps.toDouble(),
+                    pitchDeg = glassPitch,
+                    atMs = data.timestampMs,
                 )
-                val axes = axisProbe.add(accelX, accelY, accelZ, glassPitch, gyroMagnitude)
                 axisEstimate = axes
                 axes.resolvedBasis?.let { resolved ->
                     // 軸に丸めた形ではなく、取付のずれを含んだ基底を渡す
@@ -1331,7 +1336,7 @@ fun StarMapScreen(
                         Switch(
                             checked = rollFollow,
                             // 軸が決まる前に入れると、符号を取り違えたままずれが 2 倍になる
-                            enabled = axisEstimate?.resolved != null,
+                            enabled = axisEstimate?.resolvedBasis != null,
                             onCheckedChange = {
                                 rollFollow = it
                                 geometryPrefs.saveRollFollow(it)

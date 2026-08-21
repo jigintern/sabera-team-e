@@ -1,275 +1,278 @@
 package jp.jig.glasses.sample.kmp.starmap
 
 import kotlin.math.abs
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * 加速度の軸割り当てを、**観測しているだけで自動的に決める**。
+ * ロールを出すための「上・前・右」を、**観測しているだけで自動的に決める**。
  *
- * ロールを出すには「どの軸が上か・どの軸が前か」が要るが、SDK は生の加速度の軸を文書化していない。
- * 「実機でグラスを水平に置いて 1 回測る」と決めていたが、**その作業は人手でやらなくてよい**。
+ * SDK は生の加速度の軸を文書化していない。「実機で 1 回測る」と決めていたが、その作業は
+ * アプリがやる。ユーザーには何も頼まない（空を見上げ下ろしすれば自然に決まる）。
  *
- * - **上の軸** = 水平に近い姿勢（ピッチがほぼ 0）で重力がいちばん乗っている軸
- * - **前の軸** = 見上げ／見下ろし（ピッチ）に対する**傾きが 1 に近い**軸。
- *   静止時の加速度は世界の上向きそのものなので、前方成分はちょうど `sin θ` になる。
- *   **相関では決められない**（相関は振幅を見ないので、首をいつも同じ側に少し傾けているだけで
- *   左右軸の相関も 1 に近づく）。**傾き＝1 かどうかで見るのが正しい**
- * - **左右の軸** = 残り。符号は外積で決まるので推定しない（右 = 前 × 上）
+ * ### 加速度だけでは前方が決まらない（実測でつまずいた）
  *
- * **軸に丸めない。** 実機で測ると視線方向は 1 軸に乗っておらず（−Y と −Z が 0.94 : 0.26 ＝
- * 取付が視線から 15.5° ずれている）、丸めると見上げたときにロールが最大 14° ずれる。
- * 傾きをベクトルとして持ち、上に直交させたものを視線方向として使う（[AccelBasis]）。
+ * はじめは「静止時の前方成分は `sin(ピッチ)` になる」ことを使い、ピッチに対する傾きから
+ * 前方を出していた。**これは首の傾きと分離できない。** 静止時の加速度は
  *
- * 空を見ていれば見上げ／見下ろしは自然に起きるので、**ユーザーには何も頼まない**。
- * 判定できたかどうかは [AccelAxisEstimate.resolved] で分かり、観測ログに残る。
+ * ```
+ * a = 1000 ( sinθ·前 + cosθ·cosφ·上 − cosθ·sinφ·右 )      θ=ピッチ φ=ロール
+ * ```
+ *
+ * なので、**見上げるときに首を傾ける癖があると、その分が前方の推定に入り込む**。
+ * 実機では同じ人・同じ機体で **−0.31 → +0.87** まで振れ、取付のずれとして読むと 15° → 42° に
+ * なった。**セッションごとに変わる値は取付ではない。**
+ *
+ * ### ジャイロで取る（採用）
+ *
+ * **うなずきは「右の軸まわりの回転」そのもの。** ジャイロは回転軸を直接返すので、
+ * 重力と違って首の傾きが混ざらない。
+ *
+ * - **右** = ピッチが動いている間のジャイロの向き（うなずきの回転軸そのもの）
+ * - **上と前** = 静止サンプルから解く。静止時の重力は
+ *   `a = sinθ·前 + cosθcosφ·上 − cosθsinφ·右` なので、`Σcosθ·a` と `Σsinθ·a` を貯めれば
+ *   **上と前について線形に解ける**（ピッチに幅があれば行列式が立つ）
+ * - **ロールの混入は右方向にしか出ない。** 右はジャイロで確定しているので、
+ *   解いた上と前から右成分を落とせば**首の傾きの癖が消える**。ここが要点
+ * - 前の符号は解から直に出るので、勘で決める場所が無い。
+ *   ジャイロの回転の向きが右手系かどうかは、確定した基底と突き合わせて**結果として**分かる
  */
 data class AccelAxisEstimate(
-    val upIndex: Int?,
-    val upSign: Int,
-    val forwardIndex: Int?,
-    val forwardSign: Int,
-    /** 前方候補の、sin(ピッチ) に対する傾き（±1 に近いほど確か） */
-    val forwardSlope: Double,
-    /** 左右候補の傾き。**0 でなくてよい**（取付のずれがここに出る） */
-    val lateralSlope: Double,
-    /** 上に直交する向きの傾きの大きさ。**これが 1 なら姿勢の前提と合っている** */
-    val pitchResponse: Double,
-    /** 取付が視線からどれだけ回っているか[度] */
-    val mountingOffsetDeg: Double,
-    /** 前方候補の相関。傾きの信頼度を見るために持つ */
-    val forwardCorrelation: Double,
-    val pitchSpreadDeg: Double,
-    val sampleCount: Int,
+    val up: Vec3?,
+    val right: Vec3?,
+    val stillCount: Int,
     val levelCount: Int,
-    /** 条件を満たしたときだけ非 null。表示とログのための、軸に丸めた形 */
-    val resolved: AccelAxes?,
-    /** 条件を満たしたときだけ非 null。**ロール推定へ渡すのはこちら**（軸に丸めていない） */
+    val nodCount: Int,
+    /** うなずきのジャイロがどれだけ同じ向きに揃っているか（1 なら完全に一致） */
+    val nodConcentration: Double,
+    val pitchSpreadDeg: Double,
+    /**
+     * 解いた前方が、右方向にどれだけ乗っていたか[度]。
+     * **首の傾きの癖の強さ**そのもので、落とした量を見るために持つ
+     */
+    val rollContaminationDeg: Double,
+    /** ジャイロの回転の向きが [Basis] と同じ（右 = 前 × 上）だったか */
+    val gyroRightHanded: Boolean?,
     val resolvedBasis: AccelBasis?,
 ) {
     /** 画面とログに出す 1 行。**判定できていない理由が分かるように書く** */
     fun describe(): String {
-        val axesText = if (upIndex == null || forwardIndex == null) {
-            "判定中"
-        } else {
-            "上=%s%s 前=%s%s".format(
-                if (upSign < 0) "-" else "+",
-                AXIS_NAMES[upIndex],
-                if (forwardSign < 0) "-" else "+",
-                AXIS_NAMES[forwardIndex],
-            )
-        }
-        return "%s 傾き=%.2f/%.2f 応答=%.2f 取付ずれ=%.1f° 相関=%.2f ピッチ幅=%.0f° 静止=%d件（水平%d件）%s".format(
-            axesText,
-            forwardSlope,
-            lateralSlope,
-            pitchResponse,
-            mountingOffsetDeg,
-            forwardCorrelation,
+        val axes = resolvedBasis?.let { basis ->
+            "上=%s 前=%s".format(axisLabel(basis.up), axisLabel(basis.forward))
+        } ?: "判定中"
+        return "%s 一致=%.2f 首の傾きの混入=%.0f° %s ピッチ幅=%.0f° 静止=%d件（水平%d件）うなずき=%d件%s".format(
+            axes,
+            nodConcentration,
+            rollContaminationDeg,
+            when (gyroRightHanded) {
+                true -> "右手系"
+                false -> "左手系"
+                null -> "系不明"
+            },
             pitchSpreadDeg,
-            sampleCount,
+            stillCount,
             levelCount,
-            if (resolved != null) " 確定" else "",
+            nodCount,
+            if (resolvedBasis != null) " 確定" else "",
         )
     }
 
     private companion object {
-        val AXIS_NAMES = arrayOf("X", "Y", "Z")
+        /** 人が読むための近似。実際の基底は軸に丸めていない */
+        fun axisLabel(v: Vec3): String {
+            val components = doubleArrayOf(v.x, v.y, v.z)
+            val index = components.indices.maxBy { abs(components[it]) }
+            val name = arrayOf("X", "Y", "Z")[index]
+            val sign = if (components[index] < 0) "-" else "+"
+            val purity = abs(components[index])
+            return if (purity > 0.97) "$sign$name" else "$sign$name(%.0f%%)".format(purity * 100)
+        }
     }
 }
 
 class AccelAxisProbe(
-    private val stillGyroDps: Double = STILL_GYRO_DPS,
-    private val minSamples: Int = MIN_SAMPLES,
+    private val minStillSamples: Int = MIN_STILL_SAMPLES,
     private val minLevelSamples: Int = MIN_LEVEL_SAMPLES,
+    private val minNodSamples: Int = MIN_NOD_SAMPLES,
+    private val minConcentration: Double = MIN_CONCENTRATION,
     private val minPitchSpreadDeg: Double = MIN_PITCH_SPREAD_DEG,
-    private val minPitchResponse: Double = MIN_PITCH_RESPONSE,
-    private val maxPitchResponse: Double = MAX_PITCH_RESPONSE,
 ) {
-    private val levelSum = DoubleArray(3)
+    private var levelSum = Vec3(0.0, 0.0, 0.0)
     private var levelCount = 0
-    private var count = 0
-    private var sinSum = 0.0
+    private var stillCount = 0
+
+    // 上と前を解くための和。cos と sin を別に貯める
+    private var cosWeighted = Vec3(0.0, 0.0, 0.0)
+    private var sinWeighted = Vec3(0.0, 0.0, 0.0)
+    private var sinCosSum = 0.0
+    private var cosSquareSum = 0.0
     private var sinSquareSum = 0.0
-    private val axisSum = DoubleArray(3)
-    private val axisSquareSum = DoubleArray(3)
-    private val product = DoubleArray(3)
+
+    // うなずきのジャイロ
+    private var nodSum = Vec3(0.0, 0.0, 0.0)
+    private var nodMagnitudeSum = 0.0
+    private var nodCount = 0
+
     private var minPitch = Double.MAX_VALUE
     private var maxPitch = -Double.MAX_VALUE
+    private var previousPitch: Double? = null
+    private var previousAtMs: Long? = null
 
     fun reset() {
-        levelSum.fill(0.0)
-        axisSum.fill(0.0)
-        axisSquareSum.fill(0.0)
-        product.fill(0.0)
+        levelSum = Vec3(0.0, 0.0, 0.0)
+        cosWeighted = Vec3(0.0, 0.0, 0.0)
+        sinWeighted = Vec3(0.0, 0.0, 0.0)
+        nodSum = Vec3(0.0, 0.0, 0.0)
         levelCount = 0
-        count = 0
-        sinSum = 0.0
+        stillCount = 0
+        nodCount = 0
+        nodMagnitudeSum = 0.0
+        sinCosSum = 0.0
+        cosSquareSum = 0.0
         sinSquareSum = 0.0
         minPitch = Double.MAX_VALUE
         maxPitch = -Double.MAX_VALUE
+        previousPitch = null
+        previousAtMs = null
     }
 
     /**
-     * 静止した 1 サンプルを反映する。[pitchDeg] は**見上げを正**（観測画面と同じ向き）。
-     * 動いている間は重力以外の加速度が乗るので捨てる。
+     * 1 サンプル反映する。[pitchDeg] は**見上げを正**（観測画面と同じ向き）。
+     *
+     * 静止しているサンプルは「上」と加速度からの前方に、
+     * ピッチが動いているサンプルは「右」に使う。**どちらでもないものは捨てる。**
      */
     fun add(
         accelXMilliG: Double,
         accelYMilliG: Double,
         accelZMilliG: Double,
+        gyroXDps: Double,
+        gyroYDps: Double,
+        gyroZDps: Double,
         pitchDeg: Double,
-        gyroMagnitudeDps: Double,
+        atMs: Long,
     ): AccelAxisEstimate {
-        val magnitude = sqrt(
-            accelXMilliG * accelXMilliG + accelYMilliG * accelYMilliG + accelZMilliG * accelZMilliG,
-        )
-        val usable = gyroMagnitudeDps <= stillGyroDps &&
-            magnitude in RollEstimator.MIN_MAGNITUDE_MG..RollEstimator.MAX_MAGNITUDE_MG
-        if (usable) {
-            val unit = doubleArrayOf(
-                accelXMilliG / magnitude,
-                accelYMilliG / magnitude,
-                accelZMilliG / magnitude,
-            )
-            val s = sin(pitchDeg * RAD)
-            count++
-            sinSum += s
+        val accel = Vec3(accelXMilliG, accelYMilliG, accelZMilliG)
+        val gyro = Vec3(gyroXDps, gyroYDps, gyroZDps)
+        val magnitude = accel.length()
+        val gyroMagnitude = gyro.length()
+
+        val pitchRate = previousPitch?.let { previous ->
+            val elapsed = ((atMs - (previousAtMs ?: atMs)) / 1_000.0).takeIf { it > 1e-3 }
+            elapsed?.let { (pitchDeg - previous) / it }
+        }
+        previousPitch = pitchDeg
+        previousAtMs = atMs
+
+        val gravityOnly = magnitude in RollEstimator.MIN_MAGNITUDE_MG..RollEstimator.MAX_MAGNITUDE_MG
+        if (gravityOnly && gyroMagnitude <= STILL_GYRO_DPS) {
+            val unit = accel.normalized()
+            stillCount++
+            val s = kotlin.math.sin(pitchDeg * RAD)
+            val c = kotlin.math.cos(pitchDeg * RAD)
+            sinWeighted += unit * s
+            cosWeighted += unit * c
+            sinCosSum += s * c
+            cosSquareSum += c * c
             sinSquareSum += s * s
-            for (i in 0..2) {
-                axisSum[i] += unit[i]
-                axisSquareSum[i] += unit[i] * unit[i]
-                product[i] += unit[i] * s
-            }
             if (abs(pitchDeg) <= LEVEL_PITCH_DEG) {
                 levelCount++
-                for (i in 0..2) levelSum[i] += unit[i]
+                levelSum += unit
             }
             minPitch = minOf(minPitch, pitchDeg)
             maxPitch = maxOf(maxPitch, pitchDeg)
         }
+
+        // うなずいている間だけ。首を振りながら（ヨー）だと回転軸が混ざるので落とす
+        val up = if (levelCount >= 1) (levelSum / levelCount.toDouble()).normalized() else null
+        if (up != null && pitchRate != null && abs(pitchRate) >= MIN_PITCH_RATE_DPS && gyroMagnitude > 1e-6) {
+            val horizontal = gyro.dropAlong(up)
+            if (horizontal.length() >= NOD_AXIS_RATIO * gyroMagnitude) {
+                val direction = horizontal.normalized() * (if (pitchRate >= 0.0) 1.0 else -1.0)
+                nodSum += direction
+                nodMagnitudeSum += 1.0
+                nodCount++
+            }
+            minPitch = minOf(minPitch, pitchDeg)
+            maxPitch = maxOf(maxPitch, pitchDeg)
+        }
+
         return estimate()
     }
 
     fun estimate(): AccelAxisEstimate {
-        val spread = if (count == 0) 0.0 else maxPitch - minPitch
-        val up = if (levelCount >= 1) {
-            (0..2).maxByOrNull { abs(levelSum[it] / levelCount) }
-        } else {
-            null
-        }
-        val slopes = DoubleArray(3) { slope(it) }
-        val forwardCandidates = (0..2).filter { it != up }
-        val forward = forwardCandidates.maxByOrNull { abs(slopes[it]) }
-        val lateral = forwardCandidates.firstOrNull { it != forward }
+        val spread = if (stillCount == 0 && nodCount == 0) 0.0 else (maxPitch - minPitch).coerceAtLeast(0.0)
+        val up = if (levelCount >= 1) (levelSum / levelCount.toDouble()).normalized() else null
+        val concentration = if (nodMagnitudeSum <= 0.0) 0.0 else nodSum.length() / nodMagnitudeSum
+        val nodAxis = if (nodCount >= 1 && up != null) nodSum.dropAlong(up).takeIf { it.length() > 1e-9 } else null
 
-        val forwardSlope = forward?.let { slopes[it] } ?: 0.0
-        val lateralSlope = lateral?.let { slopes[it] } ?: 0.0
-        val forwardCorrelation = forward?.let { correlation(it) } ?: 0.0
-        val upSign = up?.let { if (levelSum[it] >= 0.0) 1 else -1 } ?: 1
-        val forwardSign = if (forwardSlope >= 0.0) 1 else -1
-
-        // 傾きをベクトルとして扱い、上成分を落としたものが視線方向。
-        // **軸に丸めない**（実機では前方が 2 軸に 0.94 : 0.26 で混ざっていた）
-        val basis = if (up == null) {
-            null
-        } else {
-            val upVector = Vec3(
-                if (up == 0) levelSum[0] else 0.0,
-                if (up == 1) levelSum[1] else 0.0,
-                if (up == 2) levelSum[2] else 0.0,
-            ).normalized()
-            val slopeVector = Vec3(slopes[0], slopes[1], slopes[2])
-            val orthogonal = slopeVector.dropAlong(upVector)
-            if (orthogonal.length() < 1e-6) null else AccelBasis(upVector, orthogonal)
+        // 静止サンプルから上と前を解く。`a = sinθ·前 + cosθcosφ·上 − cosθsinφ·右` を
+        // cos と sin で重み付けした 2 本の式にすると、上と前について線形になる
+        val determinant = cosSquareSum * sinSquareSum - sinCosSum * sinCosSum
+        var rightHanded: Boolean? = null
+        var contamination = 0.0
+        var basis: AccelBasis? = null
+        if (nodAxis != null && stillCount >= 2 && determinant > DETERMINANT_FLOOR) {
+            val right = nodAxis.normalized()
+            val solvedUp = (cosWeighted * sinSquareSum - sinWeighted * sinCosSum) / determinant
+            val solvedForward = (sinWeighted * cosSquareSum - cosWeighted * sinCosSum) / determinant
+            // **ロールの混入は右方向にしか出ない。** 右が確定しているので落とせる
+            val cleanUp = solvedUp.dropAlong(right)
+            val cleanForward = solvedForward.dropAlong(right)
+            if (cleanUp.length() > 1e-6 && cleanForward.length() > 1e-6) {
+                contamination = angleBetweenDeg(solvedForward.normalized(), cleanForward.normalized())
+                val candidate = AccelBasis(cleanUp, cleanForward)
+                // 右 = 前 × 上 と、ジャイロが返した回転の向きが一致したか
+                rightHanded = (candidate.right dot right) > 0.0
+                basis = candidate
+            }
         }
-        val pitchResponse = Vec3(slopes[0], slopes[1], slopes[2])
-            .let { s -> if (up == null) 0.0 else s.dropAlongKeepingLength(basisUp(up, levelSum)).length() }
-        val mountingOffset = basis?.mountingOffsetDeg() ?: 0.0
 
         val resolved = if (
-            up != null && forward != null && basis != null &&
-            count >= minSamples &&
+            basis != null &&
+            stillCount >= minStillSamples &&
             levelCount >= minLevelSamples &&
-            spread >= minPitchSpreadDeg &&
-            pitchResponse >= minPitchResponse &&
-            pitchResponse <= maxPitchResponse &&
-            abs(levelSum[up] / levelCount) >= MIN_LEVEL_COMPONENT
+            nodCount >= minNodSamples &&
+            concentration >= minConcentration &&
+            spread >= minPitchSpreadDeg
         ) {
-            AccelAxes(
-                upIndex = up,
-                upSign = upSign,
-                forwardIndex = forward,
-                forwardSign = forwardSign,
-            )
+            basis
         } else {
             null
         }
 
         return AccelAxisEstimate(
-            upIndex = up,
-            upSign = upSign,
-            forwardIndex = forward,
-            forwardSign = forwardSign,
-            forwardSlope = forwardSlope,
-            lateralSlope = lateralSlope,
-            pitchResponse = pitchResponse,
-            mountingOffsetDeg = mountingOffset,
-            forwardCorrelation = forwardCorrelation,
-            pitchSpreadDeg = if (spread < 0.0) 0.0 else spread,
-            sampleCount = count,
+            up = up,
+            right = nodAxis?.normalized(),
+            stillCount = stillCount,
             levelCount = levelCount,
-            resolved = resolved,
-            resolvedBasis = if (resolved != null) basis else null,
+            nodCount = nodCount,
+            nodConcentration = concentration,
+            pitchSpreadDeg = spread,
+            rollContaminationDeg = contamination,
+            gyroRightHanded = rightHanded,
+            resolvedBasis = resolved,
         )
     }
-
-    /**
-     * sin(ピッチ) に対する各軸の傾き。**前方軸だけがちょうど ±1 になる**。
-     * 左右軸は「首をいつも同じ側に傾けている」ぶんしか動かないので 0.1 未満に留まる。
-     */
-    private fun slope(axis: Int): Double {
-        if (count < 2) return 0.0
-        val n = count.toDouble()
-        val covariance = product[axis] / n - (axisSum[axis] / n) * (sinSum / n)
-        val sinVariance = sinSquareSum / n - (sinSum / n) * (sinSum / n)
-        if (sinVariance <= 1e-9) return 0.0
-        return covariance / sinVariance
-    }
-
-    /** 傾きの確かさ。ばらつきがすべて説明できていれば 1 */
-    private fun correlation(axis: Int): Double {
-        if (count < 2) return 0.0
-        val n = count.toDouble()
-        val covariance = product[axis] / n - (axisSum[axis] / n) * (sinSum / n)
-        val axisVariance = axisSquareSum[axis] / n - (axisSum[axis] / n) * (axisSum[axis] / n)
-        val sinVariance = sinSquareSum / n - (sinSum / n) * (sinSum / n)
-        if (axisVariance <= 1e-12 || sinVariance <= 1e-12) return 0.0
-        return (covariance / sqrt(axisVariance * sinVariance)).coerceIn(-1.0, 1.0)
-    }
-
-    private fun basisUp(up: Int, level: DoubleArray): Vec3 = Vec3(
-        if (up == 0) level[0] else 0.0,
-        if (up == 1) level[1] else 0.0,
-        if (up == 2) level[2] else 0.0,
-    ).normalized()
 
     companion object {
         /** 静止の判定は [YawDriftCorrector] と同じしきい値にそろえる */
         const val STILL_GYRO_DPS = 2.0
-        const val MIN_SAMPLES = 200
+        const val MIN_STILL_SAMPLES = 100
         const val MIN_LEVEL_SAMPLES = 20
+        const val MIN_NOD_SAMPLES = 40
         const val MIN_PITCH_SPREAD_DEG = 20.0
-
-        /**
-         * 上に直交する向きの傾きは、**取付がどう回っていても大きさ 1 になる**
-         * （重力の前方成分はちょうど sin(ピッチ)）。1 から外れるなら姿勢の前提が違う。
-         */
-        const val MIN_PITCH_RESPONSE = 0.85
-        const val MAX_PITCH_RESPONSE = 1.15
         const val LEVEL_PITCH_DEG = 10.0
 
-        /** 水平のとき、上の軸に重力の 9 割以上が乗っていないと軸が直交していない疑い */
-        const val MIN_LEVEL_COMPONENT = 0.9
+        /** うなずきと呼べる速さ。手ぶれは 2°/秒 以下、意図した動きは 10°/秒 を超える */
+        const val MIN_PITCH_RATE_DPS = 8.0
+
+        /** 回転軸のうち、上向き以外がこの割合を超えていること（ヨーが混ざった動きを落とす） */
+        const val NOD_AXIS_RATIO = 0.7
+
+        /** うなずきの回転軸がどれだけ揃っているか。1 なら完全に一致 */
+        const val MIN_CONCENTRATION = 0.8
+
+        /** ピッチに幅が無いと上と前が分離できない。行列式でそれを見る */
+        const val DETERMINANT_FLOOR = 1.0
     }
 }

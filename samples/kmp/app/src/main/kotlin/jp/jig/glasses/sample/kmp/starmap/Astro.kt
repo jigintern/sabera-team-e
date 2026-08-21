@@ -27,10 +27,21 @@ data class Vec3(val x: Double, val y: Double, val z: Double) {
     infix fun dot(o: Vec3) = x * o.x + y * o.y + z * o.z
     infix fun cross(o: Vec3) = Vec3(y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x)
 
+    operator fun plus(o: Vec3) = Vec3(x + o.x, y + o.y, z + o.z)
+    operator fun minus(o: Vec3) = Vec3(x - o.x, y - o.y, z - o.z)
+    operator fun times(scale: Double) = Vec3(x * scale, y * scale, z * scale)
+    operator fun div(scale: Double) = Vec3(x / scale, y / scale, z / scale)
+    operator fun unaryMinus() = Vec3(-x, -y, -z)
+
+    fun length(): Double = sqrt(x * x + y * y + z * z)
+
     fun normalized(): Vec3 {
-        val n = sqrt(x * x + y * y + z * z)
+        val n = length()
         return if (n < 1e-12) Vec3(0.0, 1.0, 0.0) else Vec3(x / n, y / n, z / n)
     }
+
+    /** [axis] 方向の成分を落とした残り。長さは残す（0 に近いかで有効性を見たいので） */
+    fun dropAlong(axis: Vec3): Vec3 = this - axis * (this dot axis)
 }
 
 /** 方位角・高度[度] → ENU の単位ベクトル */

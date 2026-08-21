@@ -28,7 +28,7 @@ class AccelBasis(up: Vec3, forward: Vec3) {
     val up: Vec3 = up.normalized()
 
     /** 上に直交させた視線方向。回帰で出した傾きベクトルには上成分が混ざるので必ず落とす */
-    val forward: Vec3 = forward.minusProjection(this.up)
+    val forward: Vec3 = forward.dropAlong(this.up).normalized()
 
     /** 右 = 前 × 上（[Basis] と同じ規約） */
     val right: Vec3 = this.forward cross this.up
@@ -37,16 +37,10 @@ class AccelBasis(up: Vec3, forward: Vec3) {
     fun mountingOffsetDeg(): Double {
         val dominant = listOf(Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0))
             .maxBy { kotlin.math.abs(forward dot it) }
-        return angleBetweenDeg(forward, if ((forward dot dominant) < 0) dominant.negated() else dominant)
+        return angleBetweenDeg(forward, if ((forward dot dominant) < 0) -dominant else dominant)
     }
 }
 
-private fun Vec3.minusProjection(axis: Vec3): Vec3 {
-    val amount = this dot axis
-    return Vec3(x - axis.x * amount, y - axis.y * amount, z - axis.z * amount).normalized()
-}
-
-internal fun Vec3.negated(): Vec3 = Vec3(-x, -y, -z)
 
 data class AccelAxes(
     /** 頭の上下方向にあたる軸（0=X, 1=Y, 2=Z） */
@@ -162,14 +156,3 @@ class RollEstimator(
         const val MIN_PLANAR_MG = 200.0
     }
 }
-
-/** 上向き成分を落とした残り。傾きベクトルから視線方向を取り出すのに使う */
-internal fun Vec3.dropAlong(axis: Vec3): Vec3 {
-    val amount = this dot axis
-    return Vec3(x - axis.x * amount, y - axis.y * amount, z - axis.z * amount)
-}
-
-/** [dropAlong] と同じだが、正規化せず長さを残す。姿勢の前提が合っているかを見るため */
-internal fun Vec3.dropAlongKeepingLength(axis: Vec3): Vec3 = dropAlong(axis)
-
-internal fun Vec3.length(): Double = kotlin.math.sqrt(x * x + y * y + z * z)
