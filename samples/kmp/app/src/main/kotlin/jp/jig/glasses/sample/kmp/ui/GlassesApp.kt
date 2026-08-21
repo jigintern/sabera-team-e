@@ -123,7 +123,6 @@ fun GlassesApp(manager: GlassManager) {
                         targetNames = result.targetNames
                         screen = AppScreen.STAR_MAP
                     },
-                    onAdjustOnly = { screen = AppScreen.STAR_MAP },
                     onHome = { screen = AppScreen.HOME },
                 )
             }

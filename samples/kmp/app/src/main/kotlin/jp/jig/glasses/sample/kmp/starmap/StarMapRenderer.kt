@@ -84,14 +84,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // 主役 1 機の輪郭を出すか。実機で読めるかを確かめられるよう切れるようにしてある
         drawFigures: Boolean = true,
         // 首の傾きに追従するか。0 なら地平線を水平に固定する（既定）
-        rollDeg: Double = 0.0,
         // 月・惑星。星と同じ空のものなので、衛星モードでは渡さない
         bodies: List<SkyBodyMark> = emptyList(),
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
         val lst = localSiderealDeg(d, site.lonDeg)
-        val basis = Basis(look.azDeg, look.altDeg, rollDeg)
+        val basis = Basis(look.azDeg, look.altDeg)
         val k = projectionScale(width, fovDeg)
         val gray = ByteArray(width * height)
 
@@ -433,9 +432,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         height: Int,
         tracks: List<SkyTrack>,
         drawFigures: Boolean = true,
-        rollDeg: Double = 0.0,
     ): List<Label> {
-        val basis = Basis(look.azDeg, look.altDeg, rollDeg)
+        val basis = Basis(look.azDeg, look.altDeg)
         val k = projectionScale(width, fovDeg)
         // 吹き出しを出す機体は、名前も枠の上に置く。**同じ計算を使わないと絵と名前がずれる**
         val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()

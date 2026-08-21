@@ -61,7 +61,6 @@ import jp.jig.glasses.sample.kmp.ai.SatellitePass
 import jp.jig.glasses.sample.kmp.ai.Speaker
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
-import jp.jig.glasses.sample.kmp.glass.GlassGeometryPrefs
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
@@ -69,18 +68,11 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
-import jp.jig.glasses.sample.kmp.starmap.FovPattern
 import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.AccelAxisEstimate
-import jp.jig.glasses.sample.kmp.starmap.AccelAxisProbe
-import jp.jig.glasses.sample.kmp.starmap.RollEstimator
-import jp.jig.glasses.sample.kmp.starmap.RollSignCheck
-import jp.jig.glasses.sample.kmp.starmap.RollSignEstimate
-import jp.jig.glasses.sample.kmp.starmap.RollSignVerdict
 import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
 import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
 import jp.jig.glasses.sample.kmp.starmap.bodiesInView
@@ -235,39 +227,11 @@ fun StarMapScreen(
     var glassYaw by remember { mutableStateOf(0.0) }
     var glassPitch by remember { mutableStateOf(0.0) }
 
-    // 画角はパネルと光学系の定数だが、まだ実測していない。屋外で測った値を入れられるように
-    // 端末ごとに覚える（既定は仮の 35°）。**視野端のずれはここで決まる**
-    val geometryPrefs = remember(client.deviceIdentifier) {
-        GlassGeometryPrefs(context, client.deviceIdentifier)
-    }
-    val storedGeometry = remember(geometryPrefs) {
-        geometryPrefs.load(ObservationDefaults.STAR_MAP_FOV_DEG)
-    }
-    var fovDeg by remember { mutableStateOf(storedGeometry.fovDeg) }
-    // ドラッグ中の値は描き直しに使わない。指が止まってから 1 枚だけ送る
-    var fovSlider by remember { mutableStateOf(storedGeometry.fovDeg.toFloat()) }
-    var fovMeasured by remember { mutableStateOf(storedGeometry.measured) }
-    // 画角を測っている間は星図を出さない（端の線が星と紛れる／首を動かすと消える）
-    var patternShown by remember { mutableStateOf(false) }
-    // 星で画角を測るときの 2 点。同じ星を左端・右端の線に合わせた視線を貯める
-    val fovPoints = remember { mutableStateListOf<Look>() }
+    // 画角はパネルと光学系の定数。**まだ実測していないので仮の値**
+    val fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG
     val fov = fovDeg.toFloat()
     val limitMag = ObservationDefaults.LIMIT_MAGNITUDE.toFloat()
 
-    // ロール（首の傾き）。融合値に無いので加速度から出す。**生の加速度の軸定義が未文書**なので、
-    // 実機で確かめるまでは既定オフ（オフなら地平線を水平に固定する従来どおりの絵）
-    val rollEstimator = remember { RollEstimator() }
-    // 「実機で 1 回測る」作業を人手から外す。空を見上げ下ろししているだけで軸が決まる
-    val axisProbe = remember { AccelAxisProbe() }
-    var axisEstimate by remember { mutableStateOf<AccelAxisEstimate?>(null) }
-    var axesLogged by remember { mutableStateOf(false) }
-    // ロールの符号は人の記憶に頼らず確かめる。重力から出したロールとジャイロを照合する
-    var rollSignCheck by remember { mutableStateOf<RollSignCheck?>(null) }
-    var rollSign by remember { mutableStateOf<RollSignEstimate?>(null) }
-    var rollSignLogged by remember { mutableStateOf(false) }
-    var rollFollow by remember { mutableStateOf(storedGeometry.rollFollow) }
-    var measuredRollDeg by remember { mutableStateOf<Double?>(null) }
-    var drawnRoll by remember { mutableStateOf(0.0) }
     val drawLines = true
     val showLabels = true
     var showDetails by remember { mutableStateOf(false) }
@@ -346,9 +310,6 @@ fun StarMapScreen(
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
 
-    /** 描画に使うロール。追従を切っていれば 0（地平線を水平に固定） */
-    fun rollNow(): Double = if (rollFollow) measuredRollDeg ?: 0.0 else 0.0
-
     // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
     val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
 
@@ -369,52 +330,6 @@ fun StarMapScreen(
                 fusedYaw = corrected.yawDeg
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
-                val accelX = data.accelXMilliG.toDouble()
-                val accelY = data.accelYMilliG.toDouble()
-                val accelZ = data.accelZMilliG.toDouble()
-                val axes = axisProbe.add(
-                    accelXMilliG = accelX,
-                    accelYMilliG = accelY,
-                    accelZMilliG = accelZ,
-                    // うなずきの回転軸から「右」を出すので、ジャイロは 3 軸そのまま渡す
-                    gyroXDps = data.gyroXDps.toDouble(),
-                    gyroYDps = data.gyroYDps.toDouble(),
-                    gyroZDps = data.gyroZDps.toDouble(),
-                    pitchDeg = glassPitch,
-                    atMs = data.timestampMs,
-                )
-                axisEstimate = axes
-                axes.resolvedBasis?.let { resolved ->
-                    // 軸に丸めた形ではなく、取付のずれを含んだ基底を渡す
-                    rollEstimator.basis = resolved
-                    if (!axesLogged) {
-                        axesLogged = true
-                        log("加速度軸を自動判定: ${axes.describe()}")
-                    }
-                    val checker = rollSignCheck ?: RollSignCheck(
-                        basis = resolved,
-                        gyroRightHanded = axes.gyroRightHanded ?: true,
-                    ).also { rollSignCheck = it }
-                    val sign = checker.add(
-                        accelXMilliG = accelX,
-                        accelYMilliG = accelY,
-                        accelZMilliG = accelZ,
-                        gyroXDps = data.gyroXDps.toDouble(),
-                        gyroYDps = data.gyroYDps.toDouble(),
-                        gyroZDps = data.gyroZDps.toDouble(),
-                        atMs = data.timestampMs,
-                    )
-                    rollSign = sign
-                    if (!rollSignLogged && sign.verdict != RollSignVerdict.UNKNOWN) {
-                        rollSignLogged = true
-                        log(sign.describe(), failed = sign.verdict == RollSignVerdict.INVERTED)
-                    }
-                    // **軸が決まる前に測らない。** 初期値の基底は取付のずれを含まないので、
-                    // 判定中のロールは首の傾きではなく取付の角度を返す（実機で +16° 出ていた）。
-                    // 追従の設定は端末に残るため、スイッチを止めるだけでは前のセッションの
-                    // 「入」がそのまま効いてしまう
-                    rollEstimator.update(accelX, accelY, accelZ)?.let { measuredRollDeg = it }
-                }
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
@@ -587,7 +502,6 @@ fun StarMapScreen(
                     tracks = tracks,
                     drawStars = !satelliteMode,
                     drawFigures = showFigures,
-                    rollDeg = rollNow(),
                     bodies = bodies,
                 )
             }
@@ -633,7 +547,6 @@ fun StarMapScreen(
             // 印だけ動かすために、この画像を焼いた条件を覚えておく
             drawnLook = look()
             drawnFov = fov.toDouble()
-            drawnRoll = rollNow()
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
@@ -641,9 +554,6 @@ fun StarMapScreen(
             val l = look()
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
-                    // ロールも残す。**首をどちらに傾けたときに何度出たか**が後から読めないと、
-                    // 追従の符号が合っているかを確かめられない
-                    (if (rollFollow) "ロール%+.0f° ".format(drawnRoll) else "") +
                     (if (satelliteMode) "衛星${tracks.size}機 " else "") +
                     (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
@@ -675,18 +585,12 @@ fun StarMapScreen(
      * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
      */
     var settled by remember { mutableStateOf(true) }
-    // 画角とロール追従を変えたら、視線が動いていなくても描き直す（絵が変わるので）
-    LaunchedEffect(renderer, satelliteMode, showFigures, fovDeg, rollFollow, patternShown) {
+    LaunchedEffect(renderer, satelliteMode, showFigures) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
         while (true) {
-            // 画角の目印を出している間は追従を止める。**測り終えて消すと、ここが再開して星図に戻る**
-            if (patternShown) {
-                delay(POLL_MS)
-                continue
-            }
             val now = look()
             val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
             if (step > STILL_DEG) movedAt = System.currentTimeMillis()
@@ -695,48 +599,12 @@ fun StarMapScreen(
             val drift = drawn?.let {
                 max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
             } ?: Double.MAX_VALUE
-            // ロールは視野中心を動かさないので、方位・仰角より緩いデッドバンドで足りる。
-            // 傾けるたびに 528×330 を送り直すと画面が 0.4 秒消える回数が増える
-            val rollDrift = abs(normalizeDeg(rollNow() - drawnRoll))
-            if (settled && (drift > REDRAW_DEG || rollDrift > ROLL_REDRAW_DEG)) {
+            if (settled && drift > REDRAW_DEG) {
                 // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
                 // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
                 if (drawAndSend()) drawn = look()
             }
             delay(POLL_MS)
-        }
-    }
-
-    /**
-     * **自動で取れる検証材料はここに残す。** 夜の屋外では画面を見ていられないので、
-     * 実機で確かめたいこと（画角・ロール・加速度軸・視野内の天体）が
-     * 動かしているだけでログに溜まるようにしておく。
-     *
-     * **方位合わせに依存させない。** 画角・加速度軸・ロールは方位と無関係で、
-     * 屋内で磁気が歪んでいるときにこそ先に確かめたいもの。
-     */
-    LaunchedEffect(Unit) {
-        while (lastImuAt == 0L) delay(POLL_MS)
-        while (true) {
-            val inView = withContext(Dispatchers.Default) {
-                bodiesInView(site, System.currentTimeMillis(), look(), fovDeg)
-            }
-            log(
-                "自己診断 画角=%.0f°%s ロール=%s(%s) 天体=%s / 加速度軸: %s".format(
-                    fovDeg,
-                    if (fovMeasured) "(実測)" else "(仮)",
-                    measuredRollDeg?.let { "%.1f°".format(it) } ?: "未測定",
-                    if (rollFollow) "追従" else "固定",
-                    if (inView.isEmpty()) {
-                        "なし"
-                    } else {
-                        inView.joinToString("・") { "%s(%.0f°)".format(it.nameJa, it.distanceFromCenterDeg) }
-                    },
-                    axisEstimate?.describe() ?: "計測待ち",
-                ),
-            )
-            rollSign?.let { log(it.describe()) }
-            delay(SELF_CHECK_LOG_MS)
         }
     }
 
@@ -818,7 +686,7 @@ fun StarMapScreen(
                 // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない。
                 // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）
                 val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
-                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh, showFigures, drawnRoll)
+                r.trackLabels(baseLook, drawnFov, map.width, map.height, fresh, showFigures)
             }
             // 衛星モードは星座名を出さないので、送り直すのは印だけ。
             // 前のフレームより数が減ったぶんは batched が空文字で消す。
@@ -1286,177 +1154,6 @@ fun StarMapScreen(
                     Spacer(Modifier.height(4.dp))
                     Text("方位: ドリフト補正あり", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(4.dp))
-                    // 画角は実測していない。**視野端のずれはここで決まる**ので、
-                    // 壁の目標で測った値を屋外で入れられるようにしておく
-                    Text(
-                        "画角 %.0f°%s".format(fovSlider, if (fovMeasured) "（実測して入れた値）" else "（仮の値）"),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row {
-                        OutlinedButton(
-                            onClick = {
-                                if (patternShown) {
-                                    patternShown = false
-                                    lastSentMap = null
-                                    log("画角の目印を消した")
-                                    return@OutlinedButton
-                                }
-                                patternShown = true
-                                scope.launch {
-                                    sendGate.withLock {
-                                        withContext(NonCancellable) {
-                                            sending = true
-                                            try {
-                                                val gray = withContext(Dispatchers.Default) {
-                                                    FovPattern.grayscale(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
-                                                }
-                                                commandManager.sendCanvasImage(
-                                                    id = STAR_MAP_IMAGE_ID,
-                                                    x = (PANEL_WIDTH - STAR_MAP_WIDTH) / 2,
-                                                    y = (PANEL_HEIGHT - STAR_MAP_HEIGHT) / 2,
-                                                    width = STAR_MAP_WIDTH,
-                                                    height = STAR_MAP_HEIGHT,
-                                                    grayscale = gray,
-                                                )
-                                                // 星座名が残っていると端の線と紛れる
-                                                val cleared = emptyList<CommandManager.CanvasElement>()
-                                                for (batch in cleared.batched(shownLabels)) {
-                                                    commandManager.sendCanvasElements(batch)
-                                                }
-                                                shownLabels = 0
-                                                lastSentMap = null
-                                                log("画角の目印を出した。壁から2.00mで左右の線の間隔を測る（1.26m→35°）")
-                                                delay(transferMs + SETTLE_MS)
-                                            } finally {
-                                                sending = false
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) { Text(if (patternShown) "目印を消す" else "画角の目印を出す") }
-                    }
-                    if (patternShown) {
-                        // **星で測る。** 同じ星を左端・右端の線に合わせれば、
-                        // 2 つの視線の角距離がそのまま横の画角になる（巻尺も壁も要らない）
-                        Text(
-                            "明るい星を中央の高さで左端の線に合わせて押し、" +
-                                "右端の線に来るまで水平に首を振ってもう一度押す" +
-                                if (fovPoints.isEmpty()) "" else "（1 点目を取得済み）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF8A9BA8),
-                        )
-                        Row {
-                            OutlinedButton(
-                                onClick = {
-                                    val point = latchedLook()
-                                    fovPoints += point
-                                    log(
-                                        "画角の測点%d 方位%.1f° 高度%.1f°".format(
-                                            fovPoints.size,
-                                            point.azDeg,
-                                            point.altDeg,
-                                        ),
-                                    )
-                                    if (fovPoints.size >= 2) {
-                                        val measured = FovPattern.fovFromEdgeAlignment(
-                                            fovPoints[0],
-                                            fovPoints[1],
-                                        )
-                                        val clamped = GlassGeometryPrefs.clampFov(measured)
-                                        log(
-                                            "画角を星で測った: %.1f°%s".format(
-                                                measured,
-                                                if (clamped != measured) "（%.0f° に丸めた）".format(clamped) else "",
-                                            ),
-                                        )
-                                        fovDeg = clamped
-                                        fovSlider = clamped.toFloat()
-                                        geometryPrefs.saveFov(clamped)
-                                        fovMeasured = true
-                                        fovPoints.clear()
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) {
-                                Text(if (fovPoints.isEmpty()) "星が左端に合った" else "星が右端に合った")
-                            }
-                            if (fovPoints.isNotEmpty()) {
-                                Spacer(Modifier.padding(4.dp))
-                                OutlinedButton(
-                                    onClick = {
-                                        fovPoints.clear()
-                                        log("画角の測点を捨てた")
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                ) { Text("測点をやり直す") }
-                            }
-                        }
-                    }
-                    Slider(
-                        value = fovSlider,
-                        onValueChange = { fovSlider = it },
-                        onValueChangeFinished = {
-                            val committed = GlassGeometryPrefs.clampFov(fovSlider.toDouble())
-                            fovSlider = committed.toFloat()
-                            if (committed != fovDeg) {
-                                fovDeg = committed
-                                geometryPrefs.saveFov(committed)
-                                fovMeasured = true
-                                log("画角を %.0f° にした".format(committed))
-                            }
-                        },
-                        valueRange = GlassGeometryPrefs.MIN_FOV_DEG.toFloat()..
-                            GlassGeometryPrefs.MAX_FOV_DEG.toFloat(),
-                        steps = FOV_SLIDER_STEPS,
-                    )
-                    // ロールは融合値に無く、生の加速度の軸定義も未文書。
-                    // 入れると視野端が合うが、傾けるたびに全画面を送り直す
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (rollFollow) {
-                                // 設定は端末に残るので、軸が決まる前でも「入」で開く。
-                                // その間は追従していないことを言う（黙って水平のままだと故障に見える）
-                                measuredRollDeg?.let { "ロール追従あり（傾き %.0f°）".format(it) }
-                                    ?: "ロール追従あり（加速度軸の判定待ち・いまは水平で固定）"
-                            } else {
-                                "ロール追従なし（地平線を水平に固定・未検証）"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = rollFollow,
-                            // 軸が決まる前に入れると、符号を取り違えたままずれが 2 倍になる。
-                            // ただし**切るほうは常に押せる**。設定は端末に残るので、
-                            // 判定が済むまで押せないと「入」のまま外せなくなる
-                            enabled = rollFollow || axisEstimate?.resolvedBasis != null,
-                            onCheckedChange = {
-                                rollFollow = it
-                                geometryPrefs.saveRollFollow(it)
-                                log(if (it) "ロール追従を入れた" else "ロール追従を切った")
-                            },
-                        )
-                    }
-                    Text(
-                        "加速度軸: " + (
-                            axisEstimate?.describe()
-                                ?: "計測待ち（空を 20° 以上見上げ下ろしすると自動で決まります）"
-                            ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF8A9BA8),
-                    )
-                    // 符号が反転していたら、追従を入れるとずれが 2 倍になる。**目立たせる**
-                    Text(
-                        rollSign?.describe() ?: "ロールの符号: 加速度軸の判定を待っています",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = when (rollSign?.verdict) {
-                            RollSignVerdict.CORRECT -> SaberaGreen
-                            RollSignVerdict.INVERTED -> SaberaWarning
-                            else -> Color(0xFF8A9BA8)
-                        },
-                    )
                     Spacer(Modifier.height(4.dp))
                     // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
                     // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
@@ -1703,21 +1400,6 @@ private const val TAG = "StarMap"
  * 画角 35° に対しておよそ 1/6。
  */
 private const val REDRAW_DEG = 6.0
-
-/**
- * ロールを描き直すしきい値。視野端（17.5°）で 2·17.5·sin(θ/2) ずれるので、
- * 12° なら端で 3.7° まで残る。**これ以上細かく追うと転送のほうが体験を壊す**
- */
-private const val ROLL_REDRAW_DEG = 12.0
-
-/**
- * 自己診断を残す間隔。**加速度軸の判定は 20 秒ぶんの静止サンプルで決まる**ので、
- * それより短く出しても同じ行が並ぶだけ。長すぎると判定できた瞬間を見逃す
- */
-private const val SELF_CHECK_LOG_MS = 30_000L
-
-/** 画角のスライダーは 1° 刻み。20〜50° の 31 段 */
-private const val FOV_SLIDER_STEPS = 29
 
 /**
  * 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕。

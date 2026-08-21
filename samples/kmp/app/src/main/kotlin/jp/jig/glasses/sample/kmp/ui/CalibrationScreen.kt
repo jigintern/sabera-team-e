@@ -98,11 +98,6 @@ fun CalibrationScreen(
     client: GlassClient,
     constellation: ConstellationBackground,
     onCalibrated: (CalibrationResult) -> Unit,
-    /**
-     * 方位を合わせずに観測画面へ行く。**画角の実測・加速度軸の判定・ロールの確認は
-     * 方位と無関係**なので、屋内で磁気が弾かれても調整だけはできるようにしておく。
-     */
-    onAdjustOnly: () -> Unit,
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -568,14 +563,6 @@ fun CalibrationScreen(
                 colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
             ) {
                 Text("さらに星に合わせる（精度モード）")
-            }
-            // 方位が合っていなくても、画角・加速度軸・ロールは確かめられる。
-            // 屋内で磁気が歪んでいると段階 1 が通らないので、調整用の入口を残す
-            TextButton(
-                onClick = onAdjustOnly,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.72f)),
-            ) {
-                Text("合わせずに観測画面へ（調整用）")
             }
             TextButton(
                 onClick = onHome,
