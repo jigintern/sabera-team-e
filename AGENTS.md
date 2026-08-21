@@ -42,6 +42,8 @@
 | `starmap/GlassCanvasFrame.kt` | パネル寸法、画像バッファ、テキスト制限、RLEサイズ見積り |
 | `starmap/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `starmap/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
+| `starmap/CelestialAlignment.kt` / `AlignmentTargets.kt` / `Ephemeris.kt` | 天体アライメント（方位合わせの段階2）。Android 非依存。**月・惑星の位置はここだけ** |
+| `starmap/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
 
 ## 開発コマンド
 

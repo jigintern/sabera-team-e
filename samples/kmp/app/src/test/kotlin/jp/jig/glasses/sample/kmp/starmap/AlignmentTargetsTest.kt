@@ -37,25 +37,52 @@ class AlignmentTargetsTest {
 
     private val site = Site(35.9432, 136.1846)
 
-    /** 2026-01-01 21:00 JST の鯖江。冬の宵で 1 等星が 6 個、高度 15〜60° に入っている */
+    /** 2026-01-01 21:00 JST の鯖江。冬の宵で 1 等星が 6 個、木星と土星も出ている */
     private val epoch = 1767268800000L
 
     @Test
-    fun `合わせ先の候補は明るくて高すぎない星だけになる`() {
+    fun `合わせ先の候補は明るくて高すぎないものだけになる`() {
         val targets = AlignmentTargets(catalog())
         val candidates = targets.candidates(site, epoch)
 
-        assertEquals(6, candidates.size)
+        assertEquals(8, candidates.size)
+        assertEquals("恒星は 6 個", 6, candidates.count { it.id > 0 })
+        assertEquals("惑星は木星と土星", listOf("土星", "木星"), candidates.filter { it.id < 0 }.map { it.nameJa }.sorted())
         for (candidate in candidates) {
             assertTrue(candidate.nameJa.isNotBlank())
-            assertTrue("1.6 等より暗い星は候補にしない", candidate.magnitude <= AlignmentTargets.LIMIT_MAGNITUDE)
+            assertTrue("1.6 等より暗いものは候補にしない", candidate.magnitude <= AlignmentTargets.LIMIT_MAGNITUDE)
             assertTrue(
                 "誤差の伝播が 1/cos h なので高すぎる天体は使わない: ${candidate.nameJa}",
                 candidate.altDeg in AlignmentTargets.MIN_ALTITUDE_DEG..AlignmentTargets.MAX_ALTITUDE_DEG,
             )
         }
-        // 明るさと高度で並ぶので、この空ならシリウスが先頭に来る
-        assertEquals("シリウス", candidates.first().nameJa)
+        // 明るさと高度で並ぶ。この空では −2.7 等の木星が恒星より先に来る
+        assertEquals("木星", candidates.first().nameJa)
+    }
+
+    @Test
+    fun `月が出ていれば最優先の合わせ先になる`() {
+        val targets = AlignmentTargets(catalog())
+        // 月は 1 か月で満ち欠けするので、条件を満たす夜を探して確かめる
+        val found = (0 until 24 * 30).map { epoch + it * 3_600_000L }.firstOrNull { at ->
+            sunAltitudeDeg(site, at) < AlignmentTargets.VISIBLE_SUN_ALTITUDE_DEG &&
+                targets.candidates(site, at).any { it.nameJa == "月" }
+        }
+        assertTrue("1 か月あれば月が高度 15〜60° に来る夜がある", found != null)
+        val candidates = targets.candidates(site, found!!)
+        assertEquals("−10 等の月が先頭に来る", "月", candidates.first().nameJa)
+        assertTrue(candidates.first().magnitude < -5.0)
+    }
+
+    @Test
+    fun `空が明るいあいだは月しか案内しない`() {
+        val targets = AlignmentTargets(catalog())
+        val daylight = (0 until 24 * 30).map { epoch + it * 3_600_000L }.firstOrNull { at ->
+            sunAltitudeDeg(site, at) > 10.0 && targets.candidates(site, at).isNotEmpty()
+        }
+        assertTrue("昼に月が出ている時間帯はある", daylight != null)
+        val candidates = targets.candidates(site, daylight!!)
+        assertEquals("昼は星も惑星も見えない", listOf("月"), candidates.map { it.nameJa })
     }
 
     @Test
@@ -77,7 +104,7 @@ class AlignmentTargetsTest {
     }
 
     @Test
-    fun `視野に入れば重ねる案内に変わり、まぎれる星は無い`() {
+    fun `視野に入れば重ねる案内に変わり、まぎれるものは無い`() {
         val targets = AlignmentTargets(catalog())
         val candidates = targets.candidates(site, epoch)
         val sirius = candidates.first { it.nameJa == "シリウス" }
@@ -101,11 +128,14 @@ class AlignmentTargetsTest {
         val second = targets.guide(
             candidates = candidates,
             look = Look(first.azDeg, first.altDeg),
-            exclude = setOf(first.hip),
+            exclude = setOf(first.id),
             separateFrom = first,
         )
         assertTrue("離れた 2 点目が要る", second != null)
-        assertEquals("ポルックス", second!!.target.nameJa)
+        assertTrue(
+            "1 点目とは別のものが選ばれる",
+            second!!.target.id != first.id,
+        )
         assertTrue(
             "SkyAlign も SPAAM も『点は広く散らせ』",
             angleBetweenDeg(
@@ -134,7 +164,7 @@ class AlignmentTargetsTest {
         // 昼の 12 時。1 等星は空にあっても見えないが、高度の条件では残るので
         // ここでは「候補が空でも文言が出る」ことだけを固定する
         assertTrue(phoneGuidanceText(null, null).contains("ありません"))
-        assertTrue(glassGuidanceText(null, null).contains("見つかりません"))
+        assertTrue(glassGuidanceText(null, null).contains("ありません"))
         assertTrue(targets.guide(emptyList(), Look(0.0, 30.0)) == null)
     }
 }

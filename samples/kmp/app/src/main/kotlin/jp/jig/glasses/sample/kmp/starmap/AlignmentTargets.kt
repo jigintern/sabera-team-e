@@ -9,13 +9,17 @@ import kotlin.math.abs
  * ほぼ絶対値で取れている。つまり**アプリの側から「右へ」「左へ」と言える**ので、
  * ユーザーがやるのは「見えている明るい点に十字を重ねる」だけになる。名前も方位も要らない。
  *
- * 候補を明るい星だけに絞れば視野 35° の中に 0〜2 個しか入らないので、
+ * 候補を明るいものだけに絞れば視野 35° の中に 0〜2 個しか入らないので、
  * どれに合わせたかはアプリの側で決められる（Celestron SkyAlign と同じ理屈）。
+ *
+ * **合わせ先は恒星 25 個＋月＋明るい惑星。** スマホの星見アプリが揃って
+ * 「太陽・月・金星・木星に合わせろ」と案内しているのと同じ理由で、月がいちばん確実。
  */
 
 /** 合わせ先。名前は合わせ終わってから見せるためのもので、手順の前提にはしない */
 data class AlignmentTarget(
-    val hip: Int,
+    /** 恒星は HIP 番号、月と惑星は [SolarSystemBody] の負の固定値 */
+    val id: Int,
     val nameJa: String,
     val magnitude: Double,
     val azDeg: Double,
@@ -46,18 +50,38 @@ class AlignmentTargets(
      *
      * 高度を 20〜40° に寄せるのは、方位の誤差の伝播が `1 / cos h` で、
      * 高い天体で合わせると誤差が拡大するため（高度 80° で 5.8 倍）。
+     *
+     * **月と明るい惑星も候補に入れる。** 恒星 25 個だけだと、その夜に高度 15〜60° へ来るのは
+     * 2〜6 個しかなく、建物や雲に隠れると合わせ先が無くなる。
+     * **空が明るいあいだは月だけ**（昼でも月は見えるが、星と惑星は見えない）。
      */
     fun candidates(site: Site, epochMillis: Long, lookAzDeg: Double? = null): List<AlignmentTarget> {
         val d = daysFromJ2000(epochMillis)
         val lst = localSiderealDeg(d, site.lonDeg)
-        return catalog.stars.mapNotNull { star ->
-            if (star.magnitude > limitMagnitude) return@mapNotNull null
-            val name = catalog.brightNames[star.hip] ?: return@mapNotNull null
-            val precessed = precess(star.raDeg, star.decDeg, d)
-            val aa = toApparentAltAz(precessed[0], precessed[1], lst, site.latDeg)
-            if (aa[1] < MIN_ALTITUDE_DEG || aa[1] > MAX_ALTITUDE_DEG) return@mapNotNull null
-            AlignmentTarget(star.hip, name, star.magnitude, aa[0], aa[1])
-        }.sortedBy { score(it, lookAzDeg) }
+        val bright = sunAltitudeDeg(site, epochMillis) > VISIBLE_SUN_ALTITUDE_DEG
+        val found = ArrayList<AlignmentTarget>(catalog.brightNames.size + SolarSystemBody.entries.size)
+
+        for (body in SolarSystemBody.entries) {
+            if (bright && body != SolarSystemBody.MOON) continue
+            val position = bodyPosition(body, epochMillis)
+            // 火星と土星は暗いときは 1.8 等まで落ちる。見えないものに合わせろとは言えない
+            if (position.magnitude > limitMagnitude) continue
+            val aa = bodyAltAz(body, site, epochMillis)
+            if (aa[1] < MIN_ALTITUDE_DEG || aa[1] > MAX_ALTITUDE_DEG) continue
+            found += AlignmentTarget(body.id, body.nameJa, position.magnitude, aa[0], aa[1])
+        }
+
+        if (!bright) {
+            for (star in catalog.stars) {
+                if (star.magnitude > limitMagnitude) continue
+                val name = catalog.brightNames[star.hip] ?: continue
+                val precessed = precess(star.raDeg, star.decDeg, d)
+                val aa = toApparentAltAz(precessed[0], precessed[1], lst, site.latDeg)
+                if (aa[1] < MIN_ALTITUDE_DEG || aa[1] > MAX_ALTITUDE_DEG) continue
+                found += AlignmentTarget(star.hip, name, star.magnitude, aa[0], aa[1])
+            }
+        }
+        return found.sortedBy { score(it, lookAzDeg) }
     }
 
     /** 視野に入っている候補を、中心に近い順に返す。合わせた天体を同定するのに使う */
@@ -81,7 +105,7 @@ class AlignmentTargets(
         minSeparationDeg: Double = MIN_SEPARATION_DEG,
     ): AlignmentGuidance? {
         val usable = candidates.filter { candidate ->
-            if (candidate.hip in exclude) return@filter false
+            if (candidate.id in exclude) return@filter false
             if (separateFrom == null) return@filter true
             angleBetweenDeg(
                 enu(candidate.azDeg, candidate.altDeg),
@@ -102,10 +126,10 @@ class AlignmentTargets(
         val direction = enu(target.azDeg, target.altDeg)
         // 「間違えようがないか」は、合わせ先を視野の中心に置いたときに
         // 同じくらい明るい点が一緒に入るかで決める。
-        // ただし**月と惑星は星表に無い**ので、それが紛れ込む余地は残る。
-        // 取り違えは 2 点目の残差に出るので、そこで気づけるようにしてある
+        // 月と惑星も候補に入っているので、明るい紛らわしいものはここで拾える。
+        // 残るのは 1.6 等より暗い星との取り違えで、それは 2 点目の残差に出る
         val neighbours = candidates.filter {
-            it.hip != target.hip && onPanel(it, Basis(target.azDeg, target.altDeg))
+            it.id != target.id && onPanel(it, Basis(target.azDeg, target.altDeg))
         }
         return AlignmentGuidance(
             target = target,
@@ -138,6 +162,9 @@ class AlignmentTargets(
         const val MAX_ALTITUDE_DEG = 60.0
         const val PREFERRED_ALTITUDE_DEG = 30.0
         const val MIN_SEPARATION_DEG = 40.0
+
+        /** これより太陽が高いと、月以外は肉眼で見えない */
+        const val VISIBLE_SUN_ALTITUDE_DEG = -6.0
         const val MAGNITUDE_GAP = 1.0
         private const val MAGNITUDE_WEIGHT = 0.5
         private const val ALTITUDE_WEIGHT = 0.05
@@ -148,7 +175,7 @@ class AlignmentTargets(
 
 /** グラスに出す 1 行。矢印だけで意味が通るようにする（見上げている人は文字を読み込まない） */
 fun glassGuidanceText(guidance: AlignmentGuidance?, holdState: AlignmentHoldState?): String {
-    if (guidance == null) return "合わせられる星が見つかりません"
+    if (guidance == null) return "合わせられる目印がありません"
     if (!guidance.inView) {
         val turn = guidance.turnDeg
         return if (turn >= 0) "▶▶ 右へ ${turn.toInt()}°" else "◀◀ 左へ ${(-turn).toInt()}°"
@@ -160,8 +187,8 @@ fun glassGuidanceText(guidance: AlignmentGuidance?, holdState: AlignmentHoldStat
 
 /** スマホ側の案内。こちらは同伴者も読むので言葉で書く */
 fun phoneGuidanceText(guidance: AlignmentGuidance?, holdState: AlignmentHoldState?): String {
-    if (guidance == null) return "いまの空に合わせられる明るい星がありません"
-    if (guidance.ambiguous) return "近くに同じくらい明るい星があります。別の星にしてください"
+    if (guidance == null) return "いまの空に合わせられる明るい目印がありません"
+    if (guidance.ambiguous) return "近くに同じくらい明るいものがあります。別の目印にしてください"
     if (!guidance.inView) {
         val turn = guidance.turnDeg
         val side = if (turn >= 0) "右" else "左"

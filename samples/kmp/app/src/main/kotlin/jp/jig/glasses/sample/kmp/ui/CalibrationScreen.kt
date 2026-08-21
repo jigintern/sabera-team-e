@@ -122,7 +122,7 @@ fun CalibrationScreen(
     var targets by remember { mutableStateOf<AlignmentTargets?>(null) }
     var candidates by remember { mutableStateOf<List<AlignmentTarget>>(emptyList()) }
     var guidance by remember { mutableStateOf<AlignmentGuidance?>(null) }
-    var manualHip by remember { mutableStateOf<Int?>(null) }
+    var manualTargetId by remember { mutableStateOf<Int?>(null) }
     var solution by remember { mutableStateOf<AlignmentSolution?>(null) }
     var magnetic by remember { mutableStateOf<MagneticQuality?>(null) }
     var lastMagneticAt by remember { mutableLongStateOf(0L) }
@@ -288,7 +288,7 @@ fun CalibrationScreen(
                 val list = finder.candidates(site, System.currentTimeMillis(), look.azDeg)
                 candidates = list
                 val used = correspondences.map { it.targetName }.toSet()
-                val chosen = manualHip?.let { hip -> list.firstOrNull { it.hip == hip } }
+                val chosen = manualTargetId?.let { id -> list.firstOrNull { it.id == id } }
                 guidance = when {
                     chosen != null -> finder.guidanceFor(chosen, list, look)
                     else -> finder.guide(
@@ -321,7 +321,7 @@ fun CalibrationScreen(
                     // 残差が悪くなっても差し替える。**取り違えを隠さないため**。
                     // 2 点目の食い違いは「別の星に合わせてしまった」という情報そのもの
                     solution = alignment.solve(correspondences.toList()) ?: solution
-                    manualHip = null
+                    manualTargetId = null
                     // 同じ静止でもう一度取らないよう窓を空にする
                     hold.reset()
                 }
@@ -375,16 +375,16 @@ fun CalibrationScreen(
                 onAnotherStar = {
                     val list = candidates
                     if (list.isNotEmpty()) {
-                        val currentHip = guidance?.target?.hip
-                        val index = list.indexOfFirst { it.hip == currentHip }
-                        manualHip = list[(index + 1).mod(list.size)].hip
+                        val currentId = guidance?.target?.id
+                        val index = list.indexOfFirst { it.id == currentId }
+                        manualTargetId = list[(index + 1).mod(list.size)].id
                     }
                 },
                 onFinish = { finishCelestial() },
                 onReset = {
                     correspondences.clear()
                     solution = null
-                    manualHip = null
+                    manualTargetId = null
                     hold.reset()
                 },
                 onSkip = { coarse?.let(onCalibrated) },
@@ -555,7 +555,7 @@ fun CalibrationScreen(
                     }
                     correspondences.clear()
                     solution = null
-                    manualHip = null
+                    manualTargetId = null
                     hold.reset()
                     stage = CalibrationStage.CELESTIAL
                 },
@@ -715,7 +715,7 @@ private fun CelestialAlignmentStage(
                 enabled = candidateCount > 1,
                 colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
             ) {
-                Text("別の星にする")
+                Text("別の目印にする")
             }
             TextButton(
                 onClick = onReset,
