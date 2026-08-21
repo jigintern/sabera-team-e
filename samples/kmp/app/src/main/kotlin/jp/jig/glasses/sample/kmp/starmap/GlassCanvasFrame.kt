@@ -62,17 +62,38 @@ internal fun StarMap.toCanvasElements(): List<CommandManager.CanvasElement> {
     return shown
 }
 
-/** SDK の 190 バイト制限に収めつつ、前フレームで余った要素も消す。 */
+/**
+ * SDK の 190 バイト制限に収めて送る形にする。**書き換える前に、消す必要のあるスロットを消す。**
+ *
+ * ファームは**新しい矩形しか描き直さない**。同じ id に前より短い名前や左に寄った名前を置くと、
+ * **前の名前の末尾が画面に残る**（実機で「る」の 1 文字が右上に残った）。
+ * 消すのは空文字を送ればよいが、**同じ電文の中で消してから置くと順番が保証されない**ので、
+ * 消す分だけを先のバッチにまとめる。
+ *
+ * 消すのは**必要なスロットだけ**にする。全部消してから置き直すと、
+ * 位置だけ動かす衛星の印（1.5 秒ごと）で名前が毎回ちらつく。
+ */
 internal fun List<CommandManager.CanvasElement>.batched(
-    previousCount: Int,
+    previous: List<CommandManager.CanvasElement>,
 ): List<List<CommandManager.CanvasElement>> {
-    val cleared = (size until previousCount.coerceAtMost(CANVAS_TEXT_SLOTS)).map { id ->
-        CommandManager.CanvasElement(id = id, x = 0, y = 0, width = 0, height = 0, text = "")
+    val next = associateBy { it.id }
+    val cleared = previous.mapNotNull { old ->
+        val replacement = next[old.id]
+        // 新しい矩形が前の矩形を覆っているなら、そのまま上書きして消え残らない
+        if (replacement != null && replacement covers old) return@mapNotNull null
+        CommandManager.CanvasElement(id = old.id, x = 0, y = 0, width = 0, height = 0, text = "")
     }
+    return chunkByBudget(cleared) + chunkByBudget(this)
+}
+
+/** 190 バイトずつに切る。1 要素で超える場合はその 1 つだけで送る */
+private fun chunkByBudget(
+    elements: List<CommandManager.CanvasElement>,
+): List<List<CommandManager.CanvasElement>> {
     val batches = ArrayList<List<CommandManager.CanvasElement>>()
     var current = ArrayList<CommandManager.CanvasElement>()
     var used = 0
-    for (element in this + cleared) {
+    for (element in elements) {
         val elementBytes = element.byteSize()
         if (current.isNotEmpty() && used + elementBytes > CANVAS_TEXT_BUDGET_BYTES) {
             batches += current
@@ -85,6 +106,11 @@ internal fun List<CommandManager.CanvasElement>.batched(
     if (current.isNotEmpty()) batches += current
     return batches
 }
+
+/** 前の矩形を完全に覆うか。覆っていれば消さずに上書きしてよい */
+private infix fun CommandManager.CanvasElement.covers(other: CommandManager.CanvasElement): Boolean =
+    x <= other.x && y <= other.y &&
+        x + width >= other.x + other.width && y + height >= other.y + other.height
 
 internal fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArray(Charsets.UTF_8).size
 

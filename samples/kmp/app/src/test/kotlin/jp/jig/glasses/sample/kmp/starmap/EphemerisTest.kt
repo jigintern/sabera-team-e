@@ -129,6 +129,66 @@ class EphemerisTest {
         }
     }
 
+    /** 水星は太陽から離れられない。**軌道長半径を打ち間違えるとここで破れる**（最大離角 28°） */
+    @Test
+    fun `水星の離角は 28 度台を超えず、合の近くも通る`() {
+        var maximum = 0.0
+        var minimum = 180.0
+        val start = utc("2026-01-01T00:00:00Z")
+        for (day in 0 until 730) {
+            val at = start + day * 86_400_000L
+            val separation = separationFromSunDeg(planetPosition(SolarSystemBody.MERCURY, at).lonDeg, at)
+            maximum = maxOf(maximum, separation)
+            minimum = minOf(minimum, separation)
+        }
+        assertTrue("水星が太陽から離れすぎている: $maximum", maximum < 29.0)
+        assertTrue("最大離角に届いていない: $maximum", maximum > 22.0)
+        assertTrue("合の近くを通っていない: $minimum", minimum < 2.0)
+    }
+
+    /**
+     * 外側の 3 つは動きが遅いので、**どの星座にいたか**で検算できる。
+     * 黄経は春分点起点なので、「〇座〇度」がそのまま黄経になる。
+     */
+    @Test
+    fun `天王星・海王星・冥王星は2024年初めの位置に来る`() {
+        val at = utc("2024-01-21T12:00:00Z")
+        val uranus = planetPosition(SolarSystemBody.URANUS, at)
+        val neptune = planetPosition(SolarSystemBody.NEPTUNE, at)
+        val pluto = planetPosition(SolarSystemBody.PLUTO, at)
+
+        // 天王星はおうし座の 19〜20°（黄経 49〜50°）
+        assertEquals("天王星の黄経", 49.5, uranus.lonDeg, 4.0)
+        // 海王星はうお座の後半（黄経 356° 前後）
+        assertEquals("海王星の黄経", 356.5, neptune.lonDeg, 4.0)
+        // **冥王星がみずがめ座（黄経 300°）へ入った日**
+        assertEquals("冥王星の黄経", 300.0, pluto.lonDeg, 4.0)
+
+        // 黄道からの離れ方も桁で確かめる。要素の取り違えはここにも出る
+        assertTrue("天王星の黄緯: ${uranus.latDeg}", abs(uranus.latDeg) < 1.0)
+        assertTrue("海王星の黄緯: ${neptune.latDeg}", abs(neptune.latDeg) < 2.0)
+        assertTrue("冥王星の黄緯: ${pluto.latDeg}", abs(pluto.latDeg) in 0.5..20.0)
+    }
+
+    /** 距離と等級は公表値の幅に収まる。級数を 1 行落とすとここで出る */
+    @Test
+    fun `外側の惑星の距離と等級は既知の範囲に収まる`() {
+        val start = utc("2026-01-01T00:00:00Z")
+        for (day in 0 until 365 step 7) {
+            val at = start + day * 86_400_000L
+            val uranus = planetPosition(SolarSystemBody.URANUS, at)
+            val neptune = planetPosition(SolarSystemBody.NEPTUNE, at)
+            val pluto = planetPosition(SolarSystemBody.PLUTO, at)
+            assertTrue("天王星の距離 ${uranus.distanceAu}", uranus.distanceAu in 17.2..21.2)
+            assertTrue("海王星の距離 ${neptune.distanceAu}", neptune.distanceAu in 28.7..31.4)
+            assertTrue("冥王星の距離 ${pluto.distanceAu}", pluto.distanceAu in 28.6..50.4)
+            assertTrue("天王星の等級 ${uranus.magnitude}", uranus.magnitude in 5.2..6.1)
+            assertTrue("海王星の等級 ${neptune.magnitude}", neptune.magnitude in 7.5..8.1)
+            // **肉眼では見えない。** 6 等より明るく出たら距離か等級式が壊れている
+            assertTrue("冥王星の等級 ${pluto.magnitude}", pluto.magnitude in 13.5..16.5)
+        }
+    }
+
     @Test
     fun `金星の離角は 47 度を超えない`() {
         var maximum = 0.0
