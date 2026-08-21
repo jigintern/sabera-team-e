@@ -256,9 +256,12 @@ fun CalibrationScreen(
     val facingReady = tiltDifference != null && tiltDifference <= MAX_TILT_DIFFERENCE_DEG
     val stabilityReady = estimate?.stable == true
     // OS の「磁気精度は高い」はキャリブレーションが済んだかしか言わない。
-    // 土地の期待値と比べて明らかに歪んでいるときは合わせさせない
-    val magneticReady = magnetic?.distorted != true
-    val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady && magneticReady
+    // 土地の期待値と比べて明らかに歪んでいるかは、こちらで見る
+    // **歪みでは止めない。** 止めていたときは机の上（ノート PC・ディスプレイ・鉄の脚）で
+    // 常時弾かれ、観測画面から先の確認が何もできなかった。
+    // それ以上に、**磁力計を使わない段階 2 まで一緒に塞いでいた**のが逆立ちしていた。
+    // 歪みの答えが天体アライメントなので、そこへ行く道を磁気で閉じてはいけない
+    val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady
 
     /** 段階 2 で使う視線。ドリフト補正後のヨー基準で持つ */
     fun celestialLook(): Look? {
@@ -424,7 +427,7 @@ fun CalibrationScreen(
                         text = if (ready) {
                             "この位置で合わせられます"
                         } else {
-                            magnetic?.takeIf { it.distorted }?.reason ?: calibrationInstruction(
+                            calibrationInstruction(
                                 imuFresh = imuFresh,
                                 headingReady = headingReady,
                                 compassReady = compassReady,
@@ -436,6 +439,23 @@ fun CalibrationScreen(
                         color = if (ready) SaberaGreen else Color.White,
                         textAlign = TextAlign.Center,
                     )
+                    // 歪んでいても押せる。**ただし黙って通さない。**
+                    // ここで合わせた方位には歪みぶんの誤差が丸ごと乗る
+                    magnetic?.takeIf { it.distorted }?.reason?.let { reason ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = reason,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SaberaWarning,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "このまま合わせると方位がずれます。星に合わせれば磁気は使いません",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SaberaWarning.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
 
@@ -488,7 +508,7 @@ fun CalibrationScreen(
                                 "磁気の歪み",
                                 magnetic?.let { "%.2f倍 / 伏角%.0f°差".format(it.strengthRatio, it.inclinationDiffDeg) }
                                     ?: "計測中",
-                                magneticReady && magnetic != null,
+                                magnetic?.distorted == false,
                             )
                             PrecisionRow(
                                 "静止精度",
