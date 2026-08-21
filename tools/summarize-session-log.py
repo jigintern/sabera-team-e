@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """観測ログから、実機で確かめたい数字だけを抜き出す。
 
-見たいのは 5 つ。
+見たいのは 6 つ。
 - 加速度軸が自動判定で確定したか（確定するまでロール追従は使えない）
+- ロールの符号が正しいか（反転していると追従を入れたぶんずれが 2 倍になる）
 - 画角に何を使っていたか（実測を入れたか、仮の値のままか）
 - 天体アライメントの残差（±3° に入っていれば星図を空に重ねられる）
 - ドリフト補正が効き続けているか（生のヨーは 44°/分 流れる）
@@ -23,6 +24,7 @@ def main() -> int:
 
     axis = [l for l in lines if "加速度軸" in l]
     axis_fixed = [l for l in axis if "確定" in l]
+    roll_sign = [l for l in lines if "ロールの符号" in l]
     selfcheck = [l for l in lines if "自己診断" in l]
     calibration = [l for l in lines if l.startswith(tuple()) or "方位合わせ=" in l]
     residuals = [(l, m.group(1)) for l in lines for m in [re.search(r"残差=([0-9.]+)°", l)] if m]
@@ -51,6 +53,18 @@ def main() -> int:
         print("  → 空を 20° 以上見上げ下ろしすると決まる")
     else:
         print("  記録なし（観測画面に入っていない）")
+
+    print("\n## ロールの符号")
+    decided = [l for l in roll_sign if "判定中" not in l]
+    if decided:
+        print(f"  {decided[-1]}")
+        if "反転" in decided[-1]:
+            print("  → 追従を切る。AccelBasis の向きを直すまで入れない")
+    elif roll_sign:
+        print(f"  {roll_sign[-1]}")
+        print("  → 首を左右に 15° ほど 3 往復ゆっくり傾けると決まる")
+    else:
+        print("  記録なし（加速度軸が確定していないか、首を傾けていない）")
 
     print("\n## 画角")
     fov = [m.group(0) for l in selfcheck for m in [re.search(r"画角=[0-9]+°\((実測|仮)\)", l)] if m]
