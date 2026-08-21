@@ -24,7 +24,10 @@ class CalibrationEstimatorTest {
 
         val result = checkNotNull(estimate)
         assertTrue(result.stable)
-        assertEquals(-10.0, result.headingOffsetDeg, 0.01)
+        // オフセットは 方位 ＋ ヨー（ヨーは方位と逆に回る）。359 + 9 = 368 → 8。
+        // このテストは両方に同じ揺れを乗せているので、引き算だった頃は揺れが打ち消えて
+        // ちょうど -10 になっていた。足し算では消えずに 2 倍で残るため、幅を持たせる
+        assertEquals(8.0, result.headingOffsetDeg, 0.05)
         assertEquals(2.0, result.pitchOffsetDeg, 0.1)
         assertEquals(11, result.sampleCount)
     }

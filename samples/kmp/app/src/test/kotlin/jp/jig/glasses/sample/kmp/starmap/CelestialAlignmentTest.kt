@@ -27,7 +27,7 @@ class CelestialAlignmentTest {
             panelX = STAR_MAP_WIDTH / 2.0,
             panelY = STAR_MAP_HEIGHT / 2.0,
             targetName = "ベガ",
-            targetAzDeg = glassYaw + headingOffset,
+            targetAzDeg = azimuthFromYaw(glassYaw, headingOffset),
             targetAltDeg = glassPitch + pitchOffset,
         )
 
@@ -50,7 +50,7 @@ class CelestialAlignmentTest {
             listOf(
                 AlignmentCorrespondence(
                     atMs = 0L,
-                    glassYawDeg = look.azDeg - headingOffset,
+                    glassYawDeg = normalizeDeg(headingOffset - look.azDeg),
                     glassPitchDeg = look.altDeg - pitchOffset,
                     panelX = at[0],
                     panelY = at[1],
@@ -96,9 +96,31 @@ class CelestialAlignmentTest {
 
     @Test
     fun `ドリフト補正後のヨーで解いたオフセットを生のヨー基準へ戻す`() {
-        // 段階 2 の間に補正が 20° 溜まっていたら、観測画面はその分を知らないので足して渡す
-        assertEquals(35.0, bridgeToRawYaw(15.0, correctedYawDeg = 100.0, rawYawDeg = 80.0), 1e-9)
+        // オフセットは 方位 ＋ ヨー なので、ヨーの基準が 20° 進んでいたらその分を引いて渡す
+        assertEquals(-5.0, bridgeToRawYaw(15.0, correctedYawDeg = 100.0, rawYawDeg = 80.0), 1e-9)
         assertEquals(15.0, bridgeToRawYaw(15.0, correctedYawDeg = 80.0, rawYawDeg = 80.0), 1e-9)
+    }
+
+    /**
+     * **ヨーは左を向くと増え、方位は右を向くと増える**（[azimuthFromYaw] の説明を参照）。
+     * 2026-08-21 に実機で確認した。足し算に戻すと、首を振った分だけ 2 倍ずれる。
+     */
+    @Test
+    fun `右を向くと方位が増える`() {
+        val offset = 30.0
+        // 右を向く ＝ ヨーが減る
+        val facing = azimuthFromYaw(yawDeg = 0.0, headingOffsetDeg = offset)
+        val turnedRight = azimuthFromYaw(yawDeg = -20.0, headingOffsetDeg = offset)
+        assertEquals(30.0, facing, 1e-9)
+        assertEquals(50.0, turnedRight, 1e-9)
+    }
+
+    @Test
+    fun `オフセットと方位は往復する`() {
+        val yaw = -117.0
+        val az = 214.0
+        val offset = headingOffsetFor(az, yaw)
+        assertEquals(az, azimuthFromYaw(yaw, offset), 1e-9)
     }
 
     @Test
@@ -155,7 +177,7 @@ class CelestialAlignmentTest {
         panelX = STAR_MAP_WIDTH / 2.0,
         panelY = STAR_MAP_HEIGHT / 2.0,
         targetName = name,
-        targetAzDeg = (glassYaw + headingOffset + 360.0) % 360.0,
+        targetAzDeg = azimuthFromYaw(glassYaw, headingOffset),
         targetAltDeg = glassPitch,
     )
 }

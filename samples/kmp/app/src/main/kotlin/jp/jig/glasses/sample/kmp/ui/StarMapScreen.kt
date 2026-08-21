@@ -68,6 +68,7 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.CalibrationSource
+import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
@@ -438,7 +439,7 @@ fun StarMapScreen(
     }
 
     fun look(): Look = Look(
-        (normalizeDeg(yawNow() + headingOffset) + 360.0) % 360.0,
+        azimuthFromYaw(yawNow(), headingOffset),
         (glassPitch + pitchOffset).coerceIn(-90.0, 90.0),
     )
 

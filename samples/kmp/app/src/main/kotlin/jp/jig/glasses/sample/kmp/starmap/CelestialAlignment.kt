@@ -55,7 +55,7 @@ class CelestialAlignment(
         val pitches = ArrayList<Double>(correspondences.size)
         for (c in correspondences) {
             val look = lookFor(c)
-            headings += normalizeDeg(look.azDeg - c.glassYawDeg)
+            headings += headingOffsetFor(look.azDeg, c.glassYawDeg)
             pitches += look.altDeg - c.glassPitchDeg
         }
         val heading = CalibrationEstimator.circularMeanDeg(headings)
@@ -77,7 +77,10 @@ class CelestialAlignment(
         headingOffsetDeg: Double,
         pitchOffsetDeg: Double,
     ): Double {
-        val look = look(correspondence.glassYawDeg + headingOffsetDeg, correspondence.glassPitchDeg + pitchOffsetDeg)
+        val look = look(
+            azimuthFromYaw(correspondence.glassYawDeg, headingOffsetDeg),
+            correspondence.glassPitchDeg + pitchOffsetDeg,
+        )
         val basis = Basis(look.azDeg, look.altDeg)
         val drawn = unproject(correspondence.panelX, correspondence.panelY, basis, scale, width, height)
         return angleBetweenDeg(drawn, enu(correspondence.targetAzDeg, correspondence.targetAltDeg))
@@ -193,7 +196,7 @@ class AlignmentHold(
  * この橋渡しを入れないと段階 2 で溜めた補正ぶんだけ星図がずれる。
  */
 fun bridgeToRawYaw(headingOffsetDeg: Double, correctedYawDeg: Double, rawYawDeg: Double): Double =
-    normalizeDeg(headingOffsetDeg + normalizeDeg(correctedYawDeg - rawYawDeg))
+    normalizeDeg(headingOffsetDeg - normalizeDeg(correctedYawDeg - rawYawDeg))
 
 /** 残差から、その解で何ができるかを日本語で言う。数字だけ出しても使う人には判断できない */
 fun alignmentGrade(residualDeg: Double): String = when {

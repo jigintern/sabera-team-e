@@ -75,6 +75,7 @@ import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
+import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.starmap.alignmentGrade
 import jp.jig.glasses.sample.kmp.starmap.bridgeToRawYaw
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
@@ -270,7 +271,7 @@ fun CalibrationScreen(
         val heading = solution?.headingOffsetDeg ?: coarseHeadingCorrectedDeg
         val pitchOffset = solution?.pitchOffsetDeg ?: coarse?.pitchOffsetDeg ?: 0.0
         return Look(
-            (normalizeDeg(yaw + heading) + 360.0) % 360.0,
+            azimuthFromYaw(yaw, heading),
             (pitch + pitchOffset).coerceIn(-90.0, 90.0),
         )
     }
@@ -570,7 +571,8 @@ fun CalibrationScreen(
                     )
                     // 段階 1 のオフセットは生のヨー基準。段階 2 の間はドリフト補正後のヨーを使う
                     coarseHeadingCorrectedDeg = if (yaw != null && raw != null) {
-                        normalizeDeg(stable.headingOffsetDeg - normalizeDeg(yaw - raw))
+                        // オフセットは方位 ＋ ヨーなので、ヨーの基準が動いた分は同じ向きに足す
+                        normalizeDeg(stable.headingOffsetDeg + normalizeDeg(yaw - raw))
                     } else {
                         stable.headingOffsetDeg
                     }

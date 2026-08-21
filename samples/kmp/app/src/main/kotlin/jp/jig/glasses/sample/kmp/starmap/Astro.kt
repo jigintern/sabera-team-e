@@ -44,6 +44,30 @@ data class Vec3(val x: Double, val y: Double, val z: Double) {
     fun dropAlong(axis: Vec3): Vec3 = this - axis * (this dot axis)
 }
 
+/**
+ * グラスのヨーを方位[度]へ直す。**符号の規約はここだけに置く。**
+ *
+ * **ヨーは左を向くと増え、方位は右を向くと増える。** 実機で測った 3 つから決まる:
+ *
+ * | 実測 | 出どころ |
+ * |---|---|
+ * | 上 = 加速度の +X 軸 | 加速度軸の自動判定 |
+ * | ジャイロは右手系 | 同上（基底と回転の向きを突き合わせ） |
+ * | `gyroXDps` とヨーは同符号 | 90° を 7 回まわして確認 |
+ *
+ * 右手系で回転軸が上を向いていれば、正の角速度は**上から見て反時計回り＝左**。
+ * ヨーがそれと同符号なので、**ヨーは方位と逆に回る**。
+ *
+ * **2026-08-21 に実機で確認した。** 誘導が「左へ 30°」と言う状態から左を向くと
+ * 30 → 40 → 50 と増え、目標が逃げていった。足し算のままだと、
+ * 首を振った分だけ 2 倍の速さでずれる（合わせた瞬間だけ正しい）。
+ */
+fun azimuthFromYaw(yawDeg: Double, headingOffsetDeg: Double): Double =
+    (normalizeDeg(headingOffsetDeg - yawDeg) + 360.0) % 360.0
+
+/** [azimuthFromYaw] の逆。「この方位を向いていたときヨーがこうだった」からオフセットを作る */
+fun headingOffsetFor(azimuthDeg: Double, yawDeg: Double): Double = normalizeDeg(azimuthDeg + yawDeg)
+
 /** 方位角・高度[度] → ENU の単位ベクトル */
 fun enu(azDeg: Double, altDeg: Double): Vec3 {
     val a = azDeg * RAD

@@ -77,7 +77,7 @@ class CalibrationEstimator(
         samples.addLast(Sample(atMs, phoneHeadingDeg, phonePitchDeg, glassYawDeg, glassPitchDeg))
         while (samples.isNotEmpty() && atMs - samples.first().atMs > windowMs) samples.removeFirst()
 
-        val headingOffsets = samples.map { normalizeDeg(it.phoneHeadingDeg - it.glassYawDeg) }
+        val headingOffsets = samples.map { headingOffsetFor(it.phoneHeadingDeg, it.glassYawDeg) }
         val pitchOffsets = samples.map { it.phonePitchDeg - it.glassPitchDeg }
         val headingMean = circularMeanDeg(headingOffsets)
         val pitchMean = pitchOffsets.average()
