@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -47,9 +48,24 @@ class CloudVoice(
     context: Context,
     private val speech: OpenAiSpeech,
     private val fallback: Speaker,
-    private val scope: CoroutineScope,
+    caller: CoroutineScope,
     private val log: (String, Boolean) -> Unit,
 ) : Voice, VoiceStatus {
+
+    /**
+     * 声のための子スコープ。**必ず [SupervisorJob] を挟む。**
+     *
+     * `async` の失敗は `await` で受け取っても**親スコープを巻き込んでキャンセルする**。
+     * 渡ってくるのは画面の `rememberCoroutineScope()` なので、素の子として走らせると
+     * **TTS が 1 回失敗しただけで画面のコルーチンが全部死ぬ**。
+     * 実機（2026-08-21・圏外）では先読みが 2 回失敗したあと、
+     * **6DoF の購読とログの書き出しが道連れで止まり、星図が二度と更新されなくなった**。
+     *
+     * 親を渡してあるので、画面を離れたときのキャンセルは今までどおり伝わる。
+     */
+    private val scope = CoroutineScope(
+        caller.coroutineContext + SupervisorJob(caller.coroutineContext[Job]),
+    )
 
     private class Utterance(
         val text: String,
@@ -184,7 +200,11 @@ class CloudVoice(
             runCatching {
                 warmFlights.getOrStart(file.path) { downloadToCache(text, file) }.await()
             }
-                .onFailure { Log.w(TAG, "先読みに失敗 ${it.message}") }
+                .onFailure {
+                    // 圏外だと毎フレーム落ちる。**黙って落ちていると原因に辿り着けない**
+                    Log.w(TAG, "先読みに失敗 ${it.message}")
+                    log("最初の一言の先読みに失敗（${it.message}）", true)
+                }
         }
     }
 

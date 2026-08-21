@@ -64,7 +64,9 @@ import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -82,7 +84,13 @@ fun CalibrationScreen(
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
+    // ここから launch / async したものが 1 つ失敗すると兄弟が全部キャンセルされる。
+    // 実機では TTS の先読みが圏外で失敗したとき、6DoF の購読とログまで道連れになった
+    val uiScope = rememberCoroutineScope()
+    val scope = remember(uiScope) {
+        CoroutineScope(uiScope.coroutineContext + SupervisorJob(uiScope.coroutineContext[Job]))
+    }
     val commandManager = remember(client) { client.createCommandManager() }
     val imuStarted by commandManager.imuDataStarted.collectAsState()
     val compass = remember { Compass(context) }
