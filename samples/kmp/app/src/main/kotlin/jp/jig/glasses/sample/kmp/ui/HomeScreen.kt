@@ -39,7 +39,7 @@ fun HomeScreen(
             Spacer(Modifier.weight(1f))
 
             Text(
-                text = "星語り",
+                text = "星がたり",
                 style = MaterialTheme.typography.displaySmall,
                 color = Color.White,
                 textAlign = TextAlign.Center,
