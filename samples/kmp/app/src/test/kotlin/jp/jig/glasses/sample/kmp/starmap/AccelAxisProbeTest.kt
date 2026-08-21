@@ -15,20 +15,32 @@ import kotlin.math.sin
 class AccelAxisProbeTest {
 
     /**
-     * 与えた軸割り当てのグラスが、ピッチ [pitchDeg]・ロール [rollDeg] のときに返す加速度[mg]。
+     * 与えた基底のグラスが、ピッチ [pitchDeg]・ロール [rollDeg] のときに返す加速度[mg]。
      * 静止時の加速度は「世界の上向き」そのものなので、姿勢から一意に決まる。
      */
-    private fun accel(axes: AccelAxes, pitchDeg: Double, rollDeg: Double = 0.0): DoubleArray {
-        val out = DoubleArray(3)
+    private fun accel(basis: AccelBasis, pitchDeg: Double, rollDeg: Double = 0.0): DoubleArray {
         val pitch = pitchDeg * RAD
         val roll = rollDeg * RAD
-        out[axes.forwardIndex] += 1000.0 * sin(pitch) * axes.forwardSign
-        out[axes.upIndex] += 1000.0 * cos(pitch) * cos(roll) * axes.upSign
-        out[axes.lateralIndex] += -1000.0 * cos(pitch) * sin(roll) * axes.lateralSign
-        return out
+        val f = basis.forward
+        val u = basis.up
+        val r = basis.right
+        val scaleForward = 1000.0 * sin(pitch)
+        val scaleUp = 1000.0 * cos(pitch) * cos(roll)
+        val scaleRight = -1000.0 * cos(pitch) * sin(roll)
+        return doubleArrayOf(
+            f.x * scaleForward + u.x * scaleUp + r.x * scaleRight,
+            f.y * scaleForward + u.y * scaleUp + r.y * scaleRight,
+            f.z * scaleForward + u.z * scaleUp + r.z * scaleRight,
+        )
     }
 
-    private fun feed(axes: AccelAxes, probe: AccelAxisProbe, samples: Int = 400): AccelAxisEstimate {
+    private fun accel(axes: AccelAxes, pitchDeg: Double, rollDeg: Double = 0.0): DoubleArray =
+        accel(axes.basis(), pitchDeg, rollDeg)
+
+    private fun feed(axes: AccelAxes, probe: AccelAxisProbe, samples: Int = 400): AccelAxisEstimate =
+        feed(axes.basis(), probe, samples)
+
+    private fun feed(basis: AccelBasis, probe: AccelAxisProbe, samples: Int = 400): AccelAxisEstimate {
         var last = probe.estimate()
         repeat(samples) { index ->
             // 空を見ているときの動き。水平付近を挟みながら見上げ下ろしする
@@ -45,7 +57,7 @@ class AccelAxisProbeTest {
                 1 -> -2.0
                 else -> 0.5
             }
-            val a = accel(axes, pitch, rollDeg = roll)
+            val a = accel(basis, pitch, rollDeg = roll)
             last = probe.add(a[0], a[1], a[2], pitch, gyroMagnitudeDps = 0.4)
         }
         return last
@@ -75,7 +87,7 @@ class AccelAxisProbeTest {
 
     @Test
     fun `見上げ下ろしが足りないうちは決めない`() {
-        val truth = AccelAxes.ASSUMED
+        val truth = AccelAxes.MEASURED
         val probe = AccelAxisProbe()
         var last = probe.estimate()
         repeat(400) {
@@ -88,7 +100,7 @@ class AccelAxisProbeTest {
 
     @Test
     fun `動いているサンプルは数に入れない`() {
-        val truth = AccelAxes.ASSUMED
+        val truth = AccelAxes.MEASURED
         val probe = AccelAxisProbe()
         var last = probe.estimate()
         repeat(400) { index ->
@@ -115,11 +127,36 @@ class AccelAxisProbeTest {
     }
 
     @Test
+    fun `取付が視線からずれていても、見上げたときのロールが狂わない`() {
+        // 実機で出た形。前方が −Y と −Z に 0.94 : 0.26 で混ざる（取付が視線から 15.5° 回っている）
+        val truth = AccelBasis(up = Vec3(1.0, 0.0, 0.0), forward = Vec3(0.0, -0.94, -0.26))
+        assertEquals(15.5, truth.mountingOffsetDeg(), 0.3)
+
+        val estimate = feed(truth, AccelAxisProbe())
+        val basis = estimate.resolvedBasis
+        assertTrue("取付がずれていても判定は通る", basis != null)
+        assertEquals("上に直交する傾きの大きさは 1", 1.0, estimate.pitchResponse, 0.03)
+        assertEquals("取付のずれも読める", 15.5, estimate.mountingOffsetDeg, 0.6)
+        // 軸に丸めた形では −Y が前になる（表示用）
+        assertEquals(1, estimate.resolved!!.forwardIndex)
+        assertEquals(-1, estimate.resolved!!.forwardSign)
+
+        // 見上げた姿勢で、傾けていないのにロールが出たら補正が悪化する
+        val level = accel(truth, pitchDeg = 40.0, rollDeg = 0.0)
+        assertEquals(0.0, RollEstimator(basis!!).update(level[0], level[1], level[2])!!, 0.5)
+
+        // 軸に丸めるとここが 14° ずれる。**丸めてはいけない理由そのもの**
+        val rounded = RollEstimator(estimate.resolved!!)
+        val roundedRoll = rounded.update(level[0], level[1], level[2])!!
+        assertTrue("丸めると見上げたときに大きくずれる: $roundedRoll", kotlin.math.abs(roundedRoll) > 8.0)
+    }
+
+    @Test
     fun `軸が変わったらロールの推定はやり直す`() {
-        val estimator = RollEstimator(AccelAxes.ASSUMED)
-        val a = accel(AccelAxes.ASSUMED, pitchDeg = 0.0, rollDeg = 10.0)
+        val estimator = RollEstimator(AccelAxes.MEASURED)
+        val a = accel(AccelAxes.MEASURED, pitchDeg = 0.0, rollDeg = 10.0)
         assertEquals(10.0, estimator.update(a[0], a[1], a[2])!!, 1e-6)
-        estimator.axes = AccelAxes(upIndex = 2, upSign = 1, forwardIndex = 0, forwardSign = 1)
-        assertNull("前の軸で積んだ値を持ち越さない", estimator.rollDeg)
+        estimator.basis = AccelAxes(upIndex = 2, upSign = 1, forwardIndex = 0, forwardSign = 1).basis()
+        assertNull("前の基底で積んだ値を持ち越さない", estimator.rollDeg)
     }
 }

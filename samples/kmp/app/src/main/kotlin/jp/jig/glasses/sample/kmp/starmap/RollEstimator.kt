@@ -16,6 +16,38 @@ import kotlin.math.sqrt
  * **傾けるたびに 528×330 を送り直す**ので、画面が 0.4 秒消える回数が増える。
  * だから追従にはデッドバンドを付ける（[StarMapScreen] 側）。
  */
+/**
+ * 加速度計の座標系での「上・前・右」。**軸に丸めずベクトルで持つ。**
+ *
+ * 実機で測ったら `前=-Y 傾き=-0.94/-0.26` だった。つまり**視線方向は 1 軸に乗っていない**
+ * （−Y と −Z が 0.94 : 0.26 で混ざる ＝ 取付が視線から 15.5° ずれている）。
+ * 1 軸へ丸めると、**見上げたときに重力の前方成分が左右成分へ漏れて、ロールが最大 14° ずれる**。
+ * 水平では合うので気づきにくいうえ、その状態で追従を入れると星図が 14° 回る。
+ */
+class AccelBasis(up: Vec3, forward: Vec3) {
+    val up: Vec3 = up.normalized()
+
+    /** 上に直交させた視線方向。回帰で出した傾きベクトルには上成分が混ざるので必ず落とす */
+    val forward: Vec3 = forward.minusProjection(this.up)
+
+    /** 右 = 前 × 上（[Basis] と同じ規約） */
+    val right: Vec3 = this.forward cross this.up
+
+    /** 取付が視線からどれだけ回っているか[度]。0 なら軸に素直に乗っている */
+    fun mountingOffsetDeg(): Double {
+        val dominant = listOf(Vec3(1.0, 0.0, 0.0), Vec3(0.0, 1.0, 0.0), Vec3(0.0, 0.0, 1.0))
+            .maxBy { kotlin.math.abs(forward dot it) }
+        return angleBetweenDeg(forward, if ((forward dot dominant) < 0) dominant.negated() else dominant)
+    }
+}
+
+private fun Vec3.minusProjection(axis: Vec3): Vec3 {
+    val amount = this dot axis
+    return Vec3(x - axis.x * amount, y - axis.y * amount, z - axis.z * amount).normalized()
+}
+
+internal fun Vec3.negated(): Vec3 = Vec3(-x, -y, -z)
+
 data class AccelAxes(
     /** 頭の上下方向にあたる軸（0=X, 1=Y, 2=Z） */
     val upIndex: Int,
@@ -35,6 +67,15 @@ data class AccelAxes(
      */
     val lateralSign: Int get() = upSign * forwardSign * leviCivita(forwardIndex, upIndex, lateralIndex)
 
+    /** 軸に丸めた割り当てを基底に直す。表示用の割り当てから推定を組むときに使う */
+    fun basis(): AccelBasis = AccelBasis(unit(upIndex, upSign), unit(forwardIndex, forwardSign))
+
+    private fun unit(index: Int, sign: Int): Vec3 = when (index) {
+        0 -> Vec3(sign.toDouble(), 0.0, 0.0)
+        1 -> Vec3(0.0, sign.toDouble(), 0.0)
+        else -> Vec3(0.0, 0.0, sign.toDouble())
+    }
+
     init {
         require(upIndex in 0..2 && forwardIndex in 0..2 && upIndex != forwardIndex) {
             "軸の割り当てが不正: up=$upIndex forward=$forwardIndex"
@@ -45,10 +86,13 @@ data class AccelAxes(
 
     companion object {
         /**
-         * 実測で確かなのは「鉛直が X」だけ。前方は Z、上向きは −X と**仮定**している。
-         * **[AccelAxisProbe] が観測中に自動で決める**ので、決まったらそちらへ差し替える。
+         * **実機で測った割り当て**（2026-08-21・team-e の 1 台）。上 = +X、前 = −Y。
+         * それまでの仮定（上 = −X・前 = +Z）は**軸も符号も外れていた**。
+         *
+         * ただし前方は 1 軸に乗っておらず（−Y と −Z が 0.94 : 0.26）、
+         * **正確な基底は [AccelAxisProbe] が実行時に出す。** ここは判定が済むまでの初期値。
          */
-        val ASSUMED = AccelAxes(upIndex = 0, upSign = -1, forwardIndex = 2)
+        val MEASURED = AccelAxes(upIndex = 0, upSign = 1, forwardIndex = 1, forwardSign = -1)
 
         /** e_i × e_j = ε_ijk e_k の符号 */
         internal fun leviCivita(i: Int, j: Int, k: Int): Int = when {
@@ -60,13 +104,15 @@ data class AccelAxes(
 }
 
 class RollEstimator(
-    /** [AccelAxisProbe] が軸を決めたら差し替える。変えたら推定はやり直す */
-    axes: AccelAxes = AccelAxes.ASSUMED,
+    /** [AccelAxisProbe] が基底を出したら差し替える。変えたら推定はやり直す */
+    basis: AccelBasis = AccelAxes.MEASURED.basis(),
     private val gain: Double = GAIN,
 ) {
-    var axes: AccelAxes = axes
+    constructor(axes: AccelAxes, gain: Double = GAIN) : this(axes.basis(), gain)
+
+    var basis: AccelBasis = basis
         set(value) {
-            if (field != value) {
+            if (field !== value) {
                 field = value
                 rollDeg = null
             }
@@ -92,10 +138,11 @@ class RollEstimator(
         // 1g から大きく外れていたら、重力以外の加速度が乗っている
         if (magnitude < MIN_MAGNITUDE_MG || magnitude > MAX_MAGNITUDE_MG) return rollDeg
 
-        val up = axes.upSign * axis[axes.upIndex]
+        val gravity = Vec3(axis[0], axis[1], axis[2])
+        val up = gravity dot basis.up
         // 右へ傾けると重力の右成分は負になる（世界の上が左へ回る）ので符号を反転する
-        val lateral = -axes.lateralSign * axis[axes.lateralIndex]
-        // 真上・真下を向くと重力が前方軸へ寄り、この 2 軸から角度が決まらない
+        val lateral = -(gravity dot basis.right)
+        // 真上・真下を向くと重力が前方へ寄り、この 2 方向から角度が決まらない
         if (hypot(lateral, up) < MIN_PLANAR_MG) return rollDeg
 
         val measured = atan2(lateral, up) * DEG
@@ -115,3 +162,14 @@ class RollEstimator(
         const val MIN_PLANAR_MG = 200.0
     }
 }
+
+/** 上向き成分を落とした残り。傾きベクトルから視線方向を取り出すのに使う */
+internal fun Vec3.dropAlong(axis: Vec3): Vec3 {
+    val amount = this dot axis
+    return Vec3(x - axis.x * amount, y - axis.y * amount, z - axis.z * amount)
+}
+
+/** [dropAlong] と同じだが、正規化せず長さを残す。姿勢の前提が合っているかを見るため */
+internal fun Vec3.dropAlongKeepingLength(axis: Vec3): Vec3 = dropAlong(axis)
+
+internal fun Vec3.length(): Double = kotlin.math.sqrt(x * x + y * y + z * z)

@@ -370,8 +370,9 @@ fun StarMapScreen(
                 )
                 val axes = axisProbe.add(accelX, accelY, accelZ, glassPitch, gyroMagnitude)
                 axisEstimate = axes
-                axes.resolved?.let { resolved ->
-                    rollEstimator.axes = resolved
+                axes.resolvedBasis?.let { resolved ->
+                    // 軸に丸めた形ではなく、取付のずれを含んだ基底を渡す
+                    rollEstimator.basis = resolved
                     if (!axesLogged) {
                         axesLogged = true
                         log("加速度軸を自動判定: ${axes.describe()}")

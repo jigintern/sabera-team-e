@@ -15,7 +15,13 @@ import kotlin.math.tan
  */
 class RollEstimatorTest {
 
-    /** 傾き [deg] のときの加速度[mg]。既定の軸割り当て（上 = −X、左右 = Y）に合わせる */
+    /**
+     * ここでは軸割り当てを固定して**推定の式だけ**を確かめる（既定値は実機で測り直されるので、
+     * それに引きずられると式のテストにならない）。上 = −X・前 = +Z なら左右は −Y になる。
+     */
+    private val axes = AccelAxes(upIndex = 0, upSign = -1, forwardIndex = 2)
+
+    /** 傾き [deg] のときの加速度[mg]。上の軸割り当てに合わせて作る */
     private fun accel(rollDeg: Double, magnitude: Double = 1000.0): DoubleArray {
         val up = magnitude * cos(rollDeg * RAD)
         val lateral = magnitude * sin(rollDeg * RAD)
@@ -26,19 +32,19 @@ class RollEstimatorTest {
 
     @Test
     fun `水平なら0度`() {
-        val estimator = RollEstimator()
+        val estimator = RollEstimator(axes)
         assertEquals(0.0, estimator.feed(accel(0.0))!!, 1e-9)
     }
 
     @Test
     fun `傾けた角度がそのまま出る`() {
-        assertEquals(15.0, RollEstimator().feed(accel(15.0))!!, 1e-9)
-        assertEquals(-25.0, RollEstimator().feed(accel(-25.0))!!, 1e-9)
+        assertEquals(15.0, RollEstimator(axes).feed(accel(15.0))!!, 1e-9)
+        assertEquals(-25.0, RollEstimator(axes).feed(accel(-25.0))!!, 1e-9)
     }
 
     @Test
     fun `平滑化しながら追いつく`() {
-        val estimator = RollEstimator()
+        val estimator = RollEstimator(axes)
         estimator.feed(accel(0.0))
         repeat(20) { estimator.feed(accel(20.0)) }
         assertEquals(20.0, estimator.rollDeg!!, 0.2)
@@ -46,7 +52,7 @@ class RollEstimatorTest {
 
     @Test
     fun `首を振っている間のサンプルは捨てる`() {
-        val estimator = RollEstimator()
+        val estimator = RollEstimator(axes)
         estimator.feed(accel(10.0))
         // 重力以外の加速度が乗って 2g になったサンプル
         assertEquals(10.0, estimator.feed(accel(40.0, magnitude = 2000.0))!!, 1e-9)
@@ -55,7 +61,7 @@ class RollEstimatorTest {
 
     @Test
     fun `真上を向くとロールは測れない`() {
-        val estimator = RollEstimator()
+        val estimator = RollEstimator(axes)
         estimator.feed(accel(5.0))
         // 重力が前方軸へ寄った状態。上下・左右の 2 軸からは角度が決まらない
         assertEquals(5.0, estimator.update(0.0, 0.0, 1000.0)!!, 1e-9)
@@ -63,7 +69,7 @@ class RollEstimatorTest {
 
     @Test
     fun `まだ測れていなければ null`() {
-        val estimator = RollEstimator()
+        val estimator = RollEstimator(axes)
         assertNull(estimator.update(0.0, 0.0, 1000.0))
         estimator.feed(accel(3.0))
         estimator.reset()

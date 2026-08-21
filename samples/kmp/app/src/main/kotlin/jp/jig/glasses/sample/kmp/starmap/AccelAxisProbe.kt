@@ -15,7 +15,11 @@ import kotlin.math.sqrt
  *   静止時の加速度は世界の上向きそのものなので、前方成分はちょうど `sin θ` になる。
  *   **相関では決められない**（相関は振幅を見ないので、首をいつも同じ側に少し傾けているだけで
  *   左右軸の相関も 1 に近づく）。**傾き＝1 かどうかで見るのが正しい**
- * - **左右の軸** = 残り 1 軸。符号は外積で決まるので推定しない（[AccelAxes.lateralSign]）
+ * - **左右の軸** = 残り。符号は外積で決まるので推定しない（右 = 前 × 上）
+ *
+ * **軸に丸めない。** 実機で測ると視線方向は 1 軸に乗っておらず（−Y と −Z が 0.94 : 0.26 ＝
+ * 取付が視線から 15.5° ずれている）、丸めると見上げたときにロールが最大 14° ずれる。
+ * 傾きをベクトルとして持ち、上に直交させたものを視線方向として使う（[AccelBasis]）。
  *
  * 空を見ていれば見上げ／見下ろしは自然に起きるので、**ユーザーには何も頼まない**。
  * 判定できたかどうかは [AccelAxisEstimate.resolved] で分かり、観測ログに残る。
@@ -27,15 +31,21 @@ data class AccelAxisEstimate(
     val forwardSign: Int,
     /** 前方候補の、sin(ピッチ) に対する傾き（±1 に近いほど確か） */
     val forwardSlope: Double,
-    /** 左右候補の傾き（0 に近いほど確か） */
+    /** 左右候補の傾き。**0 でなくてよい**（取付のずれがここに出る） */
     val lateralSlope: Double,
+    /** 上に直交する向きの傾きの大きさ。**これが 1 なら姿勢の前提と合っている** */
+    val pitchResponse: Double,
+    /** 取付が視線からどれだけ回っているか[度] */
+    val mountingOffsetDeg: Double,
     /** 前方候補の相関。傾きの信頼度を見るために持つ */
     val forwardCorrelation: Double,
     val pitchSpreadDeg: Double,
     val sampleCount: Int,
     val levelCount: Int,
-    /** 条件を満たしたときだけ非 null。ロール推定へ渡してよい軸割り当て */
+    /** 条件を満たしたときだけ非 null。表示とログのための、軸に丸めた形 */
     val resolved: AccelAxes?,
+    /** 条件を満たしたときだけ非 null。**ロール推定へ渡すのはこちら**（軸に丸めていない） */
+    val resolvedBasis: AccelBasis?,
 ) {
     /** 画面とログに出す 1 行。**判定できていない理由が分かるように書く** */
     fun describe(): String {
@@ -49,10 +59,12 @@ data class AccelAxisEstimate(
                 AXIS_NAMES[forwardIndex],
             )
         }
-        return "%s 傾き=%.2f/%.2f 相関=%.2f ピッチ幅=%.0f° 静止=%d件（水平%d件）%s".format(
+        return "%s 傾き=%.2f/%.2f 応答=%.2f 取付ずれ=%.1f° 相関=%.2f ピッチ幅=%.0f° 静止=%d件（水平%d件）%s".format(
             axesText,
             forwardSlope,
             lateralSlope,
+            pitchResponse,
+            mountingOffsetDeg,
             forwardCorrelation,
             pitchSpreadDeg,
             sampleCount,
@@ -71,9 +83,8 @@ class AccelAxisProbe(
     private val minSamples: Int = MIN_SAMPLES,
     private val minLevelSamples: Int = MIN_LEVEL_SAMPLES,
     private val minPitchSpreadDeg: Double = MIN_PITCH_SPREAD_DEG,
-    private val minForwardSlope: Double = MIN_FORWARD_SLOPE,
-    private val maxForwardSlope: Double = MAX_FORWARD_SLOPE,
-    private val maxLateralSlope: Double = MAX_LATERAL_SLOPE,
+    private val minPitchResponse: Double = MIN_PITCH_RESPONSE,
+    private val maxPitchResponse: Double = MAX_PITCH_RESPONSE,
 ) {
     private val levelSum = DoubleArray(3)
     private var levelCount = 0
@@ -153,19 +164,36 @@ class AccelAxisProbe(
         val lateral = forwardCandidates.firstOrNull { it != forward }
 
         val forwardSlope = forward?.let { slopes[it] } ?: 0.0
-        val lateralSlope = lateral?.let { slopes[it] } ?: 1.0
+        val lateralSlope = lateral?.let { slopes[it] } ?: 0.0
         val forwardCorrelation = forward?.let { correlation(it) } ?: 0.0
         val upSign = up?.let { if (levelSum[it] >= 0.0) 1 else -1 } ?: 1
         val forwardSign = if (forwardSlope >= 0.0) 1 else -1
 
+        // 傾きをベクトルとして扱い、上成分を落としたものが視線方向。
+        // **軸に丸めない**（実機では前方が 2 軸に 0.94 : 0.26 で混ざっていた）
+        val basis = if (up == null) {
+            null
+        } else {
+            val upVector = Vec3(
+                if (up == 0) levelSum[0] else 0.0,
+                if (up == 1) levelSum[1] else 0.0,
+                if (up == 2) levelSum[2] else 0.0,
+            ).normalized()
+            val slopeVector = Vec3(slopes[0], slopes[1], slopes[2])
+            val orthogonal = slopeVector.dropAlong(upVector)
+            if (orthogonal.length() < 1e-6) null else AccelBasis(upVector, orthogonal)
+        }
+        val pitchResponse = Vec3(slopes[0], slopes[1], slopes[2])
+            .let { s -> if (up == null) 0.0 else s.dropAlongKeepingLength(basisUp(up, levelSum)).length() }
+        val mountingOffset = basis?.mountingOffsetDeg() ?: 0.0
+
         val resolved = if (
-            up != null && forward != null &&
+            up != null && forward != null && basis != null &&
             count >= minSamples &&
             levelCount >= minLevelSamples &&
             spread >= minPitchSpreadDeg &&
-            abs(forwardSlope) >= minForwardSlope &&
-            abs(forwardSlope) <= maxForwardSlope &&
-            abs(lateralSlope) <= maxLateralSlope &&
+            pitchResponse >= minPitchResponse &&
+            pitchResponse <= maxPitchResponse &&
             abs(levelSum[up] / levelCount) >= MIN_LEVEL_COMPONENT
         ) {
             AccelAxes(
@@ -185,11 +213,14 @@ class AccelAxisProbe(
             forwardSign = forwardSign,
             forwardSlope = forwardSlope,
             lateralSlope = lateralSlope,
+            pitchResponse = pitchResponse,
+            mountingOffsetDeg = mountingOffset,
             forwardCorrelation = forwardCorrelation,
             pitchSpreadDeg = if (spread < 0.0) 0.0 else spread,
             sampleCount = count,
             levelCount = levelCount,
             resolved = resolved,
+            resolvedBasis = if (resolved != null) basis else null,
         )
     }
 
@@ -217,6 +248,12 @@ class AccelAxisProbe(
         return (covariance / sqrt(axisVariance * sinVariance)).coerceIn(-1.0, 1.0)
     }
 
+    private fun basisUp(up: Int, level: DoubleArray): Vec3 = Vec3(
+        if (up == 0) level[0] else 0.0,
+        if (up == 1) level[1] else 0.0,
+        if (up == 2) level[2] else 0.0,
+    ).normalized()
+
     companion object {
         /** 静止の判定は [YawDriftCorrector] と同じしきい値にそろえる */
         const val STILL_GYRO_DPS = 2.0
@@ -224,12 +261,12 @@ class AccelAxisProbe(
         const val MIN_LEVEL_SAMPLES = 20
         const val MIN_PITCH_SPREAD_DEG = 20.0
 
-        /** 前方成分はちょうど sin(ピッチ) になる。取付の傾きぶんの余裕だけ持たせる */
-        const val MIN_FORWARD_SLOPE = 0.85
-        const val MAX_FORWARD_SLOPE = 1.15
-
-        /** 左右軸がこれ以上動くなら、軸の割り当てか姿勢の前提が違う */
-        const val MAX_LATERAL_SLOPE = 0.35
+        /**
+         * 上に直交する向きの傾きは、**取付がどう回っていても大きさ 1 になる**
+         * （重力の前方成分はちょうど sin(ピッチ)）。1 から外れるなら姿勢の前提が違う。
+         */
+        const val MIN_PITCH_RESPONSE = 0.85
+        const val MAX_PITCH_RESPONSE = 1.15
         const val LEVEL_PITCH_DEG = 10.0
 
         /** 水平のとき、上の軸に重力の 9 割以上が乗っていないと軸が直交していない疑い */
