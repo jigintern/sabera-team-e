@@ -17,6 +17,21 @@ data class Look(val azDeg: Double, val altDeg: Double)
 /** 星座名を置く位置。画像には焼かず sendCanvas のテキストとして重ねる */
 data class Label(val text: String, val x: Int, val y: Int)
 
+/**
+ * 星図に出す月・惑星。
+ *
+ * **惑星は恒星と同じ点で描く。** 肉眼でも点に見えるので、違う描き方をすると嘘になる。
+ * 見分けは名前のラベルでつける。**月だけは輪で描く**（見かけの直径 0.5° をそのまま描くと
+ * 4px の点になり、明るい星と区別が付かない）。
+ */
+data class SkyBodyMark(
+    val nameJa: String,
+    val azDeg: Double,
+    val altDeg: Double,
+    val magnitude: Double,
+    val moon: Boolean = false,
+)
+
 class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: List<Label>)
 
 /** いま空に出ている星座と、その方角。方位合わせをせずに試すために使う */
@@ -70,6 +85,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawFigures: Boolean = true,
         // 首の傾きに追従するか。0 なら地平線を水平に固定する（既定）
         rollDeg: Double = 0.0,
+        // 月・惑星。星と同じ空のものなので、衛星モードでは渡さない
+        bodies: List<SkyBodyMark> = emptyList(),
     ): StarMap {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
@@ -102,6 +119,23 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
                 val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
                 dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+            }
+
+            for (body in bodies) {
+                val q = project(enu(body.azDeg, body.altDeg), basis, k, width, height) ?: continue
+                if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
+                if (body.moon) {
+                    // 実物（半径 0.26°）の 2.5 倍の輪で描く。**位置は中心なのでずれない**
+                    val radius = maxOf(MOON_MIN_RADIUS_PX, 2.5 * MOON_RADIUS_DEG * k * RAD)
+                    ring(gray, width, height, q, radius, 255)
+                    dot(gray, width, height, q[0], q[1], 160, 1, round = true)
+                } else {
+                    // 惑星は恒星と同じ描き方。等級の対応も同じにしないと明るさの意味が変わる
+                    val t = ((limitMagnitude - body.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
+                    val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
+                    val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
+                    dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+                }
             }
         }
 
@@ -151,8 +185,20 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         } else {
             emptyList()
         }
+        // 月・惑星の名前は星座名より先に置く。**点だけでは恒星と区別が付かない**ので、
+        // 名前が落ちると「明るい星がある」以上の情報が消える
+        val bodyLabels = if (drawStars) {
+            bodies.mapNotNull { body ->
+                val q = project(enu(body.azDeg, body.altDeg), basis, k, width, height) ?: return@mapNotNull null
+                if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) return@mapNotNull null
+                Label(body.nameJa, q[0].roundToInt(), (q[1] - BODY_LABEL_OFFSET_PX).roundToInt())
+            }
+        } else {
+            emptyList()
+        }
         // 衛星の名前を先に置く。枠が足りないときに消えるのは星座名のほう
-        val merged = (trackLabels + starLabels).take(maxLabels.coerceAtLeast(trackLabels.size))
+        val merged = (trackLabels + bodyLabels + starLabels)
+            .take(maxLabels.coerceAtLeast(trackLabels.size + bodyLabels.size))
         return StarMap(width, height, gray, merged)
     }
 
@@ -767,5 +813,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
          */
         const val FIGURE_SLOTS = 2
 
+        /** 月の見かけの半径。実物は 0.26° で、35° の視野では 4px しかない */
+        const val MOON_RADIUS_DEG = 0.26
+
+        /** 実物どおりだと星と見分けが付かないので、輪はこの太さを下限にする */
+        const val MOON_MIN_RADIUS_PX = 8.0
+
+        /** 名前を点の上へずらす量。点の上に重ねると点が読めない */
+        const val BODY_LABEL_OFFSET_PX = 26.0
     }
 }

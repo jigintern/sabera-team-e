@@ -321,6 +321,34 @@ private fun elements(body: SolarSystemBody, d: Double): Elements = when (body) {
 /** 太陽の地心黄経[度]。日食や合の検算に使う（[sunPosition] とは独立な系統） */
 fun sunEclipticLonDeg(epochMillis: Long): Double = sunEcliptic(schlyterDays(epochMillis))[0]
 
+/**
+ * 視野に入っている月・惑星。**星図の点と AI へ渡す根拠を同じ 1 か所で作る。**
+ *
+ * 別々に作ると「絵には出ているのに解説では触れない」「解説だけが言う」が起きる。
+ * 見えていないものの話をさせないのが AI 解説の前提なので、そこは崩さない。
+ */
+fun bodiesInView(
+    site: Site,
+    epochMillis: Long,
+    look: Look,
+    fovDeg: Double,
+    limitMagnitude: Double = BODY_LIMIT_MAGNITUDE,
+): List<ObservedStarFact> {
+    val center = enu(look.azDeg, look.altDeg)
+    return SolarSystemBody.entries.mapNotNull { body ->
+        val position = bodyPosition(body, epochMillis)
+        if (position.magnitude > limitMagnitude) return@mapNotNull null
+        val aa = bodyAltAz(body, site, epochMillis)
+        if (aa[1] < 0.0) return@mapNotNull null
+        val distance = angleBetweenDeg(enu(aa[0], aa[1]), center)
+        if (distance > fovDeg / 2.0) return@mapNotNull null
+        ObservedStarFact(body.nameJa, position.magnitude, aa[0], aa[1], distance)
+    }.sortedBy { it.distanceFromCenterDeg }
+}
+
+/** 肉眼で見える惑星の下限。水星は入れていない（低空にしか出ず、合わせ先にも解説にも向かない） */
+const val BODY_LIMIT_MAGNITUDE = 3.0
+
 private const val KEPLER_ITERATIONS = 5
 private const val EARTH_RADIUS_KM = 6378.137
 private const val AU_KM = 149_597_870.7

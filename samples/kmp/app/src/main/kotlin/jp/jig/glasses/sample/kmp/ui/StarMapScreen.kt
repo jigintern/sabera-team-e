@@ -74,7 +74,12 @@ import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
+import jp.jig.glasses.sample.kmp.starmap.AccelAxisEstimate
+import jp.jig.glasses.sample.kmp.starmap.AccelAxisProbe
 import jp.jig.glasses.sample.kmp.starmap.RollEstimator
+import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
+import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
+import jp.jig.glasses.sample.kmp.starmap.bodiesInView
 import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
@@ -244,6 +249,10 @@ fun StarMapScreen(
     // ロール（首の傾き）。融合値に無いので加速度から出す。**生の加速度の軸定義が未文書**なので、
     // 実機で確かめるまでは既定オフ（オフなら地平線を水平に固定する従来どおりの絵）
     val rollEstimator = remember { RollEstimator() }
+    // 「実機で 1 回測る」作業を人手から外す。空を見上げ下ろししているだけで軸が決まる
+    val axisProbe = remember { AccelAxisProbe() }
+    var axisEstimate by remember { mutableStateOf<AccelAxisEstimate?>(null) }
+    var axesLogged by remember { mutableStateOf(false) }
     var rollFollow by remember { mutableStateOf(storedGeometry.rollFollow) }
     var measuredRollDeg by remember { mutableStateOf<Double?>(null) }
     var drawnRoll by remember { mutableStateOf(0.0) }
@@ -348,11 +357,24 @@ fun StarMapScreen(
                 fusedYaw = corrected.yawDeg
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
-                rollEstimator.update(
-                    accelXMilliG = data.accelXMilliG.toDouble(),
-                    accelYMilliG = data.accelYMilliG.toDouble(),
-                    accelZMilliG = data.accelZMilliG.toDouble(),
-                )?.let { measuredRollDeg = it }
+                val accelX = data.accelXMilliG.toDouble()
+                val accelY = data.accelYMilliG.toDouble()
+                val accelZ = data.accelZMilliG.toDouble()
+                val gyroMagnitude = kotlin.math.sqrt(
+                    data.gyroXDps.toDouble() * data.gyroXDps.toDouble() +
+                        data.gyroYDps.toDouble() * data.gyroYDps.toDouble() +
+                        data.gyroZDps.toDouble() * data.gyroZDps.toDouble(),
+                )
+                val axes = axisProbe.add(accelX, accelY, accelZ, glassPitch, gyroMagnitude)
+                axisEstimate = axes
+                axes.resolved?.let { resolved ->
+                    rollEstimator.axes = resolved
+                    if (!axesLogged) {
+                        axesLogged = true
+                        log("加速度軸を自動判定: ${axes.describe()}")
+                    }
+                }
+                rollEstimator.update(accelX, accelY, accelZ)?.let { measuredRollDeg = it }
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
                 while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
@@ -493,6 +515,22 @@ fun StarMapScreen(
             } else {
                 emptyList()
             }
+            // 月・惑星は星と同じ空のものなので、衛星モードでは渡さない（星を描かないのと同じ理由）
+            val bodies = if (satelliteMode) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.Default) {
+                    bodiesInView(site, now, look(), fov.toDouble()).map {
+                        SkyBodyMark(
+                            nameJa = it.nameJa,
+                            azDeg = it.azDeg,
+                            altDeg = it.altDeg,
+                            magnitude = it.magnitude,
+                            moon = it.nameJa == SolarSystemBody.MOON.nameJa,
+                        )
+                    }
+                }
+            }
             val map = withContext(Dispatchers.Default) {
                 r.render(
                     site = site,
@@ -510,6 +548,7 @@ fun StarMapScreen(
                     drawStars = !satelliteMode,
                     drawFigures = showFigures,
                     rollDeg = rollNow(),
+                    bodies = bodies,
                 )
             }
             renderMs = System.currentTimeMillis() - started
@@ -563,6 +602,7 @@ fun StarMapScreen(
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
                     (if (satelliteMode) "衛星${tracks.size}機 " else "") +
+                    (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms",
             )
             Log.d(TAG, "送信 ${map.width}x${map.height} 圧縮後=${compressed}B 使用=${used}B")
@@ -660,6 +700,26 @@ fun StarMapScreen(
                         driftRateDps,
                         if (settled) "はい" else "いいえ",
                     ),
+            )
+            // **自動で取れる検証材料はここに全部残す。** 夜の屋外では画面を見ていられないので、
+            // 実機で確かめたいこと（画角・ロール・加速度軸・視野内の天体）が
+            // 動かしているだけでログに溜まるようにしておく
+            val inView = withContext(Dispatchers.Default) {
+                bodiesInView(site, now, look(), fovDeg)
+            }
+            log(
+                "自己診断 画角=%.0f°%s ロール=%s(%s) 天体=%s / 加速度軸: %s".format(
+                    fovDeg,
+                    if (fovMeasured) "(実測)" else "(仮)",
+                    measuredRollDeg?.let { "%.1f°".format(it) } ?: "未測定",
+                    if (rollFollow) "追従" else "固定",
+                    if (inView.isEmpty()) {
+                        "なし"
+                    } else {
+                        inView.joinToString("・") { "%s(%.0f°)".format(it.nameJa, it.distanceFromCenterDeg) }
+                    },
+                    axisEstimate?.describe() ?: "計測待ち",
+                ),
             )
             previousYaw = glassYaw
             previousFused = yawNow()
@@ -853,6 +913,10 @@ fun StarMapScreen(
                 r.constellationsNear(site, observedAt, latched) to
                     r.visibleNamedStars(site, observedAt, latched, fov.toDouble())
             }
+            // グラスに描いたのと同じ判定で月・惑星を渡す。**絵と根拠を別に作ると食い違う**
+            val visibleBodies = withContext(Dispatchers.Default) {
+                bodiesInView(site, observedAt, latched, fov.toDouble())
+            }
             // 送るのはグラスに出ている絵そのもの。別に描き直すと、聞いている人の視界と食い違う
             val png = lastMap?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
             narrator.narrate(
@@ -865,6 +929,7 @@ fun StarMapScreen(
                     lonDeg = site.lonDeg,
                     localTime = timestamp.format(Date()),
                     visibleStars = visibleStars,
+                    visibleBodies = visibleBodies,
                     headingUncertaintyDeg = initialCalibration?.headingStdDeg,
                     pitchUncertaintyDeg = initialCalibration?.pitchStdDeg,
                     knownBrightStarNames = r.knownBrightStarNames(),
@@ -1199,13 +1264,23 @@ fun StarMapScreen(
                         )
                         Switch(
                             checked = rollFollow,
+                            // 軸が決まる前に入れると、符号を取り違えたままずれが 2 倍になる
+                            enabled = axisEstimate?.resolved != null,
                             onCheckedChange = {
                                 rollFollow = it
                                 geometryPrefs.saveRollFollow(it)
-                                log(if (it) "ロール追従を入れた（実験）" else "ロール追従を切った")
+                                log(if (it) "ロール追従を入れた" else "ロール追従を切った")
                             },
                         )
                     }
+                    Text(
+                        "加速度軸: " + (
+                            axisEstimate?.describe()
+                                ?: "計測待ち（空を 20° 以上見上げ下ろしすると自動で決まります）"
+                            ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF8A9BA8),
+                    )
                     Spacer(Modifier.height(4.dp))
                     // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
                     // 圏外や API キー無しのときは自動で端末の読み上げに落ちる

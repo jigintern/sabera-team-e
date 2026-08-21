@@ -108,6 +108,28 @@ class EphemerisTest {
     }
 
     @Test
+    fun `視野に入っている月と惑星だけを返す`() {
+        val site = Site(35.9432, 136.1846)
+        // 月が地平線の上にある時刻を探す（1 か月あれば必ずある）
+        val at = (0 until 24 * 30).map { utc("2026-01-01T00:00:00Z") + it * 3_600_000L }
+            .first { bodyAltAz(SolarSystemBody.MOON, site, it)[1] > 20.0 }
+        val moon = bodyAltAz(SolarSystemBody.MOON, site, at)
+
+        val looking = bodiesInView(site, at, Look(moon[0], moon[1]), fovDeg = 35.0)
+        assertTrue("見ている先の月は入る", looking.any { it.nameJa == "月" })
+        assertTrue("中心なので距離はほぼ 0", looking.first { it.nameJa == "月" }.distanceFromCenterDeg < 0.01)
+
+        val away = bodiesInView(site, at, Look((moon[0] + 120.0) % 360.0, moon[1]), fovDeg = 35.0)
+        assertTrue("反対を向いていれば入らない", away.none { it.nameJa == "月" })
+
+        // 地平線の下にあるものは返さない
+        for (fact in bodiesInView(site, at, Look(moon[0], moon[1]), fovDeg = 180.0)) {
+            assertTrue("${fact.nameJa} が地平線の下", fact.altDeg >= 0.0)
+            assertTrue("${fact.nameJa} が暗すぎる", fact.magnitude <= BODY_LIMIT_MAGNITUDE)
+        }
+    }
+
+    @Test
     fun `金星の離角は 47 度を超えない`() {
         var maximum = 0.0
         for (day in 0 until 584) {

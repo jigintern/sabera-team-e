@@ -41,6 +41,8 @@ class NarrationInput(
     val lonDeg: Double,
     val localTime: String,
     val visibleStars: List<ObservedStarFact> = emptyList(),
+    /** 視野内の月・惑星。端末が計算した確定値 */
+    val visibleBodies: List<ObservedStarFact> = emptyList(),
     val headingUncertaintyDeg: Double? = null,
     val pitchUncertaintyDeg: Double? = null,
     val knownBrightStarNames: Set<String> = emptySet(),
@@ -107,6 +109,7 @@ class Narrator(
             altDeg = input.altDeg,
             localTime = input.localTime,
             visibleStars = input.visibleStars,
+            visibleBodies = input.visibleBodies,
             headingUncertaintyDeg = input.headingUncertaintyDeg,
             pitchUncertaintyDeg = input.pitchUncertaintyDeg,
             knownBrightStarNames = input.knownBrightStarNames,
@@ -115,6 +118,7 @@ class Narrator(
         val guard = ExplanationGuard(
             visibleStarNames = input.visibleStars.mapTo(mutableSetOf()) { it.nameJa },
             knownStarNames = input.knownBrightStarNames,
+            visibleBodyNames = input.visibleBodies.mapTo(mutableSetOf()) { it.nameJa },
         )
 
         val received = StringBuilder()
@@ -318,6 +322,12 @@ fun groundedFallback(subject: String, input: NarrationInput): String = buildStri
     append("の空、高度 ")
     append(input.altDeg.toInt())
     append(" 度あたりで見ています。")
+    // 月と惑星は恒星より目印になる。あるなら先に言う
+    if (input.visibleBodies.isNotEmpty()) {
+        append("視野には")
+        append(input.visibleBodies.take(2).joinToString("と") { it.nameJa })
+        append("が入っています。")
+    }
     if (input.visibleStars.isNotEmpty()) {
         append("視野では")
         append(input.visibleStars.take(2).joinToString("と") { it.nameJa })

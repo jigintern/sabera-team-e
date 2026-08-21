@@ -278,6 +278,53 @@ class StarMapRendererTest {
     }
 
     @Test
+    fun `月と惑星を渡すと絵と名前に出る`() {
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 40.0)
+        val plain = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+        )
+        val withBodies = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            bodies = listOf(
+                SkyBodyMark("月", look.azDeg, look.altDeg, magnitude = -10.0, moon = true),
+                SkyBodyMark("木星", look.azDeg + 8.0, look.altDeg, magnitude = -2.2),
+            ),
+        )
+        val before = plain.gray.count { it != 0.toByte() }
+        val after = withBodies.gray.count { it != 0.toByte() }
+        println("月と惑星で光った画素: $before → $after")
+        assertTrue("月の輪と惑星の点で画素が増える", after > before)
+        assertTrue("名前が出る", withBodies.labels.map { it.text }.containsAll(listOf("月", "木星")))
+        // **星座名より先に置く。** 点だけでは恒星と区別が付かない
+        assertEquals("月", withBodies.labels.first().text)
+
+        // 衛星モードでは空のものを描かない（星を描かないのと同じ理由）
+        val satelliteMode = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            drawStars = false,
+            bodies = listOf(SkyBodyMark("月", look.azDeg, look.altDeg, -10.0, moon = true)),
+        )
+        assertTrue("衛星モードに月は出さない", satelliteMode.labels.none { it.text == "月" })
+    }
+
+    @Test
     fun `3bitに落としても階調が残る`() {
         // 量子化後に全部 0 になっていたら、実機では真っ黒になる
         val map = StarMapRenderer(catalog()).render(

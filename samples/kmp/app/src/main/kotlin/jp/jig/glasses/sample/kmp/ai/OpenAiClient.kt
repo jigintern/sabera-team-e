@@ -317,6 +317,8 @@ data class ExplainRequest(
     val localTime: String,
     /** 端末の同梱星表から視野内と判定できた固有名星だけ。 */
     val visibleStars: List<ObservedStarFact> = emptyList(),
+    /** 端末が軌道計算した、視野内の月・惑星。 */
+    val visibleBodies: List<ObservedStarFact> = emptyList(),
     /** 方位合わせ時の標準偏差。解説に断定精度を伝える。 */
     val headingUncertaintyDeg: Double? = null,
     val pitchUncertaintyDeg: Double? = null,
@@ -363,6 +365,17 @@ data class ExplainRequest(
                 },
             )
             append("です。")
+        }
+        // **月と惑星は星表に無いので、渡さないと「明るい点」の正体を説明できない。**
+        // 逆に渡さないまま画像を見せると、モデルが勝手に惑星の名前を当てはめる
+        if (visibleBodies.isNotEmpty()) {
+            append("視野内には")
+            append(
+                visibleBodies.joinToString("、") {
+                    "${it.nameJa}（等級%.1f、中心から%.1f度）".format(it.magnitude, it.distanceFromCenterDeg)
+                },
+            )
+            append("も入っています。これも端末が計算した確定値です。")
         }
         if (pngBase64 != null) {
             append(

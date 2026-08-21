@@ -23,29 +23,55 @@ data class AccelAxes(
     val upSign: Int,
     /** 視線方向の軸 */
     val forwardIndex: Int,
+    /** 見上げたとき [forwardIndex] の値が増えるなら +1 */
+    val forwardSign: Int = 1,
 ) {
     /** 残った 1 軸。左右方向にあたる */
     val lateralIndex: Int get() = 3 - upIndex - forwardIndex
+
+    /**
+     * 左右軸の符号は**推定しなくてよい**。右方向 = 前 × 上（[Basis] と同じ規約）なので、
+     * 上と前の符号が決まれば外積の符号として決まる。**ここを勘で決めると補正が逆に効く。**
+     */
+    val lateralSign: Int get() = upSign * forwardSign * leviCivita(forwardIndex, upIndex, lateralIndex)
 
     init {
         require(upIndex in 0..2 && forwardIndex in 0..2 && upIndex != forwardIndex) {
             "軸の割り当てが不正: up=$upIndex forward=$forwardIndex"
         }
+        require(upSign == 1 || upSign == -1) { "上向きの符号が不正: $upSign" }
+        require(forwardSign == 1 || forwardSign == -1) { "前方の符号が不正: $forwardSign" }
     }
 
     companion object {
         /**
          * 実測で確かなのは「鉛直が X」だけ。前方は Z、上向きは −X と**仮定**している。
-         * **実機でグラスを水平に置いて 1 回測れば確定する。** それまでは追従を有効にしない。
+         * **[AccelAxisProbe] が観測中に自動で決める**ので、決まったらそちらへ差し替える。
          */
         val ASSUMED = AccelAxes(upIndex = 0, upSign = -1, forwardIndex = 2)
+
+        /** e_i × e_j = ε_ijk e_k の符号 */
+        internal fun leviCivita(i: Int, j: Int, k: Int): Int = when {
+            i == j || j == k || i == k -> 0
+            (i + 1) % 3 == j -> 1
+            else -> -1
+        }
     }
 }
 
 class RollEstimator(
-    private val axes: AccelAxes = AccelAxes.ASSUMED,
+    /** [AccelAxisProbe] が軸を決めたら差し替える。変えたら推定はやり直す */
+    axes: AccelAxes = AccelAxes.ASSUMED,
     private val gain: Double = GAIN,
 ) {
+    var axes: AccelAxes = axes
+        set(value) {
+            if (field != value) {
+                field = value
+                rollDeg = null
+            }
+        }
+
     /** 最後に確定したロール[度]。まだ 1 サンプルも使えていなければ null */
     var rollDeg: Double? = null
         private set
@@ -67,7 +93,8 @@ class RollEstimator(
         if (magnitude < MIN_MAGNITUDE_MG || magnitude > MAX_MAGNITUDE_MG) return rollDeg
 
         val up = axes.upSign * axis[axes.upIndex]
-        val lateral = axis[axes.lateralIndex]
+        // 右へ傾けると重力の右成分は負になる（世界の上が左へ回る）ので符号を反転する
+        val lateral = -axes.lateralSign * axis[axes.lateralIndex]
         // 真上・真下を向くと重力が前方軸へ寄り、この 2 軸から角度が決まらない
         if (hypot(lateral, up) < MIN_PLANAR_MG) return rollDeg
 
