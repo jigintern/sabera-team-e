@@ -23,7 +23,7 @@
 
     <application
         android:name=".GlassesSampleApplication"
-        android:label="星しるべ"
+        android:label="ホシガタリ"
         android:supportsRtl="true"
         android:theme="@style/Theme.GlassesSample">
 
