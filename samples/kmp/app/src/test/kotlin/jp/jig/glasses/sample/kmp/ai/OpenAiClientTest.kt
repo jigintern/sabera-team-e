@@ -37,11 +37,38 @@ class OpenAiClientTest {
     @Test
     fun `端末で確定した星とキャリブレーション精度だけを根拠として渡す`() {
         val text = request.userText()
-        for (needle in listOf("IAU境界表", "アンタレス", "等級1.0", "方位±1.2", "仰角±0.8")) {
+        for (needle in listOf("視野中心に近い順", "アンタレス", "等級1.0", "方位±1.2", "仰角±0.8")) {
             assertTrue("確定観測に $needle が入っていない", needle in text)
         }
         val body = OpenAiClient.buildRequestBody("gpt-4o", request).toString()
         assertTrue("外部知識を補わない指示がない", "距離、大きさ、年齢、神話、由来" in body)
+    }
+
+    /**
+     * **主役は視野中心にいちばん近い星座で固定する。**
+     *
+     * 実機で「的外れな星座を答える」ときの経路のひとつが、脇役を並べたせいでモデルが
+     * 主役を選び直すこと。指示は**依頼文の末尾**でなければ効かない（AGENTS.md の実測）。
+     */
+    @Test
+    fun `主役を末尾で名前で固定し、脇役は主役ではないと明示する`() {
+        val text = request.userText()
+        assertEquals("さそり座", request.subject)
+        assertTrue("脇役が主役ではないと書いていない", "主役は「さそり座」です" in text)
+        assertTrue(
+            "末尾で主役を名前で指していない",
+            "「さそり座」だけを解説してください。ほかの星座に話を移さないでください。" in text,
+        )
+        // 添付画像の説明より後ろに来ていないと薄まる
+        assertTrue(
+            "主役の指示が画像の説明より前にある",
+            text.lastIndexOf("だけを解説してください") > text.indexOf("添付は"),
+        )
+        val body = OpenAiClient.buildRequestBody("gpt-4o", request).toString()
+        assertTrue(
+            "主役の決め方がシステム側の箇条書きに残っている",
+            "最初に挙がっている星座を主役にする" !in body,
+        )
     }
 
     @Test

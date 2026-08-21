@@ -322,6 +322,45 @@ class StarMapRendererTest {
             bodies = listOf(SkyBodyMark("月", look.azDeg, look.altDeg, -10.0, moon = true)),
         )
         assertTrue("衛星モードに月は出さない", satelliteMode.labels.none { it.text == "月" })
+        // **AI 解説の主役に月や惑星が混ざらない。** 表示は月が先でも、主役は星座から選ぶ
+        assertTrue("主役の候補に月が混ざった", withBodies.constellationNames().none { it == "月" })
+        assertTrue("主役の候補に惑星が混ざった", withBodies.constellationNames().none { it == "木星" })
+        assertEquals(
+            "星座のラベルが主役の候補と食い違う",
+            withBodies.labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text },
+            withBodies.constellationNames(),
+        )
+    }
+
+    /**
+     * **主役は「見えているうち視野中心に近い星座」。**
+     *
+     * 重心で順位を付けていたときは、視野を横切っている大きな星座が、重心がたまたま近い
+     * 小さな星座に負けた。グラスに出るラベルの順も、AI 解説の主役もこの順で決まるので、
+     * 見ている人にとって近い「見えている部分」で測る。
+     */
+    @Test
+    fun `視野を横切る星座が、重心の近い小さな星座より先に並ぶ`() {
+        val lst = localSiderealDeg(daysFromJ2000(epoch), site.lonDeg)
+        fun at(azDeg: Double, altDeg: Double): DoubleArray = toRaDec(azDeg, altDeg, lst, site.latDeg)
+
+        val look = Look(180.0, 45.0)
+        // 視線をそのまま通る長い星座線。重心は視線から 10° 以上離れる
+        val across = Constellation("XCr", "よこぎり座", listOf(listOf(at(180.0, 45.0), at(210.0, 45.0))))
+        // 視線から 7° ほどの小さな星座。重心も同じ場所にある
+        val small = Constellation("XSm", "こつぶ座", listOf(listOf(at(190.0, 45.0), at(190.5, 45.0))))
+        // 重心だけで測ると、先に入れた「こつぶ座」が勝ってしまう並び
+        val renderer = StarMapRenderer(StarCatalog(emptyList(), listOf(small, across), emptyMap()))
+        val map = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+        )
+        assertEquals(listOf("よこぎり座", "こつぶ座"), map.constellationNames())
     }
 
     @Test

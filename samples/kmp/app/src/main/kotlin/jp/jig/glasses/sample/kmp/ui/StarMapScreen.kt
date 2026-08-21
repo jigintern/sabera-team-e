@@ -69,6 +69,7 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.starmap.Label
+import jp.jig.glasses.sample.kmp.starmap.LabelKind
 import jp.jig.glasses.sample.kmp.starmap.Located
 import jp.jig.glasses.sample.kmp.starmap.Locator
 import jp.jig.glasses.sample.kmp.starmap.Look
@@ -89,6 +90,7 @@ import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
 import jp.jig.glasses.sample.kmp.starmap.batched
 import jp.jig.glasses.sample.kmp.starmap.canvasBufferUsageBytes
 import jp.jig.glasses.sample.kmp.starmap.compressedSizeBytes
+import jp.jig.glasses.sample.kmp.starmap.constellationNames
 import jp.jig.glasses.sample.kmp.sound.Bgm
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
@@ -274,6 +276,9 @@ fun StarMapScreen(
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
+    // 解説の根拠は**その絵を焼いた視線**から作る。いまの視線で作り直すと、
+    // グラスに出ている絵と食い違う（[drawnLook] は「送れた」絵の視線なので別に持つ）
+    var lastMapLook by remember { mutableStateOf<Look?>(null) }
     var renderMs by remember { mutableStateOf(0L) }
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1000L) }
@@ -506,6 +511,7 @@ fun StarMapScreen(
             }
             renderMs = System.currentTimeMillis() - started
             lastMap = map
+            lastMapLook = look()
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
@@ -534,7 +540,12 @@ fun StarMapScreen(
             // 衛星モードで視野に 1 機も無いと真っ黒な絵だけが出る。
             // 切り替わったのか壊れたのか見分けが付かないので、そのことを書いておく
             val shown = if (satelliteMode && tracks.isEmpty()) {
-                StarMap(map.width, map.height, map.gray, listOf(Label("衛星なし", map.width / 2, map.height / 2)))
+                StarMap(
+                    map.width,
+                    map.height,
+                    map.gray,
+                    listOf(Label("衛星なし", map.width / 2, map.height / 2, LabelKind.SATELLITE)),
+                )
             } else {
                 map
             }
@@ -766,10 +777,11 @@ fun StarMapScreen(
 
     // タップした瞬間に最初の一言を返すため、いま視野にある星座の分だけ先に作っておく。
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
-    // 星図の 1 番目のラベルと解説の主役がずれることはあるが、外れてもキャッシュが当たらないだけ
+    // **解説の主役と同じ選び方にする**（種別で絞らないと、月が視野にあるだけで
+    // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
     LaunchedEffect(lastMap, satelliteMode) {
         if (satelliteMode) return@LaunchedEffect
-        val name = lastMap?.labels?.firstOrNull()?.text ?: return@LaunchedEffect
+        val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
         voice.warm(Narrator.opening(name))
     }
 
@@ -825,23 +837,45 @@ fun StarMapScreen(
             return
         }
 
+        // **根拠はグラスに出している絵から作る。**
+        // 出しているのは「首が止まってから焼いた 1 枚」で、その名前のラベルも同じ絵の上にある。
+        // ここでいまの視線から星座を引き直すと、**グラスには〇〇座と出ているのに
+        // 別の星座を喋る**ことが起きる（絵と根拠が別計算だった）。
+        // 絵がまだ 1 枚も無いときだけ、タップ直前の視線で代用する。
+        // **絵と視線は必ず組で使う**（片方だけ残っていると、また別計算に戻ってしまう）
+        val shown = lastMap?.takeIf { lastMapLook != null }
+        val basis = lastMapLook ?: latched
+
         narrationJob = scope.launch {
             val observedAt = System.currentTimeMillis()
+            // ラベルは視野中心に近い順に並んでいる。**先頭が主役。**
+            // 主役以外は 2 つまで（並べるほどモデルが主役を選び直す余地が増える）
+            val shownNames = shown?.constellationNames()?.take(NARRATION_CONSTELLATIONS).orEmpty()
             val (names, visibleStars) = withContext(Dispatchers.Default) {
-                r.constellationsNear(site, observedAt, latched) to
-                    r.visibleNamedStars(site, observedAt, latched, fov.toDouble())
+                // ラベルが 1 つも出ていない方向（限界等級以内に星が無い）だけ境界表に頼る
+                shownNames.ifEmpty { r.constellationsNear(site, observedAt, basis) } to
+                    r.visibleNamedStars(site, observedAt, basis, fov.toDouble())
             }
             // グラスに描いたのと同じ判定で月・惑星を渡す。**絵と根拠を別に作ると食い違う**
             val visibleBodies = withContext(Dispatchers.Default) {
-                bodiesInView(site, observedAt, latched, fov.toDouble())
+                bodiesInView(site, observedAt, basis, fov.toDouble())
             }
             // 送るのはグラスに出ている絵そのもの。別に描き直すと、聞いている人の視界と食い違う
-            val png = lastMap?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
+            val png = shown?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
+            log(
+                "解説の根拠 主役=%s 方位%d° 高度%d° 名前%d個 絵=%s".format(
+                    names.firstOrNull() ?: "なし",
+                    basis.azDeg.roundToInt(),
+                    basis.altDeg.roundToInt(),
+                    names.size,
+                    if (shown == null) "なし" else "あり",
+                ),
+            )
             narrator.narrate(
                 NarrationInput(
                     calibrated = calibratedAt != null,
-                    altDeg = latched.altDeg,
-                    azDeg = latched.azDeg,
+                    altDeg = basis.altDeg,
+                    azDeg = basis.azDeg,
                     constellations = names,
                     latDeg = site.latDeg,
                     lonDeg = site.lonDeg,
@@ -872,8 +906,11 @@ fun StarMapScreen(
             return
         }
         satelliteMode = !satelliteMode
-        // 切り替えの準備中に前のモードの絵を残すと、切り替わったように見えない
+        // 切り替えの準備中に前のモードの絵を残すと、切り替わったように見えない。
+        // 解説の根拠にも使うので、絵とその視線ごと捨てる（前のモードの絵で喋らせない）
         drawnLook = null
+        lastMap = null
+        lastMapLook = null
         lastSentMap = null
         // 画像転送中に clearCanvas を積むと、その後ろから旧フレームの文字が届いて再表示される。
         // 転送が終わってから消し、次の追従描画に渡す
@@ -1331,6 +1368,14 @@ private fun OpenAiRequestTrace.logLine(): String = buildString {
     append(if (completed) "完了" else "中断")
     requestId?.let { append(" requestId=").append(it) }
 }
+
+/**
+ * AI へ渡す星座の数。
+ *
+ * **先頭が主役で、残りは「同じ視野にも入っている」だけ。** 並べるほどモデルが主役を
+ * 選び直す余地が増えるので、4 つから減らした（AGENTS.md の「箇条書きを増やすほど薄まる」）。
+ */
+private const val NARRATION_CONSTELLATIONS = 3
 
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L
