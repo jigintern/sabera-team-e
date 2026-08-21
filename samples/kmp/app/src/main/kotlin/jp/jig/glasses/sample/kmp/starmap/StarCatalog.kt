@@ -14,11 +14,21 @@ class Star(val hip: Int, val raDeg: Double, val decDeg: Double, val magnitude: D
 /** 星座線は折れ線の集まり。1 頂点は [赤経, 赤緯] */
 class Constellation(val abbr: String, val nameJa: String, val lines: List<List<DoubleArray>>)
 
+/**
+ * 星座絵。**正規化 [0,1]（x=右・y=下）の折れ線**で、星座線の外接矩形へ写して薄く重ねる。
+ *
+ * 星の位置に厳密に貼るのではなく「なにに見立てたのか」を伝える絵なので、
+ * 外接矩形に写すだけでよい。向きは南を向いた星図と同じ（`tools/build-constellation-figures.py`）。
+ */
+typealias ConstellationFigure = List<List<DoubleArray>>
+
 class StarCatalog(
     val stars: List<Star>,
     val constellations: List<Constellation>,
     val brightNames: Map<Int, String>,
     val boundaries: ConstellationBoundaryCatalog? = null,
+    /** 略号 → 星座絵。持っていない星座は線だけになる */
+    val figures: Map<String, ConstellationFigure> = emptyMap(),
 ) {
     companion object {
         fun load(context: Context): StarCatalog {
@@ -75,11 +85,34 @@ class StarCatalog(
                 for (key in obj.keys()) boundaryNames[key] = obj.getString(key)
             }
 
+            // 星座絵は無くても動く。**追加し忘れても星図は出る**ようにしておく
+            val figures = HashMap<String, ConstellationFigure>()
+            runCatching {
+                JSONObject(context.readAsset("constellation-figures.json"))
+                    .getJSONObject("figures")
+            }.getOrNull()?.let { obj ->
+                for (abbr in obj.keys()) {
+                    val strokes = obj.getJSONArray(abbr)
+                    val figure = ArrayList<List<DoubleArray>>(strokes.length())
+                    for (i in 0 until strokes.length()) {
+                        val stroke = strokes.getJSONArray(i)
+                        val points = ArrayList<DoubleArray>(stroke.length())
+                        for (j in 0 until stroke.length()) {
+                            val point = stroke.getJSONArray(j)
+                            points += doubleArrayOf(point.getDouble(0), point.getDouble(1))
+                        }
+                        figure += points
+                    }
+                    figures[abbr] = figure
+                }
+            }
+
             return StarCatalog(
                 stars,
                 constellations,
                 names,
                 ConstellationBoundaryCatalog(boundaryRows, boundaryNames),
+                figures,
             )
         }
 

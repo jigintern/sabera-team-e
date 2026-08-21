@@ -43,7 +43,24 @@ class StarMapRendererTest {
                 cons += Constellation(c.getString("abbr"), c.getString("nameJa"), polylines)
             }
         }
-        return StarCatalog(stars, cons, emptyMap())
+        return StarCatalog(stars, cons, emptyMap(), figures = figures())
+    }
+
+    /** 星座絵は data/ の生成物。**アプリと同じものを読む**（ここで形を変えると実機とずれる） */
+    private fun figures(): Map<String, ConstellationFigure> {
+        val file = File(dataDir, "constellation-figures.json")
+        if (!file.exists()) return emptyMap()
+        val obj = JSONObject(file.readText()).getJSONObject("figures")
+        return obj.keys().asSequence().associateWith { abbr ->
+            val strokes = obj.getJSONArray(abbr)
+            (0 until strokes.length()).map { i ->
+                val stroke = strokes.getJSONArray(i)
+                (0 until stroke.length()).map { j ->
+                    val p = stroke.getJSONArray(j)
+                    doubleArrayOf(p.getDouble(0), p.getDouble(1))
+                }
+            }
+        }
     }
 
     /** 2026-01-01 21:00 JST の鯖江 */
@@ -330,6 +347,47 @@ class StarMapRendererTest {
             withBodies.labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text },
             withBodies.constellationNames(),
         )
+    }
+
+    /**
+     * **星座絵は星座線の外接矩形に敷く。**
+     *
+     * 絵を持っている星座（`data/constellation-figures.json`）を視野に入れて、
+     * **切ったときより画素が増える**ことと、**星より暗い段に収まっている**ことを見る。
+     * 明るさが星と同じ段まで上がると、絵が主役になって星の位置が読めなくなる。
+     */
+    @Test
+    fun `星座絵は星より暗い段で敷かれ、切ると消える`() {
+        val catalog = catalog()
+        assertTrue("星座絵のデータが読めていない", catalog.figures.isNotEmpty())
+        val renderer = StarMapRenderer(catalog)
+        // 絵を持っている星座のうち、この時刻に空へ出ているものへ向ける
+        val target = renderer.visibleConstellations(site, epoch)
+            .firstOrNull { aimed -> catalog.constellations.any { it.nameJa == aimed.nameJa && it.abbr in catalog.figures } }
+        assertTrue("絵を持つ星座が空に無い", target != null)
+        val look = Look(target!!.azDeg, target.altDeg)
+
+        fun render(art: Boolean) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawFigureArt = art,
+        )
+
+        val without = render(false).gray.count { it != 0.toByte() }
+        val withArt = render(true)
+        val lit = withArt.gray.count { it != 0.toByte() }
+        println("${target.nameJa}: 星座絵なし $without → あり $lit 画素")
+        assertTrue("星座絵で画素が増えていない", lit > without)
+
+        // 絵だけの段（3bit で 2）が、線や星の段を超えていないこと
+        val levels = withArt.gray.map { (it.toInt() and 0xFF) ushr 5 }.toSet()
+        assertTrue("星座絵の段が見当たらない", 2 in levels)
+        assertTrue("線より明るい段に描いている", levels.max() >= 4)
     }
 
     /**
