@@ -80,6 +80,7 @@ import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
 import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
 import jp.jig.glasses.sample.kmp.starmap.bodiesInView
 import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.SessionLog
@@ -87,6 +88,8 @@ import jp.jig.glasses.sample.kmp.starmap.Site
 import jp.jig.glasses.sample.kmp.starmap.StarCatalog
 import jp.jig.glasses.sample.kmp.starmap.StarMap
 import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_HEIGHT
+import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
 import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
@@ -411,15 +414,20 @@ fun StarMapScreen(
     var lastSentMap by remember { mutableStateOf<StarMap?>(null) }
 
     /**
+     * 画像を上限いっぱい（544×340）で作るか。
+     *
+     * 入るかどうかは**空の濃さと向き**で変わる。1 度でも溢れたらその設定では諦めて標準へ落とし、
+     * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
+     */
+    var useMaxSize by remember(density, showArt, showGuides, showSatellites) { mutableStateOf(true) }
+
+    /**
      * グラスに出しているページ。
      *
      * **解説は星図と同居させない**（#40）。190 バイトは 1 電文あたりの上限で画面の合計ではないので、
      * 星図の画像を消して枠 8 つを全部文字に使えば、いま喋っている量がそのまま入る。
      */
     var glassPage by remember { mutableStateOf(GlassPage.STAR_MAP) }
-
-    /** 解説画面へ入った時点の視線。ここから首を振ったら「空を見たい」とみなす */
-    var explanationLook by remember { mutableStateOf<Look?>(null) }
 
     /** 見出しに出す方角。解説の途中で首を動かしても書き換えない（根拠は入った時点の絵） */
     var explanationHeading by remember { mutableStateOf("") }
@@ -535,15 +543,15 @@ fun StarMapScreen(
                     )
                 }
             }
-            val map = withContext(Dispatchers.Default) {
+            suspend fun renderAt(w: Int, h: Int) = withContext(Dispatchers.Default) {
                 r.render(
                     site = site,
                     epochMillis = now,
                     look = look(),
                     fovDeg = fov.toDouble(),
                     limitMagnitude = density.limitMagnitude,
-                    width = STAR_MAP_WIDTH,
-                    height = STAR_MAP_HEIGHT,
+                    width = w,
+                    height = h,
                     drawLines = drawLines,
                     maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
                     tracks = tracks,
@@ -554,6 +562,17 @@ fun StarMapScreen(
                     drawGuides = showGuides,
                     bodies = bodies,
                 )
+            }
+            // **上限いっぱいで描く。** 入るかどうかは空の濃さと向きで変わるので、
+            // 送る前に同じ式で数えて、溢れたときだけ標準サイズへ落とす
+            var map = renderAt(
+                if (useMaxSize) STAR_MAP_MAX_WIDTH else STAR_MAP_WIDTH,
+                if (useMaxSize) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
+            )
+            if (useMaxSize && map.canvasBufferUsageBytes() > CANVAS_IMAGE_BUFFER_BYTES) {
+                useMaxSize = false
+                log("${STAR_MAP_MAX_WIDTH}×${STAR_MAP_MAX_HEIGHT} では入らないので落とす")
+                map = renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
             }
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
@@ -691,12 +710,8 @@ fun StarMapScreen(
             if (glassPage != GlassPage.STAR_MAP) {
                 // 戻ったら 1 枚目をすぐ送る。ここを進めておくと 6° 動くまで星図が出てこない
                 drawn = null
-                // **首を振ったら空を見たいということ。** 読み上げは止めずに星図へ戻す。
-                // しきい値を描き直しの 6° より大きく取って、読んでいる間の揺れで戻らないようにする
-                val from = explanationLook
-                if (from != null && from.awayFrom(now) > LEAVE_EXPLANATION_DEG) {
-                    leaveGlassExplanation("首を振ったので星図へ戻る")
-                }
+                // **首の向きでは戻さない。** 読んでいる途中で空を見上げただけで消えると、
+                // 読み終わらないまま星図に戻ってしまう。戻すのはタップと読み上げ終了だけ
                 delay(POLL_MS)
                 continue
             }
@@ -930,9 +945,27 @@ fun StarMapScreen(
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
     // **解説の主役と同じ選び方にする**（種別で絞らないと、月が視野にあるだけで
     // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
-    LaunchedEffect(lastMap) {
+    LaunchedEffect(lastMap, bodiesShown) {
         val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
-        voice.warm(Narrator.opening(name))
+        // **名乗りだけでなく解説の全文を作っておく。** ここを名乗りだけにしていたとき、
+        // 圏外では「いて座ですね」が AI の声、続く解説が端末の読み上げになり、
+        // **1 回の解説で声が入れ替わって聞こえた**（2026-08-22 実機）
+        // タップしたときと同じ月・惑星から作る。1 文字でも違うとキャッシュが当たらない
+        val bodies = bodiesShown.map {
+            ObservedStarFact(it.nameJa, it.magnitude, it.azDeg, it.altDeg, 0.0)
+        }
+        val warmInput = NarrationInput(
+            calibrated = true,
+            altDeg = 0.0,
+            azDeg = 0.0,
+            constellations = listOf(name),
+            latDeg = site.latDeg,
+            lonDeg = site.lonDeg,
+            localTime = "",
+            visibleBodies = bodies,
+        )
+        val script = Narrator.script(name, lore.of(name), warmInput)
+        for (part in Narrator.speechParts(name, script)) voice.warm(part)
     }
 
     LaunchedEffect(Unit) {
@@ -970,7 +1003,6 @@ fun StarMapScreen(
         // 見出しの方角は「絵を焼いた視線」から取る。解説の途中で首を動かしても書き換えない
         narrator.reset()
         explanationHeading = "%s %d°".format(cardinalDirection16(basis.azDeg), basis.altDeg.roundToInt())
-        explanationLook = look()
         explanationSpoke = false
         explanationDropped = 0
         glassPage = GlassPage.EXPLANATION
@@ -1029,7 +1061,6 @@ fun StarMapScreen(
         // 衛星の案内も文字で読めるようにする。中身が違うだけで、出す場所は星座と同じ
         narrator.reset()
         explanationHeading = "%s %d°".format(cardinalDirection16(latched.azDeg), latched.altDeg.roundToInt())
-        explanationLook = look()
         explanationSpoke = false
         explanationDropped = 0
         glassPage = GlassPage.EXPLANATION
@@ -1544,7 +1575,13 @@ private fun StatusRow(label: String, value: String) {
  * 実測より少し多めの 10ms にしてある。短くしすぎても 0.6.0 の SDK が送信を直列化するので
  * 絵は壊れず順番待ちが伸びるだけなので、実測より少し多めの 10ms にしてある。
  */
-private const val PACKET_MS_DEFAULT = 10f
+/**
+ * 200 バイト 1 パケットの見積り時間。
+ *
+ * **実測 8〜9ms**（Pixel 9a・2026-08-20 に 12 回）。10ms にしていたぶんは毎フレーム
+ * 数十 ms の待ちすぎになっていた。**多く見積もるほど次の絵が遅れる**ので実測の上端に合わせる。
+ */
+private const val PACKET_MS_DEFAULT = 9f
 
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
@@ -1632,8 +1669,13 @@ private const val CONSTELLATION_REFRESH_MS = 15_000L
 /** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
 private const val STILL_DEG = 1.0
 
-/** 動きが止まってからこれだけ待って送る */
-private const val STILL_MS = 400L
+/**
+ * 動きが止まってからこれだけ待って送る。
+ *
+ * **短いほど早く出る。** 400ms から詰めた。長くすると「止めたのに出てこない」時間がそのまま伸び、
+ * 短くしすぎると首を動かしている途中で送り始めて、転送のあいだ真っ暗になる回数が増える。
+ */
+private const val STILL_MS = 180L
 
 private const val TAG = "StarMap"
 
@@ -1650,16 +1692,9 @@ private const val REDRAW_DEG = 6.0
  *
  * 0.5.0 までは送信が重なるとどの画像も組み立てられなかったので厚めに取っていたが、
  * 0.6.0 で SDK が直列化したため、次のフレームのパケットは後ろに並ぶだけになった。
+ * **待っている間は次の絵を作らない**ので、ここはそのまま体感の遅さになる。200ms から詰めた。
  */
-private const val SETTLE_MS = 200L
-
-/**
- * 解説画面から星図へ戻すまでに首を振る量（#40）。
- *
- * 描き直しの [REDRAW_DEG] より大きく取る。同じ大きさだと、**読んでいる間の首の揺れで戻ってしまう**。
- * 画角 35° の半分弱で、「別のところを見た」と言える量。
- */
-private const val LEAVE_EXPLANATION_DEG = 15.0
+private const val SETTLE_MS = 80L
 
 /** 読み上げが終わってから星図へ戻すまでの余韻 */
 private const val EXPLANATION_LINGER_MS = 5_000L
@@ -1675,6 +1710,4 @@ private const val EXPLANATION_READ_MS = 25_000L
 /** SSE の delta ごとに送らず、これだけ待ってからまとめて送る */
 private const val EXPLANATION_SEND_DEBOUNCE_MS = 150L
 
-/** 2 つの視線がどれだけ離れているか。方位と高度の大きいほうで見る */
-private fun Look.awayFrom(other: Look): Double =
-    max(abs(normalizeDeg(azDeg - other.azDeg)), abs(altDeg - other.altDeg))
+

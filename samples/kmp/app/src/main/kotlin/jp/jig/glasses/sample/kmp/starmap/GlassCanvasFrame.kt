@@ -6,9 +6,24 @@ import app.jigglass.glass.CommandManager
 const val PANEL_WIDTH = 576
 const val PANEL_HEIGHT = 360
 
-/** バッファ上限に余裕を持って収まる、星図の標準サイズ。 */
+/**
+ * 星図の標準サイズ。**バッファ上限に余裕を持って収まる**。
+ *
+ * [STAR_MAP_MAX_WIDTH] で入らなかったときの落とし先。
+ */
 const val STAR_MAP_WIDTH = 528
 const val STAR_MAP_HEIGHT = 330
+
+/**
+ * 画像 1 枚の上限いっぱい。16:10 でこれ以上大きくすると必ず弾かれる。
+ *
+ * `width * height * 2` だけで 369,920 バイトを使うので、圧縮後に残るのは **10,080 バイト**しかない。
+ * 背景の下限だけで 5,780 バイト（面積 / 32）なので、星と線と絵で 4,300 バイトを超えると入らない。
+ * **入るかどうかは空の濃さと向きで変わる**ので、送る前に同じ式で数えて、
+ * 溢れたら [STAR_MAP_WIDTH] へ落とす。
+ */
+const val STAR_MAP_MAX_WIDTH = 544
+const val STAR_MAP_MAX_HEIGHT = 340
 
 const val STAR_MAP_IMAGE_ID = 0
 const val CANVAS_TEXT_SLOTS = 8

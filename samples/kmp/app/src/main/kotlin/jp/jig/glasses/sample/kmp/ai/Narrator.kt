@@ -93,38 +93,15 @@ class Narrator(
         }
         constellation!!
 
-        // 名前は端末が知っている確定値なので、まず名乗る
-        speaker.say(opening(constellation))
-        val script = script(constellation, input)
-        // 句点ごとに積む。1 文目の音が早く鳴り、作り直しも 1 文ぶんで済む
-        val accumulator = SentenceAccumulator()
-        val sentences = accumulator.append(script) +
-            listOf(accumulator.flush()).filter { it.isNotBlank() }
-        for (sentence in sentences) speaker.add(sentence)
+        val script = script(constellation, lore(constellation), input)
+        // 名前は端末が知っている確定値なので、まず名乗る。
+        // **画面から先に作らせておくのと同じ並び**（[speechParts]）でないとキャッシュが当たらない
+        val parts = speechParts(constellation, script)
+        speaker.say(parts.first())
+        for (sentence in parts.drop(1)) speaker.add(sentence)
 
         _state.value = NarrationState(NarrationPhase.SPEAKING, script, constellation)
-        log("解説: $constellation（${script.length}文字・${sentences.size}文）", false)
-    }
-
-    /**
-     * 喋る中身。
-     *
-     * **話すのは神話と豆知識だけ。** どんな形でどこに見えるかは、グラスの星図がそのまま見せている。
-     * 言葉で形をなぞっても、聞いている人は目の前の空と突き合わせられない。
-     * 視野に月や惑星があるときだけ、**入る範囲で**一言足す（惑星は日によって違うので言う価値がある）。
-     */
-    private fun script(constellation: String, input: NarrationInput): String {
-        val text = lore(constellation) ?: return groundedFallback(constellation, input)
-        val extra = bodyLine(input) ?: return text
-        // グラスの解説画面（#40）に入らないなら足さない。溢れたぶんは音では聞けても文字では読めない
-        return if (text.length + extra.length <= GlassTextPage.bodyChars) text + extra else text
-    }
-
-    /** 視野の月・惑星を一言だけ。**肉眼で見えないものは言わない**（探させても見つからない） */
-    private fun bodyLine(input: NarrationInput): String? {
-        val visible = input.visibleBodies.filter { it.magnitude <= NAKED_EYE_MAGNITUDE }.take(2)
-        if (visible.isEmpty()) return null
-        return "いま近くに${visible.joinToString("と") { it.nameJa }}が出ています。"
+        log("解説: $constellation（${script.length}文字・${parts.size - 1}文）", false)
     }
 
     /**
@@ -230,6 +207,42 @@ class Narrator(
          * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
          */
         fun opening(constellation: String): String = "${constellation}ですね。"
+
+        /**
+         * 喋る中身。
+         *
+         * **話すのは神話と豆知識だけ。** どんな形でどこに見えるかは、グラスの星図がそのまま見せている。
+         * 言葉で形をなぞっても、聞いている人は目の前の空と突き合わせられない。
+         * 視野に月や惑星があるときだけ、**入る範囲で**一言足す（惑星は日によって違うので言う価値がある）。
+         */
+        fun script(constellation: String, lore: String?, input: NarrationInput): String {
+            val text = lore ?: return groundedFallback(constellation, input)
+            val extra = bodyLine(input.visibleBodies) ?: return text
+            // グラスの解説画面（#40）に入らないなら足さない。溢れたぶんは文字では読めない
+            return if (text.length + extra.length <= GlassTextPage.bodyChars) text + extra else text
+        }
+
+        /** 視野の月・惑星を一言だけ。**肉眼で見えないものは言わない**（探させても見つからない） */
+        fun bodyLine(bodies: List<ObservedStarFact>): String? {
+            val visible = bodies.filter { it.magnitude <= NAKED_EYE_MAGNITUDE }.take(2)
+            if (visible.isEmpty()) return null
+            return "いま近くに${visible.joinToString("と") { it.nameJa }}が出ています。"
+        }
+
+        /**
+         * タップしたときに喋る文の並び。先頭が名乗りで、残りが解説の各文。
+         *
+         * **画面はこれを使って先に音声を作っておく**（`LaunchedEffect(lastMap)`）。
+         * 圏外では作れないので、**電波があるうちに作った分だけが AI 音声で鳴る**。
+         * ここと [narrate] で別々に文を切ると 1 文字ずれてキャッシュが当たらないので、
+         * **切り方はこの 1 か所に置く**。
+         */
+        fun speechParts(constellation: String, script: String): List<String> {
+            val accumulator = SentenceAccumulator()
+            val sentences = accumulator.append(script) +
+                listOf(accumulator.flush()).filter { it.isNotBlank() }
+            return listOf(opening(constellation)) + sentences
+        }
     }
 }
 

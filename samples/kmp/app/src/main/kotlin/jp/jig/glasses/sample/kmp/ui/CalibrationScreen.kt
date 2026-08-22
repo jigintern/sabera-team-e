@@ -168,8 +168,24 @@ fun CalibrationScreen(
         )
     }
 
+    /**
+     * 十字を送り、**消されていたら送り直す**。
+     *
+     * 観測画面から「方位を合わせ直す」で来ると、**あちらの後片付けがこちらの描画より後に走る**。
+     * `onDispose` の `stopImuData()` と `closeCanvas()` が、この画面が送った直後に届くので、
+     * **十字が消え、6DoF まで止まる**（実機で「十字が出ない」「6DoFを待っています」の両方が起きた）。
+     * 画像は 128×128 で 6 パケットほどなので、送り直しの代償は小さい。
+     */
     LaunchedEffect(Unit) {
         showMarker()
+        var confirmed = false
+        repeat(MARKER_REASSERT_TIMES) {
+            delay(MARKER_REASSERT_MS)
+            if (confirmed) return@LaunchedEffect
+            showMarker()
+            // 6DoF が来ていれば生きている。**そのあと 1 回だけ送り直して**止める
+            confirmed = lastImuAt != 0L
+        }
     }
 
     LaunchedEffect(locateNow) {
@@ -770,6 +786,10 @@ private const val GLASS_SILENT_MS = 10_000L
 
 /** 止めてから送り直すまでの間。続けて送ると止まる前の状態に上書きされる */
 private const val RECOVERY_GAP_MS = 300L
+
+/** 十字を送り直す間隔と回数。**前の画面の後片付けが届くまで**をまたげればよい */
+private const val MARKER_REASSERT_MS = 1_200L
+private const val MARKER_REASSERT_TIMES = 5
 
 /** 磁気の期待値（WMM）の評価は 1 秒ごとで足りる */
 private const val MAGNETIC_POLL_MS = 1_000L

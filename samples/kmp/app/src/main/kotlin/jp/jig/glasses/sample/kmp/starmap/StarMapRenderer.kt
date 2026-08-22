@@ -716,7 +716,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         if (boxWidth > width * ART_MAX_SPAN || boxHeight > height * ART_MAX_SPAN) return
         if (maxX < 0 || maxY < 0 || minX > width || minY > height) return
 
-        val radius = (lineRadius(width) - 1).coerceAtLeast(0)
+        // **1 画素の細線で描く。** 輪郭の点数を増やしたぶん、太いと絵が潰れるうえ
+        // 圧縮後のバイト数も膨らむ（544×340 では 4,300 バイトしか余裕がない）
+        val radius = 0
         for (stroke in figure) {
             var previous: DoubleArray? = null
             for (point in stroke) {
@@ -1223,7 +1225,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
          * 星座絵の明るさ。**3bit の 2 段目**（線が 4・暗い星が 3）。
          * 星より暗くないと、絵が主役になって星の位置が読めない。
          */
-        const val ART_VALUE = 80
+        /**
+         * 星座絵の明るさ。**3bit でいちばん暗い段**（1/7）。
+         *
+         * 80 だと段 2 で天の川と同じ濃さになり、線が増えたようにしか見えなかった。
+         * **絵は敷くもので、読ませるものではない**ので、星・星座線・天の川より下に置く。
+         */
+        const val ART_VALUE = 40
 
         /** 星座絵を敷く矩形の下限・上限（画面に対する比） */
         const val ART_MIN_SPAN = 0.15
