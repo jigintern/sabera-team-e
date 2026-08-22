@@ -50,7 +50,7 @@ cd samples/kmp
 | [docs/team-e/index.md](docs/team-e/index.md) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
 | `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
 | `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
-| `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
+| `tools/` | 同梱データの生成スクリプト |
 | [docs/github-pat.md](docs/github-pat.md) | privateなSDKを取得するためのPAT設定 |
 
 ## SDK について

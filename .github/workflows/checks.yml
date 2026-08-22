@@ -18,6 +18,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 星表の再生成は外部取得が必要。自己完結したシミュレータだけをCIで照合する。
-      - name: 天球シミュレータが最新か確かめる
-        run: python3 tools/build-simulator.py --check
+      # 星表と TLE の再生成は外部取得が必要。**手元で完結する生成物だけ**を照合する。
+      # 解説文は長さと読み上げできない記号もスクリプトが検査するので、
+      # 書き足したまま壊れて出荷されることがない。
+      - name: 同梱データが生成物と一致するか確かめる
+        run: |
+          python3 tools/build-constellation-lore.py
+          python3 tools/build-constellation-figures.py
+          python3 tools/build-asterisms.py
+          git diff --exit-code -- data/

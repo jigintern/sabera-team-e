@@ -12,7 +12,7 @@ AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様
 |---|---|
 | **Android 実機** | **BLE 必須。エミュレータでは動かない** |
 | Android Studio / JDK 17 | |
-| Python 3 | 同梱データと天球シミュレータの生成 |
+| Python 3 | 同梱データの生成 |
 
 ### 2. GitHub PAT を設定する（最初の関門）
 

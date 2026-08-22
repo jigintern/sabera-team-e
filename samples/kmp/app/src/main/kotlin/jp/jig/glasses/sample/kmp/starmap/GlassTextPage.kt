@@ -14,20 +14,22 @@ enum class GlassPage {
  * グラスへ**文字だけの画面**を出すための組版（#40）。
  *
  * 「解説文はグラスに出さない」と決めていたのは、**星図の上に重ねる前提**だったため。
- * 専用ページにすると数字が変わる。
+ * 専用ページにすれば、星図を消したぶんを全部文字に使える。
  *
- * - **190 バイトは 1 電文あたり**で、画面の合計ではない（[batched] が分割して送る）
- * - 枠は 8 つ。1 行 1 枠として **8 行**（[CANVAS_LABEL_HEIGHT] × 8 = 320 でパネルに収まる）
- * - 1 行 [lineChars] 文字なので、見出し 1 行を除いて **本文 [bodyChars] 文字**
+ * **ただし置ける文字数は 8 行ぶんではなかった。** 8 行置いたとき、実機で
+ * **最初の 1〜2 行が消えて途中から始まった**（2026-08-22。「星座の名前と方角と
+ * 最初の行が見えない」）。190 バイトは 1 電文あたりの上限だと読んでいたが、
+ * **画面に置ける合計でもある**らしく、分割して送っても後から送ったものに押し出される。
  *
- * 転送は 8 行で 600 バイト弱＝4 電文で 40ms ほど。星図画像の 332〜390ms に対して 1/10 なので、
- * **SSE で 1 文届くたびに描き足せる**。
+ * そこで**字幕のようにめくる**（[pages]）。1 枚は見出し 1 行＋本文 2 行の
+ * **189 バイト**で、1 電文に収まる。**何バイトまで置けるかの解釈に関わらず消えない**うえ、
+ * 読み上げに合わせて出せるので、長い解説も切らずに出せる。
  */
 object GlassTextPage {
     /** 左右の余白 */
     private const val MARGIN_X = 12
 
-    /** 8 行をパネルの上下中央へ寄せる */
+    /** 行をパネルの上下中央へ寄せる */
     private val marginY = (PANEL_HEIGHT - CANVAS_TEXT_SLOTS * CANVAS_LABEL_HEIGHT) / 2
 
     /**
@@ -39,15 +41,20 @@ object GlassTextPage {
      */
     val lineChars: Int = (PANEL_WIDTH - 2 * MARGIN_X - LABEL_PADDING) / LABEL_CHAR_WIDTH
 
-    /**
-     * 見出しに 1 行使う。残りが本文。
-     *
-     * **見出しが空でも本文は繰り上げない。** タップした直後は星座名がまだ決まっていないので、
-     * 繰り上げると名前が付いた瞬間に本文が 1 行下がり、全部書き直しになる。
-     */
+    /** 見出しの行。**本文は見出しが空でも繰り上げない**（名前が付いた瞬間に全部書き直しになる） */
     private const val HEADER_ROW = 0
-    val bodyRows: Int = CANVAS_TEXT_SLOTS - 1
-    val bodyChars: Int = bodyRows * lineChars
+
+    /** 1 枚に出す本文の行数。見出しと合わせて 189 バイトに収まる数 */
+    const val BODY_ROWS = 2
+
+    /** 1 枚に出せる本文の文字数 */
+    val bodyChars: Int = BODY_ROWS * lineChars
+
+    /** めくる上限。これを超えるぶんは捨てる（解説文はこの中に収めてある） */
+    private const val MAX_PAGES = 8
+
+    /** 解説文に許す長さ。めくって出せる総量 */
+    val pagedChars: Int = bodyChars * MAX_PAGES
 
     /**
      * 行頭に置かない文字。折り返し位置に来たら前の行へ吸わせる。
@@ -60,28 +67,44 @@ object GlassTextPage {
     /** 禁則で伸ばせる上限。「。。。。」のような並びで 1 行が延々と伸びるのを止める */
     private const val KINSOKU_SLACK = 2
 
-    /** 1 回ぶんの解説画面。[dropped] は 8 行に入り切らず捨てた文字数 */
+    /** 1 枚ぶんの解説画面。[dropped] は入り切らず捨てた文字数 */
     class Page(val elements: List<CommandManager.CanvasElement>, val dropped: Int)
 
     /**
-     * 解説画面を組む。
+     * 解説を**字幕のようにめくる**ための、1 枚ずつの画面。
      *
-     * **同じ行は必ず同じ場所に置き、文字は増える方向にしか変わらない。**
-     * 折り返しは先頭からの貪欲法なので、あとから文字が届いても**前の行の折り返し位置は動かない**。
-     * これは見やすさの話ではなく、ファームの制約から来ている。ファームは新しい矩形しか
-     * 描き直さないので、行を組み直すと**前の行の末尾が画面に残る**（実機で踏んだ「る」問題）。
+     * 1 枚は必ず 1 電文に収まるので、**置ける合計バイト数を気にしなくてよくなる**。
+     * 読み上げに合わせて送れば、長い解説も切らずに最後まで出せる。
+     */
+    fun pages(header: String, body: String): List<Page> {
+        val lines = wrap(body)
+        if (lines.isEmpty()) return listOf(explanation(header, ""))
+        val chunks = lines.chunked(BODY_ROWS)
+        val dropped = chunks.drop(MAX_PAGES).sumOf { chunk -> chunk.sumOf { it.length } }
+        return chunks.take(MAX_PAGES).mapIndexed { index, chunk ->
+            val page = explanation(header, chunk.joinToString("\n"))
+            // 捨てたぶんは最後の 1 枚に付けて数える。ログで「切れた」と分かればよい
+            if (index == chunks.take(MAX_PAGES).lastIndex) Page(page.elements, dropped) else page
+        }
+    }
+
+    /**
+     * 1 枚ぶんの画面を組む。
+     *
+     * **同じ行は必ず同じ場所に置き、行を組み直さない。** ファームは新しい矩形しか
+     * 描き直さないので、組み直すと**前の行の末尾が画面に残る**（実機で踏んだ「る」問題）。
      */
     fun explanation(header: String, body: String): Page {
-        val elements = ArrayList<CommandManager.CanvasElement>(CANVAS_TEXT_SLOTS)
+        val elements = ArrayList<CommandManager.CanvasElement>(1 + BODY_ROWS)
         header.trim().takeIf { it.isNotEmpty() }?.let {
             elements += row(HEADER_ROW, it.take(lineChars))
         }
         val lines = wrap(body)
-        for ((index, line) in lines.take(bodyRows).withIndex()) {
+        for ((index, line) in lines.take(BODY_ROWS).withIndex()) {
             if (line.isBlank()) continue
             elements += row(HEADER_ROW + 1 + index, line)
         }
-        return Page(elements, lines.drop(bodyRows).sumOf { it.length })
+        return Page(elements, lines.drop(BODY_ROWS).sumOf { it.length })
     }
 
     /** [lineChars] 文字ずつに折り返す。改行はそのまま行の区切りにする */
@@ -90,7 +113,7 @@ object GlassTextPage {
         var current = StringBuilder()
         for (ch in text) {
             if (ch == '\n') {
-                lines += current.toString()
+                if (current.isNotEmpty()) lines += current.toString()
                 current = StringBuilder()
                 continue
             }

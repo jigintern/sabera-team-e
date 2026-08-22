@@ -9,10 +9,10 @@ import org.junit.Test
 class GlassTextPageTest {
 
     @Test
-    fun `8行がパネルに収まる`() {
+    fun `1枚がパネルに収まる`() {
         val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.bodyChars))
 
-        assertEquals("見出し 1 行＋本文", 1 + GlassTextPage.bodyRows, page.elements.size)
+        assertEquals("見出し 1 行＋本文", 1 + GlassTextPage.BODY_ROWS, page.elements.size)
         assertEquals("入り切らない文字は無い", 0, page.dropped)
         for (element in page.elements) {
             assertTrue("id は 0..7", element.id in 0 until CANVAS_TEXT_SLOTS)
@@ -21,14 +21,35 @@ class GlassTextPageTest {
         }
     }
 
+    /**
+     * **1 枚は必ず 1 電文で送り切れる。**
+     *
+     * 8 行ぶん置いたときは、実機で**最初の 1〜2 行が消えて途中から始まった**。
+     * 190 バイトが「1 電文あたり」なのか「画面に置ける合計」なのかは分からないままなので、
+     * **どちらの読み方でも壊れない量**に収める。
+     */
     @Test
-    fun `1電文は190バイトに収まる`() {
+    fun `1枚は1電文に収まる`() {
         val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.bodyChars))
 
-        for (batch in page.elements.updatesFrom(emptyList())) {
-            val bytes = batch.sumOf { it.byteSize() }
-            // 1 要素だけで超える場合は分割できないので、その 1 つだけは許す
-            assertTrue("1 電文 $bytes バイト", bytes <= CANVAS_TEXT_BUDGET_BYTES || batch.size == 1)
+        val batches = page.elements.updatesFrom(emptyList())
+        assertEquals("1 電文で送り切れていない", 1, batches.size)
+        val bytes = page.elements.sumOf { it.byteSize() }
+        assertTrue("画面に置く合計が $bytes バイト", bytes <= CANVAS_TEXT_BUDGET_BYTES)
+    }
+
+    /** 入り切らない本文は捨てずにめくる */
+    @Test
+    fun `長い解説はめくって全部出す`() {
+        val body = "これは長い解説の文です。".repeat(8)
+        val pages = GlassTextPage.pages("おとめ座 南南西 45°", body)
+
+        assertTrue("めくれていない", pages.size > 1)
+        assertEquals("捨てている", 0, pages.last().dropped)
+        val shown = pages.flatMap { page -> page.elements.drop(1).map { it.text } }.joinToString("")
+        assertEquals("文字が抜けた", body.replace("　", ""), shown)
+        for (page in pages) {
+            assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
         }
     }
 
@@ -77,11 +98,11 @@ class GlassTextPageTest {
     }
 
     @Test
-    fun `入り切らない文字は捨てて数える`() {
+    fun `1枚に入り切らない文字は捨てて数える`() {
         val body = "い".repeat(GlassTextPage.bodyChars + 40)
         val page = GlassTextPage.explanation("おとめ座", body)
 
-        assertEquals(1 + GlassTextPage.bodyRows, page.elements.size)
+        assertEquals(1 + GlassTextPage.BODY_ROWS, page.elements.size)
         assertEquals(40, page.dropped)
     }
 

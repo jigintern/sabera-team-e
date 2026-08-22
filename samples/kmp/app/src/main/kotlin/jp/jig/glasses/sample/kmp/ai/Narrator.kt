@@ -105,6 +105,33 @@ class Narrator(
     }
 
     /**
+     * 声で聞かれたことの途中経過（#38）。**喋らずに画面だけ**書き換える。
+     *
+     * 聞き取りと生成で数秒かかる。ここを黙って過ごすと、**ホールドが届いたのかどうかが
+     * 分からない**ので、いま何をしているかをグラスの解説画面へ出す。
+     */
+    fun progress(subject: String, text: String) {
+        _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
+    }
+
+    /** 声の質問への答え。中身は [OpenAiAsk] が作るので、ここは喋って画面へ出すだけ */
+    fun answer(subject: String, text: String) {
+        val accumulator = SentenceAccumulator()
+        val sentences = accumulator.append(text) +
+            listOf(accumulator.flush()).filter { it.isNotBlank() }
+        for (sentence in sentences) speaker.add(sentence)
+        _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
+        log("質問に回答（${text.length}文字・${sentences.size}文）", false)
+    }
+
+    /** 答えられなかったとき。**黙らない**ので、理由を短く喋る */
+    fun cannotAnswer(subject: String, reason: String) {
+        speaker.say(reason)
+        _state.value = NarrationState(NarrationPhase.FAILED, reason, subject)
+        log("質問に答えられない: $reason", true)
+    }
+
+    /**
      * 人工衛星モードの「あれは何？」。
      *
      * 星座と同じで**通信は要らない**。機体名・方角・高度・日照はすべて端末が計算した確定値。
@@ -218,8 +245,8 @@ class Narrator(
         fun script(constellation: String, lore: String?, input: NarrationInput): String {
             val text = lore ?: return groundedFallback(constellation, input)
             val extra = bodyLine(input.visibleBodies) ?: return text
-            // グラスの解説画面（#40）に入らないなら足さない。溢れたぶんは文字では読めない
-            return if (text.length + extra.length <= GlassTextPage.bodyChars) text + extra else text
+            // グラスの解説画面（#40）はめくって出すので、めくり切れる長さまでは足してよい
+            return if (text.length + extra.length <= GlassTextPage.pagedChars) text + extra else text
         }
 
         /** 視野の月・惑星を一言だけ。**肉眼で見えないものは言わない**（探させても見つからない） */

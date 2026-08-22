@@ -167,6 +167,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawAsterisms: Boolean = true,
         // 天の川の帯
         drawMilkyWay: Boolean = true,
+        /**
+         * 首の傾き[度]。**パネルは頭に固定されている**ので、傾けたぶん枠ごと回さないと
+         * 地平線だけが水平のまま残る。6DoF にロールが無いので加速度から起こす（[rollFromAccel]）
+         */
+        rollDeg: Double = 0.0,
         // 星座の線と名前を出す下限。その星座でいちばん明るい星がこれより暗ければ出さない
         constellationMagnitude: Double = 99.0,
         // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
@@ -176,7 +181,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val d = daysFromJ2000(epochMillis)
         val precessed = precessed(d)
         val lst = localSiderealDeg(d, site.lonDeg)
-        val basis = Basis(look.azDeg, look.altDeg)
+        val basis = Basis(look.azDeg, look.altDeg, rollDeg)
         val k = projectionScale(width, fovDeg)
         val gray = ByteArray(width * height)
 
@@ -746,8 +751,10 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         height: Int,
         tracks: List<SkyTrack>,
         drawFigures: Boolean = true,
+        /** 焼いた絵と同じ傾きで置かないと、印だけが回って見える */
+        rollDeg: Double = 0.0,
     ): List<Label> {
-        val basis = Basis(look.azDeg, look.altDeg)
+        val basis = Basis(look.azDeg, look.altDeg, rollDeg)
         val k = projectionScale(width, fovDeg)
         // 吹き出しを出す機体は、名前も枠の上に置く。**同じ計算を使わないと絵と名前がずれる**
         val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()
@@ -1228,10 +1235,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         /**
          * 星座絵の明るさ。**3bit でいちばん暗い段**（1/7）。
          *
-         * 80 だと段 2 で天の川と同じ濃さになり、線が増えたようにしか見えなかった。
-         * **絵は敷くもので、読ませるものではない**ので、星・星座線・天の川より下に置く。
+         * 骨組みの線だった頃は段 2 でも「線が増えた」としか見えなかったが、
+         * **輪郭にして 1 画素まで細くしたので、段 2 でも絵として読める**。
+         * 段 1 まで落とすと実機で薄すぎた。**細さで主張を抑え、明るさは残す。**
          */
-        const val ART_VALUE = 40
+        const val ART_VALUE = 72
 
         /** 星座絵を敷く矩形の下限・上限（画面に対する比） */
         const val ART_MIN_SPAN = 0.15

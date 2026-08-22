@@ -44,7 +44,7 @@
 | `docs/team-e/` | **team-e の仕様書** |
 | `docs/github-pat.md` | private SDK を取得するための GitHub PAT 設定 |
 | `data/` | 同梱データ（星表・星座線・TLE）。**すべて生成物** |
-| `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
+| `tools/` | 同梱データの生成スクリプト |
 
 ### アプリ内の責務
 
@@ -81,7 +81,6 @@ python3 tools/build-constellation-figures.py  # data/ の星座絵を作り直�
 python3 tools/build-constellation-lore.py     # data/ の星座解説を作り直す（長さと記号を検査する）
 python3 tools/build-asterisms.py         # data/ の大三角・天の川を作り直す
 python3 tools/build-satellites.py        # data/ の TLE を取り直す
-python3 tools/build-simulator.py --check # 天球シミュレータ生成物の差分を検査
 ```
 
 ### 前提
@@ -118,6 +117,9 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 - **`sendCanvasImage` に 576×360 を渡すと必ず `require` で落ちる**（ファームではなく SDK の制限）
 - **手元のファームはキャンバス画像が動くが、`FEATURE_VERSION` の数値は未取得。**
   配布先のグラスが同じとは限らないので、**退路（196×196）の設計は残す。アプリ実装は未着手**
+- **テキストは「画面に置ける合計」でも 190 バイトらしい。** 8 行ぶん置いたら
+  **最初の 1〜2 行が消えた**（分割して送っても後から送ったぶんに押し出される）。
+  **1 電文に収まる量だけを置き、続きはめくる**（`GlassTextPage.pages`）
 - **`sendNaviCourse` を方位問題の解決として扱わない**。**`yawDegrees` に返らないと実測済み**
 - **`yawDegrees` をそのまま方位に使わない。** 静止中に 44°/分 流れる。
   **ジャイロの大きさで動きを判定し、動いている間だけ差分を足す**（実装済み）
@@ -144,10 +146,10 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 ## 文書と CI
 
 - `docs/team-e/` は通常の Markdown で管理する。SDK API の説明は複製せず、上流の公開ドキュメントを参照する
-- CI（`.github/workflows/checks.yml`）は `python3 tools/build-simulator.py --check` で
-  天球シミュレータの生成物が最新か検査する
+- CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を
+  作り直して `data/` に差分が出ないか検査する。星表と TLE は外部取得が要るので回さない
 - private SDK の取得に PAT が必要なため、アプリの JVM テストと APK ビルドは開発者の手元で実行する
-- `data/**` と `tools/simulator/index.html` は生成物。直接編集せず、対応する `tools/build-*.py` を使う
+- `data/**` は生成物。直接編集せず、対応する `tools/build-*.py` を使う
 - GitHub Pages は公開しない。SDK ドキュメントは上流が公開している
 
 ## 決まったこと・未決定事項
@@ -163,7 +165,7 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 | 転送 | 1 パケット 200 バイトで**実測 8〜9ms**。528×330 の 1 枚で 332〜390ms |
 | 描き直し | **0.18 秒静止 ＋ 前の絵から 6° 以上**。動きに追従させると点滅にしかならない |
 | 画角 | **仮の 35° 固定・未実測**（`ObservationDefaults.STAR_MAP_FOV_DEG`） |
-| 解説画面 | **8 行 × 19 文字**。本文は見出しを除く 7 行 = **133 文字**。1 行の文字数は**未実測** |
+| 解説画面 | **見出し 1 行＋本文 2 行を 1 枚としてめくる**（189 バイト・1 電文）。1 行 19 文字は**未実測** |
 | ヨードリフト | 静止中 **44°/分**。補正込みで実測 0.0°/分 |
 | 方位の残差 | 地磁気で **±5〜15°**。星座の同定（±20°）は成立、星図の重ね合わせ（±2〜3°）は**追わない** |
 
