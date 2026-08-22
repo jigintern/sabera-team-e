@@ -118,6 +118,14 @@ fun CalibrationScreen(
     // 精度条件が揃ってからの進み具合（0..1）。的の外周のゲージがこれで満ちる
     var holdProgress by remember { mutableFloatStateOf(0f) }
 
+    // **「つながっているのに返事が無い」を出せるようにする。**
+    // BLE がつながっていれば connected は true のままなので、切断ダイアログ（GlassesApp）は出ない。
+    // 実機では、グラスが再起動したあと 6DoF も画像も一切返さないまま
+    // 「グラスの6DoFを待っています」が出続けた（2026-08-22）
+    var waitingSince by remember(commandManager) { mutableLongStateOf(System.currentTimeMillis()) }
+    var recoveryNote by remember { mutableStateOf<String?>(null) }
+    var recovering by remember { mutableStateOf(false) }
+
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { granted ->
@@ -147,7 +155,7 @@ fun CalibrationScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
+    suspend fun showMarker() {
         commandManager.startImuData()
         commandManager.clearCanvas()
         commandManager.sendCanvasImage(
@@ -158,6 +166,10 @@ fun CalibrationScreen(
             height = CalibrationMarker.SIZE,
             grayscale = CalibrationMarker.grayscale(),
         )
+    }
+
+    LaunchedEffect(Unit) {
+        showMarker()
     }
 
     LaunchedEffect(locateNow) {
@@ -224,6 +236,54 @@ fun CalibrationScreen(
     // **歪みでは止めない。** 止めていたときは机の上（ノート PC・ディスプレイ・鉄の脚）で
     // 常時弾かれ、観測画面から先の確認が何もできなかった
     val ready = imuFresh && headingReady && compassReady && facingReady && stabilityReady
+
+    // **グラスが一度も返事をしていない。** つながっているのに黙っているので、
+    // 待ち続けても直らない。**このグラスに電源ボタンは無い**ので、
+    // 電源を入れ直す手段はここに出すしかない
+    val glassSilent = lastImuAt == 0L && now - waitingSince > GLASS_SILENT_MS
+
+    /** 送り直す。**再起動よりこちらが先**（30 秒待たずに済む） */
+    fun resend() {
+        if (recovering) return
+        recovering = true
+        recoveryNote = "送り直しています…"
+        scope.launch {
+            val result = runCatching {
+                commandManager.stopImuData()
+                delay(RECOVERY_GAP_MS)
+                showMarker()
+            }
+            waitingSince = System.currentTimeMillis()
+            recovering = false
+            recoveryNote = if (result.isSuccess) {
+                "送り直しました。数秒待っても変わらなければ再起動してください"
+            } else {
+                "送り直せませんでした（${result.exceptionOrNull()?.message}）"
+            }
+        }
+    }
+
+    /**
+     * グラスを再起動する。
+     *
+     * **このグラスには電源ボタンが無い**ので、SDK のデバッグシェル（`dbg reboot`）を叩く以外に
+     * 電源を入れ直す方法がない。名前などはリセットされないので、ペアリングは残る。
+     */
+    fun rebootGlass() {
+        if (recovering) return
+        recovering = true
+        recoveryNote = "再起動を送っています…"
+        scope.launch {
+            val result = runCatching { client.reboot() }
+            waitingSince = System.currentTimeMillis()
+            recovering = false
+            recoveryNote = if (result.isSuccess) {
+                "再起動しました。つながり直すまで 30 秒ほどかかります"
+            } else {
+                "再起動を送れませんでした（${result.exceptionOrNull()?.message}）"
+            }
+        }
+    }
 
     /**
      * 観測画面へ渡して確定する。
@@ -309,17 +369,57 @@ fun CalibrationScreen(
                     // 腕の先のスマホの文章は読まれない。書くのは直すことがあるときだけ
                     if (!ready) {
                         Text(
-                            text = calibrationInstruction(
-                                imuFresh = imuFresh,
-                                headingReady = headingReady,
-                                compassReady = compassReady,
-                                facingReady = facingReady,
-                                stabilityReady = stabilityReady,
-                            ),
+                            text = if (glassSilent) {
+                                "グラスから返事がありません"
+                            } else {
+                                calibrationInstruction(
+                                    imuFresh = imuFresh,
+                                    headingReady = headingReady,
+                                    compassReady = compassReady,
+                                    facingReady = facingReady,
+                                    stabilityReady = stabilityReady,
+                                )
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = Color.White,
                             textAlign = TextAlign.Center,
                         )
+                    }
+                    // つながっているのに黙っているときだけ出す。
+                    // **待っていても直らない**ので、手を出せるものを見せる
+                    if (glassSilent) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "つながってはいますが、十字も6DoFも返ってきていません",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White.copy(alpha = 0.72f),
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.Center) {
+                            TextButton(
+                                onClick = { resend() },
+                                enabled = !recovering,
+                                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
+                            ) {
+                                Text("送り直す")
+                            }
+                            TextButton(
+                                onClick = { rebootGlass() },
+                                enabled = !recovering,
+                                colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
+                            ) {
+                                Text("グラスを再起動")
+                            }
+                        }
+                        recoveryNote?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.72f),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                     // 歪んでいても押せる。**ただし黙って通さない。**
                     // ここで合わせた方位には歪みぶんの誤差が丸ごと乗る
@@ -660,6 +760,16 @@ private fun compactSiteStatus(status: String): String = when {
 private const val MAX_TILT_DIFFERENCE_DEG = 3.0
 private const val SENSOR_POLL_MS = 100L
 private const val IMU_FRESH_MS = 1_000L
+
+/**
+ * これだけ待って 6DoF が 1 件も来なければ「返事が無い」とみなす。
+ *
+ * つながった直後の 1 件目は数秒かかることがあるので、短くしすぎると普通の起動で出てしまう。
+ */
+private const val GLASS_SILENT_MS = 10_000L
+
+/** 止めてから送り直すまでの間。続けて送ると止まる前の状態に上書きされる */
+private const val RECOVERY_GAP_MS = 300L
 
 /** 磁気の期待値（WMM）の評価は 1 秒ごとで足りる */
 private const val MAGNETIC_POLL_MS = 1_000L
