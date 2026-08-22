@@ -51,6 +51,7 @@ import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
 import jp.jig.glasses.sample.kmp.ai.AskFacts
+import jp.jig.glasses.sample.kmp.ai.AskGuard
 import jp.jig.glasses.sample.kmp.ai.GlassMic
 import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.OpenAiAsk
@@ -1182,12 +1183,14 @@ fun StarMapScreen(
                 }
                 narrator.progress(subject, "聞き取っています。")
                 val wav = GlassMic.toWav(recording.pcm)
-                val question = runCatching { withContext(Dispatchers.IO) { ask.transcribe(wav) } }
+                val heard = runCatching { withContext(Dispatchers.IO) { ask.transcribe(wav) } }
                     .getOrElse { e ->
                         log("文字起こしに失敗: ${e.message}", failed = true)
                         narrator.cannotAnswer(subject, "いまは通信ができないので、質問には答えられません。")
                         return@launch
                     }
+                // **聞き取った文は指示ではなくデータ。** 画面へ出す前にここで整える
+                val question = AskGuard.sanitizeQuestion(heard)
                 if (question.isBlank()) {
                     narrator.cannotAnswer(subject, "聞き取れませんでした。もう一度お願いします。")
                     return@launch

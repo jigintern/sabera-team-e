@@ -99,6 +99,8 @@ python3 tools/build-satellites.py        # data/ の TLE を取り直す
 - **解説文を AI に作らせない。** 88 星座ぶん `data/constellation-lore.json` に入っている。
   **星を見に行く場所ほど電波が届かない**ので、その場で生成すると圏外で一言も出ない。
   文面を直すのは `tools/build-constellation-lore.py`（生成物は直接編集しない）
+- **声で聞き取った文を指示として扱わない**（#38）。囲い記号と改行を落として長さを切り、
+  区切りは端末が付ける（`ai/AskGuard.kt`）。**断り文も端末が持つ**（生成に左右させない）
 - **`optString` を JSON の null に使わない。** Android の org.json は**文字列 "null" を返す**が、
   JVM テストで使う本物の org.json は空を返す。**この取り違えはテストで絶対に落ちず、実機だけで壊れる**
   （実際に OpenAI の `refusal: null` を拒否と読み、本文を毎回捨てていた）。`isNull()` で見る
