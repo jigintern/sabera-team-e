@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,10 +19,10 @@ class NarratorTest {
         override fun stop() { spoken += "<stop>" }
     }
 
-    /** キー無し。ネットワークには触らない */
-    private fun client() = OpenAiClient(apiKey = "", model = "gpt-4o")
+    /** 同梱の解説文の代わり。**通信は一切しない**ことをここでも押さえている */
+    private val lore = mapOf("おとめ座" to "麦の穂を手にした、農業の女神の姿です。")
 
-    private fun narrator(voice: Voice) = Narrator(voice, client(), log = { _, _ -> })
+    private fun narrator(voice: Voice) = Narrator(voice, lore::get, log = { _, _ -> })
 
     private fun pass(
         name: String,
@@ -107,8 +108,9 @@ class NarratorTest {
         assertTrue("他機に触れていない: $said", "ひまわり8" in said && "しきさい" in said)
     }
 
+    /** **圏外でも喋れることが本題。** 解説文は端末が持っているので、通信の有無で結果が変わらない */
     @Test
-    fun `星座モードでキーが無ければ、その理由を喋る`() = runBlocking {
+    fun `星座の解説は同梱の文から作る`() = runBlocking {
         val voice = FakeVoice()
         val narrator = narrator(voice)
         narrator.narrate(
@@ -120,13 +122,59 @@ class NarratorTest {
                 latDeg = 35.9432,
                 lonDeg = 136.1846,
                 localTime = "2026-08-20 21:30 JST",
-                pngBase64 = null,
             ),
         )
-        val said = voice.spoken.single()
-        assertTrue("星座名を言っていない: $said", "おとめ座" in said)
-        assertTrue("理由を言っていない: $said", "AI" in said)
-        assertEquals(NarrationPhase.FAILED, narrator.state.value.phase)
+        assertTrue("名乗っていない: ${voice.spoken}", voice.spoken.first() == "おとめ座ですね。")
+        assertTrue("同梱の解説を喋っていない: ${voice.spoken}", voice.spoken.any { "農業の女神" in it })
+        assertEquals(NarrationPhase.SPEAKING, narrator.state.value.phase)
+        assertEquals(lore.getValue("おとめ座"), narrator.state.value.text)
+    }
+
+    /** 視野の惑星は日によって違うので言う価値がある。**肉眼で見えないものは言わない** */
+    @Test
+    fun `視野に惑星があれば一言足す`() = runBlocking {
+        val voice = FakeVoice()
+        val narrator = narrator(voice)
+        narrator.narrate(
+            NarrationInput(
+                calibrated = true,
+                altDeg = 45.0,
+                azDeg = 180.0,
+                constellations = listOf("おとめ座"),
+                latDeg = 35.9432,
+                lonDeg = 136.1846,
+                localTime = "2026-08-20 21:30 JST",
+                visibleBodies = listOf(
+                    ObservedStarFact("木星", -2.1, 180.0, 44.0, 2.0),
+                    ObservedStarFact("海王星", 7.8, 181.0, 46.0, 3.0),
+                ),
+            ),
+        )
+        val text = narrator.state.value.text
+        assertTrue("惑星に触れていない: $text", "木星" in text)
+        assertTrue("肉眼で見えない惑星まで言っている: $text", "海王星" !in text)
+    }
+
+    /** 88 星座ぶん持っているので普段は通らないが、**黙るよりは方角と目印を言う** */
+    @Test
+    fun `解説文を持っていない星座でも黙らない`() = runBlocking {
+        val voice = FakeVoice()
+        val narrator = narrator(voice)
+        narrator.narrate(
+            NarrationInput(
+                calibrated = true,
+                altDeg = 42.0,
+                azDeg = 187.0,
+                constellations = listOf("ちょうこくぐ座"),
+                latDeg = 35.9432,
+                lonDeg = 136.1846,
+                localTime = "2026-08-20 21:30 JST",
+            ),
+        )
+        val text = narrator.state.value.text
+        assertTrue("星座名が無い: $text", "ちょうこくぐ座" in text)
+        assertTrue("方角が無い: $text", "南" in text)
+        assertEquals(NarrationPhase.SPEAKING, narrator.state.value.phase)
     }
 
     @Test
@@ -141,34 +189,13 @@ class NarratorTest {
                 latDeg = 35.9432,
                 lonDeg = 136.1846,
                 localTime = "2026-08-20 21:30 JST",
-                pngBase64 = null,
             ),
         )
         assertTrue("案内していない", "十字" in voice.spoken.single())
     }
 
     @Test
-    fun `失敗の理由ごとに違うことを喋る`() {
-        // 全部「通信ができない」と言っていたせいで、推論が枠を使い切っただけのときまで
-        // 圏外だと思い込ませていた。原因を取り違えて喋らないことを押さえる
-        val empty = fallbackLine(FailureKind.EMPTY, "さそり座", 187.0, 42.0)
-        val api = fallbackLine(FailureKind.API, "さそり座", 187.0, 42.0)
-        val network = fallbackLine(FailureKind.NETWORK, "さそり座", 187.0, 42.0)
-
-        assertTrue("空応答なのに通信のせいにしている: $empty", "通信" !in empty)
-        assertTrue("APIエラーなのに通信のせいにしている: $api", "通信" !in api)
-        assertTrue("圏外だと言っていない: $network", "通信ができません" in network)
-
-        // どれも「無反応」にはせず、端末が知っている方角と高度で話を閉じる
-        for (line in listOf(empty, api, network)) {
-            assertTrue("星座名が無い: $line", "さそり座" in line)
-            assertTrue("方角が無い: $line", "南" in line)
-            assertTrue("高度が無い: $line", "42" in line)
-        }
-    }
-
-    @Test
-    fun `キー未設定でもタップは必ず何か喋る`() {
+    fun `タップは必ず何か喋る`() {
         val voice = FakeVoice()
         runBlocking {
             narrator(voice).narrate(
@@ -180,7 +207,6 @@ class NarratorTest {
                     latDeg = 35.9432,
                     lonDeg = 136.1846,
                     localTime = "2026-08-20 21:34 JST",
-                    pngBase64 = null,
                 ),
             )
         }

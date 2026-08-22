@@ -85,12 +85,36 @@ class Speaker(context: Context) : Voice, VoiceStatus {
             _available.value = false
             return
         }
+        selectMaleVoice()
         ready = true
         _available.value = true
         synchronized(pending) {
             pending.forEach { enqueue(it, flush = false) }
             pending.clear()
         }
+    }
+
+    /**
+     * 日本語の**男性の声**を選ぶ。無ければ既定のまま。
+     *
+     * AI 音声（OpenAI）が男性の声なので、**圏外で 1 文だけ端末の読み上げに落ちたときに
+     * 声が女性に入れ替わって聞こえる**（2026-08-22 実機）。同じ解説の中で声が変わると、
+     * 別の人が喋り出したように聞こえて話が切れる。完全には揃わないが、性別は合わせる。
+     */
+    private fun selectMaleVoice() {
+        val male = runCatching {
+            tts.voices.orEmpty()
+                .filter { it.locale.language == Locale.JAPANESE.language }
+                // 圏外で使う声なので、端末に入っているものだけ
+                .filterNot { it.isNetworkConnectionRequired }
+                .firstOrNull { voice ->
+                    val name = voice.name.lowercase()
+                    // **"female" は "male" を含む。** 先に弾かないと女性の声を選んでしまう
+                    "female" !in name && MALE_HINTS.any { it in name }
+                }
+        }.getOrNull() ?: return
+        runCatching { tts.voice = male }
+            .onSuccess { Log.i(TAG, "端末の読み上げに男性の声を選んだ: ${male.name}") }
     }
 
     init {
@@ -160,6 +184,15 @@ class Speaker(context: Context) : Voice, VoiceStatus {
     }
 
     private companion object {
+        /**
+         * 声の名前に入る、男性を表す綴り。
+         *
+         * **エンジンによっては名前に性別が入っていない**（Google の日本語は
+         * ja-jp-x-jab のような綴りで、どれが男性かは公開されていない）。
+         * その場合はここで選べないので、端末の既定のままになる。
+         */
+        private val MALE_HINTS = listOf("male", "-m-", "_m_", "man")
+
         const val TAG = "Speaker"
 
         /** 初期化を待つ間に積む上限。初期化が返ってこない端末で溜め込まない */

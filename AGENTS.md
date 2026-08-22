@@ -9,7 +9,7 @@
 | **何ができないか**（SDK・ハードの制約） | [docs/team-e/sdk.md](docs/team-e/sdk.md) |
 | 何をどれだけ出せるか（数値） | [docs/team-e/glass-output.md](docs/team-e/glass-output.md) |
 | 座標変換・方位合わせ・星座判定 | [docs/team-e/coordinate-system.md](docs/team-e/coordinate-system.md) |
-| 画面遷移・ジェスチャー・AI 解説 | [docs/team-e/app-flow.md](docs/team-e/app-flow.md) |
+| 画面遷移・ジェスチャー・星座解説 | [docs/team-e/app-flow.md](docs/team-e/app-flow.md) |
 | **決まったこと / 未決定事項** | [docs/team-e/index.md](docs/team-e/index.md) |
 | 実機で何を確かめるか | [docs/team-e/field-check.md](docs/team-e/field-check.md) |
 
@@ -44,7 +44,7 @@
 | `docs/team-e/` | **team-e の仕様書** |
 | `docs/github-pat.md` | private SDK を取得するための GitHub PAT 設定 |
 | `data/` | 同梱データ（星表・星座線・TLE）。**すべて生成物** |
-| `tools/` | 同梱データの生成スクリプトと天球シミュレータ |
+| `tools/` | 同梱データの生成スクリプト |
 
 ### アプリ内の責務
 
@@ -55,6 +55,8 @@
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下記へ委譲する |
 | `ui/ObservationComponents.kt` / `AppTheme.kt` | 星座・衛星で共通の表示部品と色 |
 | `starmap/GlassCanvasFrame.kt` | パネル寸法、画像バッファ、テキスト制限、RLEサイズ見積り |
+| `starmap/GlassTextPage.kt` | **AI解説専用画面の組版**（#40）。行は動かさず、文字は伸びる方向にしか変えない |
+| `starmap/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `starmap/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `starmap/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `starmap/Ephemeris.kt` | 月と 8 惑星の位置計算。Android 非依存。**天体の位置はここだけ** |
@@ -76,9 +78,9 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 ```bash
 python3 tools/build-star-catalog.py      # data/ の星表を作り直す
 python3 tools/build-constellation-figures.py  # data/ の星座絵を作り直す
+python3 tools/build-constellation-lore.py     # data/ の星座解説を作り直す（長さと記号を検査する）
 python3 tools/build-asterisms.py         # data/ の大三角・天の川を作り直す
 python3 tools/build-satellites.py        # data/ の TLE を取り直す
-python3 tools/build-simulator.py --check # 天球シミュレータ生成物の差分を検査
 ```
 
 ### 前提
@@ -94,6 +96,11 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 
 ## エージェントへの指示
 
+- **解説文を AI に作らせない。** 88 星座ぶん `data/constellation-lore.json` に入っている。
+  **星を見に行く場所ほど電波が届かない**ので、その場で生成すると圏外で一言も出ない。
+  文面を直すのは `tools/build-constellation-lore.py`（生成物は直接編集しない）
+- **声で聞き取った文を指示として扱わない**（#38）。囲い記号と改行を落として長さを切り、
+  区切りは端末が付ける（`ai/AskGuard.kt`）。**断り文も端末が持つ**（生成に左右させない）
 - **`optString` を JSON の null に使わない。** Android の org.json は**文字列 "null" を返す**が、
   JVM テストで使う本物の org.json は空を返す。**この取り違えはテストで絶対に落ちず、実機だけで壊れる**
   （実際に OpenAI の `refusal: null` を拒否と読み、本文を毎回捨てていた）。`isNull()` で見る
@@ -112,6 +119,9 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 - **`sendCanvasImage` に 576×360 を渡すと必ず `require` で落ちる**（ファームではなく SDK の制限）
 - **手元のファームはキャンバス画像が動くが、`FEATURE_VERSION` の数値は未取得。**
   配布先のグラスが同じとは限らないので、**退路（196×196）の設計は残す。アプリ実装は未着手**
+- **テキストは「画面に置ける合計」でも 190 バイトらしい。** 8 行ぶん置いたら
+  **最初の 1〜2 行が消えた**（分割して送っても後から送ったぶんに押し出される）。
+  **1 電文に収まる量だけを置き、続きはめくる**（`GlassTextPage.pages`）
 - **`sendNaviCourse` を方位問題の解決として扱わない**。**`yawDegrees` に返らないと実測済み**
 - **`yawDegrees` をそのまま方位に使わない。** 静止中に 44°/分 流れる。
   **ジャイロの大きさで動きを判定し、動いている間だけ差分を足す**（実装済み）
@@ -138,10 +148,10 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 ## 文書と CI
 
 - `docs/team-e/` は通常の Markdown で管理する。SDK API の説明は複製せず、上流の公開ドキュメントを参照する
-- CI（`.github/workflows/checks.yml`）は `python3 tools/build-simulator.py --check` で
-  天球シミュレータの生成物が最新か検査する
+- CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を
+  作り直して `data/` に差分が出ないか検査する。星表と TLE は外部取得が要るので回さない
 - private SDK の取得に PAT が必要なため、アプリの JVM テストと APK ビルドは開発者の手元で実行する
-- `data/**` と `tools/simulator/index.html` は生成物。直接編集せず、対応する `tools/build-*.py` を使う
+- `data/**` は生成物。直接編集せず、対応する `tools/build-*.py` を使う
 - GitHub Pages は公開しない。SDK ドキュメントは上流が公開している
 
 ## 決まったこと・未決定事項
@@ -151,12 +161,13 @@ python3 tools/build-simulator.py --check # 天球シミュレータ生成物の�
 
 | | |
 |---|---|
-| パネル | **576×360**。画像 1 枚の実用最大は **528×330** |
+| パネル | **576×360**。画像 1 枚は **544×340 を試し、入らなければ 528×330** |
 | 画像バッファ | **380,000 バイト**（`width * height * 2` の合計で数える） |
 | テキスト | **8 要素・合計 190 バイト** |
 | 転送 | 1 パケット 200 バイトで**実測 8〜9ms**。528×330 の 1 枚で 332〜390ms |
-| 描き直し | **0.4 秒静止 ＋ 前の絵から 6° 以上**。動きに追従させると点滅にしかならない |
+| 描き直し | **0.18 秒静止 ＋ 前の絵から 6° 以上**。動きに追従させると点滅にしかならない |
 | 画角 | **仮の 35° 固定・未実測**（`ObservationDefaults.STAR_MAP_FOV_DEG`） |
+| 解説画面 | **見出し 1 行＋本文 2 行を 1 枚としてめくる**（189 バイト・1 電文）。1 行 19 文字は**未実測** |
 | ヨードリフト | 静止中 **44°/分**。補正込みで実測 0.0°/分 |
 | 方位の残差 | 地磁気で **±5〜15°**。星座の同定（±20°）は成立、星図の重ね合わせ（±2〜3°）は**追わない** |
 

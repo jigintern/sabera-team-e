@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ai
 
+import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -37,6 +38,24 @@ internal object OpenAiHttp {
         is javax.net.ssl.SSLException,
         -> true
         else -> false
+    }
+}
+
+/**
+ * HTTP エラーを人が読める形に。OpenAI は error.message に理由を入れてくる。
+ *
+ * **`optString` を JSON の null に使ってはいけない。** Android の org.json は
+ * **文字列 "null" を返し**、テストで使う本物の org.json は空を返す。
+ * **この取り違えは JVM テストでは絶対に落ちず、実機だけで壊れる**（AGENTS.md）。
+ */
+internal fun openAiErrorMessage(status: Int, body: String): String {
+    val detail = runCatching {
+        JSONObject(body).optJSONObject("error")?.let { if (it.isNull("message")) "" else it.optString("message") }
+    }.getOrNull().orEmpty()
+    return when {
+        detail.isNotEmpty() -> "HTTP $status: $detail"
+        status == 401 -> "HTTP 401: API キーが違う"
+        else -> "HTTP $status"
     }
 }
 

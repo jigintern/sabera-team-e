@@ -1,20 +1,25 @@
 # 生成スクリプト
 
-`data/` の同梱データと天球シミュレータを作る。**出力はすべて生成物なので手で編集しない。**
+`data/` の同梱データを作る。**出力はすべて生成物なので手で編集しない。**
 
 | スクリプト | 出力 | 取得元 |
 |---|---|---|
 | `build-star-catalog.py` | `data/stars.json` / `constellations.json` / `bright-stars.json` | [d3-celestial](https://github.com/ofrohn/d3-celestial)（BSD-3-Clause） |
 | `build-satellites.py` | `data/satellites.tle` / `starlink.tle` / `satellites-fetched.txt` | [CelesTrak](https://celestrak.org/) |
-| `build-simulator.py` | `simulator/index.html` | `data/` ＋ `simulator/template.html` |
+| `build-constellation-lore.py` | `data/constellation-lore.json` | **スクリプトの中の手書き**（88 星座の神話と豆知識） |
+| `build-constellation-figures.py` | `data/constellation-figures.json` | **スクリプトの中の手書き**（星座絵の輪郭） |
+| `build-asterisms.py` | `data/asterisms.json` | **スクリプトの中の手書き**（大三角の HIP と天の川の帯） |
 
 ```bash
 python3 tools/build-star-catalog.py           # 取得して data/ を作り直す
 python3 tools/build-satellites.py             # 足りないものだけ取る（--force で取り直す）
-python3 tools/build-simulator.py              # シミュレータを作り直す
+python3 tools/build-constellation-lore.py     # 解説文（長さと読み上げできない記号を検査する）
+python3 tools/build-constellation-figures.py  # 星座絵
+python3 tools/build-asterisms.py              # 大三角と天の川
 ```
 
-- `--check` を付けると生成物が最新かだけ確かめる（**CI が回すのは `build-simulator.py --check` だけ**）
+**下の 3 つは外部取得が要らない**ので、CI が作り直して `data/` に差分が出ないか見ている。
+
 - 取得結果は `.cache/` に置いて使い回す（`.gitignore` 済み）
 
 ## 手で管理するファイル
@@ -37,8 +42,3 @@ python3 tools/build-simulator.py              # シミュレータを作り直�
 | 転送量 | **1 IP あたり 1 日 100MB** |
 | `starlink` | **更新期間ごとに 1 回まで。** 繰り返すと HTTP 403 |
 
-## 天球シミュレータ
-
-**実機で確かめる前に、ブラウザで変換パイプラインを検証する。**
-`simulator/index.html` をダブルクリックするだけ（自己完結。ローカルサーバー不要）。
-何が忠実で何がそうでないかは [simulator/README.md](simulator/README.md)。

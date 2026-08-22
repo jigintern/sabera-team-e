@@ -6,9 +6,24 @@ import app.jigglass.glass.CommandManager
 const val PANEL_WIDTH = 576
 const val PANEL_HEIGHT = 360
 
-/** バッファ上限に余裕を持って収まる、星図の標準サイズ。 */
+/**
+ * 星図の標準サイズ。**バッファ上限に余裕を持って収まる**。
+ *
+ * [STAR_MAP_MAX_WIDTH] で入らなかったときの落とし先。
+ */
 const val STAR_MAP_WIDTH = 528
 const val STAR_MAP_HEIGHT = 330
+
+/**
+ * 画像 1 枚の上限いっぱい。16:10 でこれ以上大きくすると必ず弾かれる。
+ *
+ * `width * height * 2` だけで 369,920 バイトを使うので、圧縮後に残るのは **10,080 バイト**しかない。
+ * 背景の下限だけで 5,780 バイト（面積 / 32）なので、星と線と絵で 4,300 バイトを超えると入らない。
+ * **入るかどうかは空の濃さと向きで変わる**ので、送る前に同じ式で数えて、
+ * 溢れたら [STAR_MAP_WIDTH] へ落とす。
+ */
+const val STAR_MAP_MAX_WIDTH = 544
+const val STAR_MAP_MAX_HEIGHT = 340
 
 const val STAR_MAP_IMAGE_ID = 0
 const val CANVAS_TEXT_SLOTS = 8
@@ -16,8 +31,8 @@ const val CANVAS_TEXT_BUDGET_BYTES = 190
 const val CANVAS_PACKET_BYTES = 200
 const val CANVAS_IMAGE_BUFFER_BYTES = 380_000
 
-private const val LABEL_CHAR_WIDTH = 28
-private const val LABEL_PADDING = 8
+internal const val LABEL_CHAR_WIDTH = 28
+internal const val LABEL_PADDING = 8
 const val CANVAS_LABEL_HEIGHT = 40
 
 /** SDK と同じ 3bit RLE で数えた、画像ペイロードのバイト数。 */
@@ -76,15 +91,40 @@ internal fun StarMap.toCanvasElements(): List<CommandManager.CanvasElement> {
 internal fun List<CommandManager.CanvasElement>.batched(
     previous: List<CommandManager.CanvasElement>,
 ): List<List<CommandManager.CanvasElement>> {
+    return chunkByBudget(clearsFor(previous)) + chunkByBudget(this)
+}
+
+/**
+ * [batched] と同じだが、**内容が変わっていない枠は送らない**。
+ *
+ * AI 解説の画面（#40）は SSE で文字が届くたびに組み直す。伸びた行だけを送れば
+ * 1 回の更新は 1 電文で済み、変わっていない行を描き直させて**ちらつかせずに済む**。
+ * 星図のラベルは毎フレーム位置が変わるので、こちらは使わない。
+ */
+internal fun List<CommandManager.CanvasElement>.updatesFrom(
+    previous: List<CommandManager.CanvasElement>,
+): List<List<CommandManager.CanvasElement>> {
+    val before = previous.associateBy { it.id }
+    val changed = filter { element -> before[element.id]?.sameAs(element) != true }
+    return chunkByBudget(clearsFor(previous)) + chunkByBudget(changed)
+}
+
+/** 上書きでは消え残る枠を、先に空文字で消す */
+private fun List<CommandManager.CanvasElement>.clearsFor(
+    previous: List<CommandManager.CanvasElement>,
+): List<CommandManager.CanvasElement> {
     val next = associateBy { it.id }
-    val cleared = previous.mapNotNull { old ->
+    return previous.mapNotNull { old ->
         val replacement = next[old.id]
         // 新しい矩形が前の矩形を覆っているなら、そのまま上書きして消え残らない
         if (replacement != null && replacement covers old) return@mapNotNull null
         CommandManager.CanvasElement(id = old.id, x = 0, y = 0, width = 0, height = 0, text = "")
     }
-    return chunkByBudget(cleared) + chunkByBudget(this)
 }
+
+private infix fun CommandManager.CanvasElement.sameAs(other: CommandManager.CanvasElement): Boolean =
+    id == other.id && x == other.x && y == other.y &&
+        width == other.width && height == other.height && text == other.text
 
 /** 190 バイトずつに切る。1 要素で超える場合はその 1 つだけで送る */
 private fun chunkByBudget(

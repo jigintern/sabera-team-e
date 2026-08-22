@@ -201,10 +201,11 @@ fun precessDateToB1875(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
  * 視線を中心とした接平面の基底。
  * up は天頂を視線に直交する成分だけ残したもので、これが「地平線を水平に固定する」の実体。
  *
- * **首の傾き（ロール）には追従しない。** 追従には生の加速度から基底を起こす工程が要り、
- * 実機で確かめた結果は別ブランチに置いてある。
+ * **[rollDeg] で首の傾きに追従する。** パネルは頭に固定されているので、首を傾けると
+ * 本物の地平線は画面の中で回る。絵を水平のまま出すと**地平線だけが傾いて残る**
+ * （実機で確認・2026-08-22）。6DoF にロールは無いので、加速度から起こして渡す。
  */
-class Basis(azDeg: Double, altDeg: Double) {
+class Basis(azDeg: Double, altDeg: Double, rollDeg: Double = 0.0) {
     val forward: Vec3 = enu(azDeg, altDeg)
     val up: Vec3
     val right: Vec3
@@ -212,10 +213,47 @@ class Basis(azDeg: Double, altDeg: Double) {
     init {
         val f = forward
         val u = Vec3(-f.z * f.x, -f.z * f.y, 1.0 - f.z * f.z)
-        up = if (hypot(hypot(u.x, u.y), u.z) < 1e-9) Vec3(0.0, 1.0, 0.0) else u.normalized()
-        right = f cross up
+        val level = if (hypot(hypot(u.x, u.y), u.z) < 1e-9) Vec3(0.0, 1.0, 0.0) else u.normalized()
+        val levelRight = f cross level
+        if (rollDeg == 0.0) {
+            up = level
+            right = levelRight
+        } else {
+            // 視線まわりに基底ごと回す。**絵を回すのではなく見ている枠を回す**ので、
+            // 星も星座線も地平線も同じだけ回り、互いの位置関係は崩れない
+            val c = cos(rollDeg * RAD)
+            val s = sin(rollDeg * RAD)
+            up = Vec3(
+                c * level.x + s * levelRight.x,
+                c * level.y + s * levelRight.y,
+                c * level.z + s * levelRight.z,
+            ).normalized()
+            right = f cross up
+        }
     }
 }
+
+/**
+ * 加速度から首の傾き[度]を出す。**右耳が下がる向きを正**にする。
+ *
+ * 6DoF はピッチとヨーしか返さない（SDK 0.6.0）ので、重力そのものから起こす。
+ * X 軸が「右」であることだけを仮定していて、上が Y か Z かには依存しない。
+ * 見ているのは**右方向が水平面からどれだけ傾いているか**なので、
+ * 真上を向いているときは意味を失う（そのときは地平線も画面に無い）。
+ *
+ * 動いている間は重力以外の加速度が乗るので、**首が止まっているときだけ使う**。
+ */
+fun rollFromAccel(xMilliG: Int, yMilliG: Int, zMilliG: Int): Double {
+    val vertical = hypot(yMilliG.toDouble(), zMilliG.toDouble())
+    if (hypot(xMilliG.toDouble(), vertical) < 200.0) return 0.0
+    return atan2(ROLL_SIGN * xMilliG.toDouble(), vertical) * DEG
+}
+
+/**
+ * ロールの向き。**実機で逆に回ったら符号を変えるだけ**で直る。
+ * 加速度計が重力を「反力」で返すか「加速度」で返すかは SDK に書かれていない。
+ */
+private const val ROLL_SIGN = 1.0
 
 /**
  * ステレオ投影 r = 2 tan(θ/2)。等角なので星座の形が崩れない。

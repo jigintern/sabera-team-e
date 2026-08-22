@@ -92,7 +92,7 @@ class OpenAiSpeech(
             requestId = connection.getHeaderField("x-request-id")
             if (status !in 200..299) {
                 val detail = connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-                throw SpeechException(status, requestId, OpenAiClient.errorMessage(status, detail))
+                throw SpeechException(status, requestId, openAiErrorMessage(status, detail))
             }
             val contentType = connection.contentType.orEmpty().substringBefore(';').lowercase()
             if (contentType.contains("json") || contentType.contains("text") || contentType.contains("wav")) {
@@ -155,7 +155,8 @@ class OpenAiSpeech(
         /**
          * 話し方の注文。**issue #20 の本体はこの文字列**。
          *
-         * 文の中身（何を言うか）は [OpenAiClient] のプロンプトが決めていて、ここは言い方だけ。
+         * 文の中身（何を言うか）は端末が持つ解説文（`data/constellation-lore.json`）が決めていて、
+         * ここは言い方だけ。
          *
          * **注文を盛るとかえって芝居になる。** 「暗い場内で静かに語りかけるように」まで
          * 書いた版は聴き比べで「わざとらしい」と落ちた。**望みは演技ではなく素の落ち着き**なので、

@@ -29,14 +29,16 @@ fun secret(envName: String, gradleName: String): String {
 }
 
 val openAiApiKey = secret("OPENAI_API_KEY", "openAiApiKey")
-val openAiModel = secret("OPENAI_MODEL", "openAiModel").ifEmpty { "gpt-4o" }
 
-// 推論の強さ。空なら送らない（推論を持たないモデルに送ると 400 で弾かれる）。
-// 送らないと既定の強さで推論が走り、待たされたうえに出力枠を食い潰して本文が空になる
-val openAiReasoningEffort = secret("OPENAI_REASONING_EFFORT", "openAiReasoningEffort")
-
+// **解説文の生成にはもう OpenAI を使わない。** 88 星座ぶんを端末が持っている
+// （data/constellation-lore.json）。API キーは読み上げの声だけに使う
 // 読み上げの声。gpt-4o-mini-tts は話し方まで指示できる（OpenAiSpeech.INSTRUCTIONS）。
 // 声の好みは実機で聴かないと決まらないので、差し替えられるようにしてある
+// 声の質問（#38）だけは通信が要る。**聞き取りと回答のモデル**
+val openAiTranscribeModel =
+    secret("OPENAI_TRANSCRIBE_MODEL", "openAiTranscribeModel").ifEmpty { "gpt-4o-mini-transcribe" }
+val openAiAnswerModel = secret("OPENAI_ANSWER_MODEL", "openAiAnswerModel").ifEmpty { "gpt-4o-mini" }
+
 val openAiTtsModel = secret("OPENAI_TTS_MODEL", "openAiTtsModel").ifEmpty { "gpt-4o-mini-tts" }
 val openAiTtsVoice = secret("OPENAI_TTS_VOICE", "openAiTtsVoice").ifEmpty { "alloy" }
 
@@ -53,8 +55,8 @@ android {
 
         // キーは APK に埋まる。逆コンパイルすれば読めるので、配布せず手元の実機で動かす前提
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiApiKey\"")
-        buildConfigField("String", "OPENAI_MODEL", "\"$openAiModel\"")
-        buildConfigField("String", "OPENAI_REASONING_EFFORT", "\"$openAiReasoningEffort\"")
+        buildConfigField("String", "OPENAI_TRANSCRIBE_MODEL", "\"$openAiTranscribeModel\"")
+        buildConfigField("String", "OPENAI_ANSWER_MODEL", "\"$openAiAnswerModel\"")
         buildConfigField("String", "OPENAI_TTS_MODEL", "\"$openAiTtsModel\"")
         buildConfigField("String", "OPENAI_TTS_VOICE", "\"$openAiTtsVoice\"")
     }
