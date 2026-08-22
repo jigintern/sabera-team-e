@@ -2,11 +2,14 @@ package jp.jig.glasses.sample.kmp.starmap
 
 import kotlin.math.acos
 import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 /** 観測地と時刻。歳差と緯度の行列はここが変わるまで作り直さなくてよい */
 data class Site(val latDeg: Double, val lonDeg: Double)
@@ -28,6 +31,14 @@ enum class LabelKind {
 
     /** 大三角などの結び。**初心者が最初に見つけるものなので、星座名より先に置く** */
     ASTERISM,
+
+    /**
+     * 一等星の固有名。
+     *
+     * **どの星見アプリも出している。** 空で最初に覚えるのは星座名ではなく
+     * 「ベガ」「アルタイル」のような星の名前で、それが分かると星座の探し方も決まる。
+     */
+    STAR_NAME,
 }
 
 /** 名前を置く位置。画像には焼かず sendCanvas のテキストとして重ねる */
@@ -243,6 +254,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             }
         }
 
+        // 一等星の固有名。等級の順に並べたいので、いったん等級と一緒に持つ
+        val namedStars = ArrayList<Pair<Double, Label>>(4)
+
         if (drawStars) {
             for (i in catalog.stars.indices) {
                 val star = catalog.stars[i]
@@ -251,6 +265,18 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 val aa = toApparentAltAz(p[0], p[1], lst, site.latDeg)
                 val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
                 if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
+                if (star.magnitude <= STAR_NAME_MAGNITUDE &&
+                    q[0] >= 0 && q[1] >= 0 && q[0] <= width && q[1] <= height
+                ) {
+                    catalog.brightNames[star.hip]?.let { name ->
+                        namedStars += star.magnitude to Label(
+                            name,
+                            q[0].roundToInt(),
+                            (q[1] - BODY_LABEL_OFFSET_PX).roundToInt(),
+                            LabelKind.STAR_NAME,
+                        )
+                    }
+                }
                 // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
                 val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
                 val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
@@ -259,37 +285,35 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
             }
 
+            // **月は満ち欠けを描く。** どの星見アプリも出している情報で、丸のままだと
+            // 「明るい点」以上のことが伝わらない。欠け方は太陽のある側で決まる
+            val hasMoon = bodies.any { it.moon }
+            val moonLit = if (hasMoon) moonPhase(epochMillis).illuminated else 0.0
+            val sunAltAz = if (hasMoon) {
+                sunPosition(epochMillis).let { toAltAz(it.raDeg, it.decDeg, lst, site.latDeg) }
+            } else {
+                null
+            }
+
             for (body in bodies) {
                 val q = project(enu(body.azDeg, body.altDeg), basis, k, width, height) ?: continue
                 if (q[0] < -4 || q[1] < -4 || q[0] > width + 4 || q[1] > height + 4) continue
                 if (body.moon) {
                     // 実物（半径 0.26°）の 2.5 倍の輪で描く。**位置は中心なのでずれない**
                     val radius = maxOf(MOON_MIN_RADIUS_PX, 2.5 * MOON_RADIUS_DEG * k * RAD)
-                    ring(gray, width, height, q, radius, 255)
-                    dot(gray, width, height, q[0], q[1], 160, 1, round = true)
+                    // 欠けている側も薄い輪で残す。**丸ごと消すと、月の大きさが分からなくなる**
+                    ring(gray, width, height, q, radius, MOON_LIMB_VALUE)
+                    val sunward = sunAltAz?.let {
+                        sunwardOnScreen(body, it, basis, k, width, height, q)
+                    }
+                    if (sunward == null) {
+                        dot(gray, width, height, q[0], q[1], 255, radius.roundToInt(), round = true)
+                    } else {
+                        moonDisc(gray, width, height, q, radius, moonLit, sunward)
+                    }
                 } else {
                     drawPlanet(gray, width, height, q, body.nameJa, width / 528.0)
                 }
-            }
-        }
-
-        // 視野中心の印。**AI が解説するのはここの星座**なので、どこを指しているかを見せる
-        if (drawGuides) {
-            val cx = width / 2.0
-            val cy = height / 2.0
-            val gap = width * RETICLE_GAP
-            val arm = width * RETICLE_ARM
-            for (direction in listOf(-1.0, 1.0)) {
-                line(
-                    gray, width, height,
-                    doubleArrayOf(cx + direction * gap, cy), doubleArrayOf(cx + direction * arm, cy),
-                    RETICLE_VALUE, 0,
-                )
-                line(
-                    gray, width, height,
-                    doubleArrayOf(cx, cy + direction * gap), doubleArrayOf(cx, cy + direction * arm),
-                    RETICLE_VALUE, 0,
-                )
             }
         }
 
@@ -356,9 +380,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val tracksShown = trackLabels.take(MAX_TRACK_LABELS)
         // 結びは 1 つだけ。**「夏の大三角」は星座名より先に知りたい名前**
         val asterismsShown = asterismLabels.take(MAX_ASTERISM_LABELS)
-        val room = (maxLabels - tracksShown.size - bodyLabels.size - asterismsShown.size)
+        // 一等星の名前は明るい順に 2 つまで。**視野に 1 つあるかないか**なので枠は食い合わない
+        val starNames = namedStars.sortedBy { it.first }.take(MAX_STAR_NAME_LABELS).map { it.second }
+        val room = (maxLabels - tracksShown.size - bodyLabels.size - asterismsShown.size - starNames.size)
             .coerceAtLeast(0)
-        val merged = bodyLabels + asterismsShown + starLabels.take(room) + tracksShown
+        val merged = bodyLabels + asterismsShown + starNames + starLabels.take(room) + tracksShown
         return StarMap(width, height, gray, merged)
     }
 
@@ -826,6 +852,78 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     /** 点を囲む輪。折れ線で十分（半径 10px の円に精度は要らない） */
+    /**
+     * 画面上で太陽がどちら側にあるか。単位ベクトルで返す。
+     *
+     * **太陽は視野の外にいるのが普通**（夜だから月が見えている）。そのまま投影すると
+     * 視野の反対側で発散するので、**月から太陽の側へ 1° だけ寄った点**を投影して向きを取る。
+     * 新月と満月ちょうどのように向きが決まらないときは null。
+     */
+    private fun sunwardOnScreen(
+        moon: SkyBodyMark,
+        sunAltAz: DoubleArray,
+        basis: Basis,
+        k: Double,
+        width: Int,
+        height: Int,
+        at: DoubleArray,
+    ): DoubleArray? {
+        val m = enu(moon.azDeg, moon.altDeg)
+        val sun = enu(sunAltAz[0], sunAltAz[1])
+        val along = m dot sun
+        // 月から見た太陽の向きのうち、視線に垂直な成分
+        val perp = Vec3(sun.x - along * m.x, sun.y - along * m.y, sun.z - along * m.z)
+        val length = hypot(hypot(perp.x, perp.y), perp.z)
+        if (length < 1e-6) return null
+        val step = 1.0 * RAD
+        val nudged = Vec3(
+            cos(step) * m.x + sin(step) * perp.x / length,
+            cos(step) * m.y + sin(step) * perp.y / length,
+            cos(step) * m.z + sin(step) * perp.z / length,
+        )
+        val projected = project(nudged, basis, k, width, height) ?: return null
+        val dx = projected[0] - at[0]
+        val dy = projected[1] - at[1]
+        val screen = sqrt(dx * dx + dy * dy)
+        if (screen < 1e-6) return null
+        return doubleArrayOf(dx / screen, dy / screen)
+    }
+
+    /**
+     * 月の満ち欠け。[illuminated] は 0 が新月で 1 が満月、[sunward] は画面上で太陽のある向き。
+     *
+     * 明暗の境目は、円を太陽の向きに `1 - 2 * illuminated` 倍だけ潰した楕円になる。
+     * 満月なら左の縁、新月なら右の縁に重なるので、同じ式のまま端まで成り立つ。
+     */
+    private fun moonDisc(
+        gray: ByteArray,
+        width: Int,
+        height: Int,
+        at: DoubleArray,
+        radius: Double,
+        illuminated: Double,
+        sunward: DoubleArray,
+    ) {
+        val squash = 1.0 - 2.0 * illuminated.coerceIn(0.0, 1.0)
+        val left = max(0, floor(at[0] - radius).toInt())
+        val right = min(width - 1, ceil(at[0] + radius).toInt())
+        val top = max(0, floor(at[1] - radius).toInt())
+        val bottom = min(height - 1, ceil(at[1] + radius).toInt())
+        for (py in top..bottom) {
+            for (px in left..right) {
+                val dx = px - at[0]
+                val dy = py - at[1]
+                val distance = dx * dx + dy * dy
+                if (distance > radius * radius) continue
+                // 太陽の向きを x 軸に取り直す
+                val x = dx * sunward[0] + dy * sunward[1]
+                val y = -dx * sunward[1] + dy * sunward[0]
+                if (x < squash * sqrt(max(0.0, radius * radius - y * y))) continue
+                gray[py * width + px] = 255.toByte()
+            }
+        }
+    }
+
     private fun ring(gray: ByteArray, width: Int, height: Int, at: DoubleArray, r: Double, value: Int) {
         var prev: DoubleArray? = null
         for (i in 0..RING_STEPS) {
@@ -1144,9 +1242,6 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         const val CARDINAL_SIZE = 0.05
 
         /** 視野中心の印。星より暗く、中心は空けておく */
-        const val RETICLE_VALUE = 150
-        const val RETICLE_GAP = 0.016
-        const val RETICLE_ARM = 0.036
 
         /**
          * 方位の文字。**線で描く**（テキスト枠を使わない）。
@@ -1278,5 +1373,20 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** 名前を点の上へずらす量。点の上に重ねると点が読めない */
         const val BODY_LABEL_OFFSET_PX = 26.0
+
+        /**
+         * 固有名を出す等級。
+         *
+         * **一等星まで。** 全天で 21 個しかないので、画角 35° の視野には 1 つあるかないかで、
+         * 星座名の枠をほとんど食わない。2 等まで広げると視野に 5 個入ることがあり、
+         * 星座名が押し出される。
+         */
+        const val STAR_NAME_MAGNITUDE = 1.5
+
+        /** 固有名に貸す枠。**主役は星座名**なので 2 つまで */
+        const val MAX_STAR_NAME_LABELS = 2
+
+        /** 欠けている側の輪。消すと月の大きさが分からなくなるので、いちばん暗い段で残す */
+        const val MOON_LIMB_VALUE = 60
     }
 }

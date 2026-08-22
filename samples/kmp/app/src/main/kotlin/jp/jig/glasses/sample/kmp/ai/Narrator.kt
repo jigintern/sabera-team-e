@@ -1,18 +1,15 @@
 package jp.jig.glasses.sample.kmp.ai
 
-import android.util.Log
+import jp.jig.glasses.sample.kmp.starmap.GlassTextPage
+import jp.jig.glasses.sample.kmp.starmap.NAKED_EYE_MAGNITUDE
 import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
 import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /** 解説 1 回ぶんの進み具合。スマホ画面に出すためだけに持つ */
 enum class NarrationPhase {
     IDLE,
-
-    /** 星座名だけ喋って、AI の返事を待っている */
-    GENERATING,
 
     /** 解説を読み上げている */
     SPEAKING,
@@ -43,11 +40,6 @@ class NarrationInput(
     val visibleStars: List<ObservedStarFact> = emptyList(),
     /** 視野内の月・惑星。端末が計算した確定値 */
     val visibleBodies: List<ObservedStarFact> = emptyList(),
-    val headingUncertaintyDeg: Double? = null,
-    val pitchUncertaintyDeg: Double? = null,
-    val knownBrightStarNames: Set<String> = emptySet(),
-    /** 星図の PNG（Base64）。作れなければ null で、そのときは文字だけで頼む */
-    val pngBase64: String? = null,
 )
 
 /** 人工衛星モードで喋るときに渡すもの。端末が計算した確定値だけ */
@@ -64,15 +56,21 @@ class SatellitePass(
 )
 
 /**
- * 「あれは何？」に答える。
+ * 「あれは何？」に答える。**通信は要らない。**
+ *
+ * 解説は端末が持っている（`data/constellation-lore.json`）。**星を見に行く場所は電波が届かない。**
+ * その場で AI に作らせていたときは、圏外だと一言も出せなかった。
+ * 神話も豆知識も星座ごとに決まっていて変わらないので、持って行けばよい。
  *
  * **タップして無反応が一番よくない**（app-flow.md）ので、どの経路を通っても必ず何か喋る。
- * 星座名は端末が既に知っているため、**LLM を待たずに最初の一言を返せる**。
- * 生成に 1〜3 秒かかっても、その間ずっと黙っていることにはならない。
  */
 class Narrator(
     private val speaker: Voice,
-    private val client: OpenAiClient,
+    /**
+     * 星座名 → 解説文。同梱の星表と同じ扱いで、無ければ端末が計算した事実だけで話を閉じる。
+     * Android に触らせないため、読み込みは呼ぶ側に任せて関数で受ける。
+     */
+    private val lore: (String) -> String?,
     /** 画面のログへ流す。実機で何が起きたかはログだけが頼り */
     private val log: (String, Boolean) -> Unit,
 ) {
@@ -95,132 +93,44 @@ class Narrator(
         }
         constellation!!
 
-        // 端末が知っている事実なので即座に喋る。LLM を待たない
-        val opening = opening(constellation)
-        speaker.say(opening)
-        _state.value = NarrationState(NarrationPhase.GENERATING, opening, constellation)
-        log("解説を頼む: $constellation", false)
+        // 名前は端末が知っている確定値なので、まず名乗る
+        speaker.say(opening(constellation))
+        val script = script(constellation, input)
+        // 句点ごとに積む。1 文目の音が早く鳴り、作り直しも 1 文ぶんで済む
+        val accumulator = SentenceAccumulator()
+        val sentences = accumulator.append(script) +
+            listOf(accumulator.flush()).filter { it.isNotBlank() }
+        for (sentence in sentences) speaker.add(sentence)
 
-        val ask = ExplainRequest(
-            constellations = input.constellations,
-            latDeg = input.latDeg,
-            lonDeg = input.lonDeg,
-            azDeg = input.azDeg,
-            altDeg = input.altDeg,
-            localTime = input.localTime,
-            visibleStars = input.visibleStars,
-            visibleBodies = input.visibleBodies,
-            headingUncertaintyDeg = input.headingUncertaintyDeg,
-            pitchUncertaintyDeg = input.pitchUncertaintyDeg,
-            knownBrightStarNames = input.knownBrightStarNames,
-            pngBase64 = input.pngBase64,
-        )
-        val guard = ExplanationGuard(
-            visibleStarNames = input.visibleStars.mapTo(mutableSetOf()) { it.nameJa },
-            knownStarNames = input.knownBrightStarNames,
-            visibleBodyNames = input.visibleBodies.mapTo(mutableSetOf()) { it.nameJa },
-        )
+        _state.value = NarrationState(NarrationPhase.SPEAKING, script, constellation)
+        log("解説: $constellation（${script.length}文字・${sentences.size}文）", false)
+    }
 
-        val received = StringBuilder()
-        val completedText = StringBuilder()
-        var completedSentences = 0
-        var sentenceAccumulator = SentenceAccumulator()
+    /**
+     * 喋る中身。
+     *
+     * **話すのは神話と豆知識だけ。** どんな形でどこに見えるかは、グラスの星図がそのまま見せている。
+     * 言葉で形をなぞっても、聞いている人は目の前の空と突き合わせられない。
+     * 視野に月や惑星があるときだけ、**入る範囲で**一言足す（惑星は日によって違うので言う価値がある）。
+     */
+    private fun script(constellation: String, input: NarrationInput): String {
+        val text = lore(constellation) ?: return groundedFallback(constellation, input)
+        val extra = bodyLine(input) ?: return text
+        // グラスの解説画面（#40）に入らないなら足さない。溢れたぶんは音では聞けても文字では読めない
+        return if (text.length + extra.length <= GlassTextPage.bodyChars) text + extra else text
+    }
 
-        /** 受信した文をその場で画面へ出し、句点まで揃ったものから読み上げへ積む。 */
-        fun accept(delta: String) {
-            received.append(delta)
-            _state.value = NarrationState(NarrationPhase.GENERATING, received.toString(), constellation)
-            for (sentence in sentenceAccumulator.append(delta)) {
-                val rejection = guard.rejectionReason(sentence)
-                if (rejection != null) {
-                    log("根拠のない解説文を除外[$rejection]: $sentence", true)
-                    continue
-                }
-                completedText.append(sentence)
-                speaker.add(sentence)
-                completedSentences++
-            }
-        }
-
-        val explanation = try {
-            try {
-                client.explain(ask, ::accept)
-            } catch (e: EmptyReplyException) {
-                // 空応答はモデル側の都合で起きるので、1 回だけ頼み直す。
-                // API エラーと通信断では繰り返さない
-                // （つながらないものを待たせると無言が倍になる）
-                log("応答が空だったので 1 回だけ頼み直す（${e.message}）", true)
-                received.clear()
-                completedText.clear()
-                completedSentences = 0
-                sentenceAccumulator = SentenceAccumulator()
-                client.explain(ask, ::accept)
-            }
-        } catch (e: CancellationException) {
-            // 停止トグルで畳まれた場合。失敗ではないので、そのまま上へ流す
-            throw e
-        } catch (e: Throwable) {
-            // JVMテストでも通信断経路を通せるよう、Androidログ自体の失敗は本処理へ影響させない
-            runCatching { Log.e(TAG, "解説の生成に失敗", e) }
-            val kind = classifyFailure(e)
-            // 句点まで届いた文は既に読み上げキューに入っている。途中で切れても、
-            // 不完全な末尾だけ捨ててそのまま終える。失敗案内を足すと余韻が壊れる。
-            sentenceAccumulator.discard()
-            val hasPartialResponse = received.isNotBlank() || completedSentences > 0
-            val completed = completedText.toString().trim()
-            val shown = if (hasPartialResponse) {
-                listOf(opening, completed).filter { it.isNotEmpty() }.joinToString("\n")
-            } else {
-                val fallback = fallbackLine(kind, constellation, input.azDeg, input.altDeg)
-                speaker.add(fallback)
-                "$opening$fallback"
-            }
-            _state.value = NarrationState(
-                if (hasPartialResponse) NarrationPhase.IDLE else NarrationPhase.FAILED,
-                shown,
-                constellation,
-            )
-            // 生のメッセージを必ず載せる。実機で何が起きたかはここだけが頼り
-            log(
-                "解説を作れない[$kind] 受信${received.length}文字・" +
-                    "完了${completedSentences}文: ${e.message}",
-                true,
-            )
-            return
-        }
-
-        // モデルが最後の句点を省いたときだけ残りをここで積む。
-        // 既に積んだ文は二重に送らない
-        sentenceAccumulator.flush().takeIf { it.isNotEmpty() }?.let {
-            val rejection = guard.rejectionReason(it)
-            if (rejection == null) {
-                completedText.append(it)
-                speaker.add(it)
-                completedSentences++
-            } else {
-                log("根拠のない解説文を除外[$rejection]: $it", true)
-            }
-        }
-        if (completedSentences == 0) {
-            val fallback = groundedFallback(constellation, input)
-            speaker.add(fallback)
-            _state.value = NarrationState(NarrationPhase.FAILED, fallback, constellation)
-            log("AI解説に根拠のある文が無いため端末の観測事実へ切り替え", true)
-            return
-        }
-        val accepted = completedText.toString().trim()
-        _state.value = NarrationState(NarrationPhase.SPEAKING, accepted, constellation)
-        log(
-            "解説を読み上げ中（受信${explanation.length}文字・採用${accepted.length}文字・${completedSentences}文）",
-            false,
-        )
+    /** 視野の月・惑星を一言だけ。**肉眼で見えないものは言わない**（探させても見つからない） */
+    private fun bodyLine(input: NarrationInput): String? {
+        val visible = input.visibleBodies.filter { it.magnitude <= NAKED_EYE_MAGNITUDE }.take(2)
+        if (visible.isEmpty()) return null
+        return "いま近くに${visible.joinToString("と") { it.nameJa }}が出ています。"
     }
 
     /**
      * 人工衛星モードの「あれは何？」。
      *
-     * **LLM は使わない。** 機体名・方角・高度・日照はすべて端末が計算した確定値で、
-     * 生成に投げると待つだけ損をする（星座は由来や探し方があるので LLM が効く）。
+     * 星座と同じで**通信は要らない**。機体名・方角・高度・日照はすべて端末が計算した確定値。
      */
     fun narrateSatellites(inView: List<SatellitePass>) {
         val lead = inView.firstOrNull()
@@ -277,6 +187,16 @@ class Narrator(
         _state.value = _state.value.copy(phase = NarrationPhase.IDLE)
     }
 
+    /**
+     * 次の解説に備えて前回の内容を捨てる。
+     *
+     * **グラスの解説画面（#40）は [state] をそのまま映す**ので、消しておかないと
+     * タップした直後に前回の解説文が一瞬出る。喋り始める前に呼ぶ。
+     */
+    fun reset() {
+        _state.value = NarrationState()
+    }
+
     /** 読み上げが終わったことを画面へ返す。Speaker の状態を見る側から呼ぶ */
     fun finishedSpeaking() {
         if (_state.value.phase == NarrationPhase.SPEAKING) {
@@ -299,17 +219,12 @@ class Narrator(
         constellation == null ->
             "星座を割り出せませんでした。星表が読めていないかもしれません。"
 
-        !client.configured ->
-            opening(constellation) + "AI の設定がないので、解説はできません。"
-
         else -> null
     }
 
     companion object {
-        private const val TAG = "Narrator"
-
         /**
-         * 最初の一言。星座名は端末が持っている確定値なので、**LLM を待たずに喋れる**。
+         * 最初の一言。**タップされたことがすぐ音で返る**ようにするための名乗り。
          *
          * ここに切り出してあるのは、**タップより先にこの音声を作っておく**ため
          * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
@@ -318,7 +233,11 @@ class Narrator(
     }
 }
 
-/** AI本文が全て棄却されたときも、端末が計算した事実だけで必ず応答する。 */
+/**
+ * 解説文を持っていない星座のときに、端末が計算した事実だけで話を閉じる。
+ *
+ * 88 星座ぶん同梱してあるので普段は通らないが、**黙るよりは方角と目印を言うほうがよい**。
+ */
 fun groundedFallback(subject: String, input: NarrationInput): String = buildString {
     append(subject)
     append("の領域を、")
@@ -337,22 +256,6 @@ fun groundedFallback(subject: String, input: NarrationInput): String = buildStri
         append(input.visibleStars.take(2).joinToString("と") { it.nameJa })
         append("が目印です。")
     }
-}
-
-/**
- * 解説が作れなかったときの逃げ道。端末が知っていることだけで話を閉じる。
- *
- * **原因を取り違えて喋らない。** かつては失敗を全部「いまは通信ができない」と言っていたので、
- * 推論が出力枠を使い切っただけのときまで圏外だと思い込ませていた。
- * トップレベルに出してあるのは、この写像を JVM テストで押さえるため。
- */
-fun fallbackLine(kind: FailureKind, subject: String, azDeg: Double, altDeg: Double): String {
-    val reason = when (kind) {
-        FailureKind.EMPTY -> "解説がうまく作れませんでした。"
-        FailureKind.API -> "AI につながりませんでした。"
-        FailureKind.NETWORK -> "いまは通信ができません。"
-    }
-    return reason + "$subject は${compass(azDeg)}の空、高度 ${altDeg.toInt()} 度あたりに出ています。"
 }
 
 /** 方位角[度]を 16 方位の日本語に。読み上げるので「南南西」まで刻む */

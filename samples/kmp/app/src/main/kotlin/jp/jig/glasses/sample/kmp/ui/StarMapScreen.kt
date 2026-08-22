@@ -54,7 +54,6 @@ import jp.jig.glasses.sample.kmp.ai.NarrationInput
 import jp.jig.glasses.sample.kmp.ai.NarrationPhase
 import jp.jig.glasses.sample.kmp.ai.CloudVoice
 import jp.jig.glasses.sample.kmp.ai.Narrator
-import jp.jig.glasses.sample.kmp.ai.OpenAiClient
 import jp.jig.glasses.sample.kmp.ai.OpenAiRequestTrace
 import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.ai.SatellitePass
@@ -67,6 +66,10 @@ import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
+import jp.jig.glasses.sample.kmp.starmap.ConstellationLore
+import jp.jig.glasses.sample.kmp.starmap.GlassPage
+import jp.jig.glasses.sample.kmp.starmap.GlassTextPage
+import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
 import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.starmap.Label
 import jp.jig.glasses.sample.kmp.starmap.LabelKind
@@ -101,6 +104,7 @@ import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
 import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
 import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.starmap.toCanvasElements
+import jp.jig.glasses.sample.kmp.starmap.updatesFrom
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
@@ -108,6 +112,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -405,6 +410,26 @@ fun StarMapScreen(
     // その場で送り直せるよう、実際にグラスへ送った最後の画像だけを持つ
     var lastSentMap by remember { mutableStateOf<StarMap?>(null) }
 
+    /**
+     * グラスに出しているページ。
+     *
+     * **解説は星図と同居させない**（#40）。190 バイトは 1 電文あたりの上限で画面の合計ではないので、
+     * 星図の画像を消して枠 8 つを全部文字に使えば、いま喋っている量がそのまま入る。
+     */
+    var glassPage by remember { mutableStateOf(GlassPage.STAR_MAP) }
+
+    /** 解説画面へ入った時点の視線。ここから首を振ったら「空を見たい」とみなす */
+    var explanationLook by remember { mutableStateOf<Look?>(null) }
+
+    /** 見出しに出す方角。解説の途中で首を動かしても書き換えない（根拠は入った時点の絵） */
+    var explanationHeading by remember { mutableStateOf("") }
+
+    /** この解説で一度でも音が鳴ったか。鳴っていないなら読む時間をたっぷり残す */
+    var explanationSpoke by remember { mutableStateOf(false) }
+
+    /** 8 行に入り切らず捨てた文字数。**実機で切れているかはログでしか分からない** */
+    var explanationDropped by remember { mutableStateOf(0) }
+
     fun applyBrightness(level: Int) {
         val normalized = GlassBrightness.normalize(level)
         if (normalized == brightnessLevel && brightnessConfigured) return
@@ -427,7 +452,8 @@ fun StarMapScreen(
                         brightnessPrefs.save(normalized)
                         brightnessConfigured = true
 
-                        val map = lastSentMap
+                        // 解説画面を出している間は星図を戻さない。文字の上に画像が重なる
+                        val map = lastSentMap?.takeIf { glassPage == GlassPage.STAR_MAP }
                         if (map == null) {
                             log(
                                 "グラスの明るさ: 手動 ${normalized + 1}/${GlassBrightness.levelRange.count()}" +
@@ -605,6 +631,42 @@ fun StarMapScreen(
     }
 
     /**
+     * 解説画面をグラスへ出す（#40）。
+     *
+     * 送るのは**変わった行だけ**（[updatesFrom]）なので、1 文ごとに呼んでよい。
+     * 8 行を全部送っても 600 バイト弱・4 電文で、星図画像 1 枚の 1/10 で済む。
+     */
+    suspend fun sendExplanationPage(header: String, body: String) {
+        sendGate.withLock {
+            // 途中で畳まれると行が半分だけ書かれた画面が残る。1 回ぶんは最後まで送る
+            withContext(NonCancellable) {
+                val page = GlassTextPage.explanation(header, body)
+                for (batch in page.elements.updatesFrom(shownElements)) {
+                    commandManager.sendCanvasElements(batch)
+                }
+                shownElements = page.elements
+                explanationDropped = page.dropped
+            }
+        }
+    }
+
+    /**
+     * 解説画面をやめて星図へ戻す。
+     *
+     * **読み上げは止めない。** 首を振って戻したときは「空を見たいが話は聞いている」なので、
+     * ここで黙らせると意図と食い違う。止めたいときはタップする（[toggleNarration]）。
+     */
+    fun leaveGlassExplanation(reason: String) {
+        if (glassPage != GlassPage.EXPLANATION) return
+        glassPage = GlassPage.STAR_MAP
+        if (explanationDropped > 0) {
+            log("解説の末尾${explanationDropped}文字はグラスに入らなかった", failed = true)
+            explanationDropped = 0
+        }
+        log(reason)
+    }
+
+    /**
      * 「首が止まったら描き直す」追従。
      *
      * 1 枚の転送中はグラスが前の絵を捨てて何も出さない。動くたびに送ると
@@ -623,6 +685,21 @@ fun StarMapScreen(
             if (step > STILL_DEG) movedAt = System.currentTimeMillis()
             previous = now
             settled = System.currentTimeMillis() - movedAt > STILL_MS
+
+            // 解説画面の間は星図を送らない。文字の上に画像が重なるうえ、
+            // 転送のあいだ（実測 332〜390ms）は文字ごと消える
+            if (glassPage != GlassPage.STAR_MAP) {
+                // 戻ったら 1 枚目をすぐ送る。ここを進めておくと 6° 動くまで星図が出てこない
+                drawn = null
+                // **首を振ったら空を見たいということ。** 読み上げは止めずに星図へ戻す。
+                // しきい値を描き直しの 6° より大きく取って、読んでいる間の揺れで戻らないようにする
+                val from = explanationLook
+                if (from != null && from.awayFrom(now) > LEAVE_EXPLANATION_DEG) {
+                    leaveGlassExplanation("首を振ったので星図へ戻る")
+                }
+                delay(POLL_MS)
+                continue
+            }
             val drift = drawn?.let {
                 max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
             } ?: Double.MAX_VALUE
@@ -693,6 +770,8 @@ fun StarMapScreen(
         val baseLook = drawnLook ?: return
         val map = lastMap ?: return
         if (!showSatellites) return
+        // 解説画面の枠を衛星の印で上書きしない
+        if (glassPage != GlassPage.STAR_MAP) return
         // 画像を送っている最中なら邪魔しない。次の機会に送ればよい
         if (!sendGate.tryLock()) return
         try {
@@ -753,15 +832,15 @@ fun StarMapScreen(
     var aiVoice by remember { mutableStateOf(true) }
     DisposableEffect(voice) { onDispose { voice.shutdown(); speaker.shutdown() } }
 
-    val narrator = remember(voice) {
+    // **解説文は端末が持つ。** 星を見に行く場所は電波が届かないことが多く、
+    // その場で AI に作らせていた頃は、圏外だと一言も出せなかった
+    val lore = remember { ConstellationLore.load(context) }
+    LaunchedEffect(lore) { log("解説文を ${lore.size} 星座ぶん読んだ") }
+
+    val narrator = remember(voice, lore) {
         Narrator(
             speaker = voice,
-            client = OpenAiClient(
-                apiKey = BuildConfig.OPENAI_API_KEY,
-                model = BuildConfig.OPENAI_MODEL,
-                reasoningEffort = BuildConfig.OPENAI_REASONING_EFFORT,
-                onTrace = { trace -> scope.launch { log(trace.logLine()) } },
-            ),
+            lore = { name -> lore.of(name) },
             log = { text, failed -> log(text, failed) },
         )
     }
@@ -771,6 +850,62 @@ fun StarMapScreen(
 
     // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
+
+    /**
+     * 解説をグラスの専用ページへ出す（#40）。
+     *
+     * **星座名は端末が既に知っている**ので、AI を待つ 1〜3 秒のあいだも見出しは出ている。
+     * 本文は SSE で届くたびに描き足す。行の位置は動かさず文字が伸びるだけなので、
+     * 読んでいる最中に行が組み変わらない（[GlassTextPage]）。
+     */
+    LaunchedEffect(glassPage) {
+        if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
+        // 文字を置く前に星図を消す。逆にすると、消えるまでのあいだ文字が星図に重なる
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
+            }
+        }
+        narrator.state.collectLatest { state ->
+            // delta ごとに送ると BLE を埋める。少し待ってまとめる（次が来たら collectLatest が畳む）
+            delay(EXPLANATION_SEND_DEBOUNCE_MS)
+            val header = listOf(state.constellation, explanationHeading)
+                .filter { it.isNotBlank() }
+                .joinToString("　")
+            sendExplanationPage(header, state.text)
+        }
+    }
+
+    // 星図へ戻るときは文字を先に消す。画像が届くまでの 0.4 秒、解説が星図に重なって見える
+    LaunchedEffect(glassPage) {
+        if (glassPage != GlassPage.STAR_MAP || shownElements.isEmpty()) return@LaunchedEffect
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                for (batch in emptyList<CommandManager.CanvasElement>().batched(shownElements)) {
+                    commandManager.sendCanvasElements(batch)
+                }
+                shownElements = emptyList()
+            }
+        }
+    }
+
+    LaunchedEffect(speaking) { if (speaking) explanationSpoke = true }
+
+    /**
+     * 何もしなくても星図へ戻す（#40）。
+     *
+     * **起点はタップではなく読み上げの終わり。** タップから数えると、合成が遅れたときに
+     * 読み始める前に消える。音が鳴らなかったときは、読む時間として長めに取る
+     * （騒がしい場所やイヤホンが無いときは**文字が主役**）。
+     *
+     * `narration.phase` は本文では見ないが、**話が切り替わったら数え直す**ために鍵に入れている。
+     */
+    LaunchedEffect(glassPage, speaking, narration.phase) {
+        if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
+        if (speaking) return@LaunchedEffect
+        delay(if (explanationSpoke) EXPLANATION_LINGER_MS else EXPLANATION_READ_MS)
+        leaveGlassExplanation("解説が終わったので星図へ戻る")
+    }
 
     // BGM は解説していない間も鳴らす。**プラネタリウムの雰囲気は無音では出ない**
     val soundPrefs = remember { SoundPrefs(context) }
@@ -831,6 +966,15 @@ fun StarMapScreen(
         val shown = lastMap?.takeIf { lastMapLook != null }
         val basis = lastMapLook ?: latched
 
+        // **解説はグラスの専用ページに出す**（#40）。星図を消して枠 8 つを全部文字に使う。
+        // 見出しの方角は「絵を焼いた視線」から取る。解説の途中で首を動かしても書き換えない
+        narrator.reset()
+        explanationHeading = "%s %d°".format(cardinalDirection16(basis.azDeg), basis.altDeg.roundToInt())
+        explanationLook = look()
+        explanationSpoke = false
+        explanationDropped = 0
+        glassPage = GlassPage.EXPLANATION
+
         narrationJob = scope.launch {
             val observedAt = System.currentTimeMillis()
             // ラベルは視野中心に近い順に並んでいる。**先頭が主役。**
@@ -845,8 +989,6 @@ fun StarMapScreen(
             val visibleBodies = withContext(Dispatchers.Default) {
                 bodiesInView(site, observedAt, basis, fov.toDouble())
             }
-            // 送るのはグラスに出ている絵そのもの。別に描き直すと、聞いている人の視界と食い違う
-            val png = shown?.let { withContext(Dispatchers.Default) { it.toPngBase64() } }
             log(
                 "解説の根拠 主役=%s 方位%d° 高度%d° 名前%d個 絵=%s".format(
                     names.firstOrNull() ?: "なし",
@@ -867,10 +1009,6 @@ fun StarMapScreen(
                     localTime = timestamp.format(Date()),
                     visibleStars = visibleStars,
                     visibleBodies = visibleBodies,
-                    headingUncertaintyDeg = initialCalibration?.headingStdDeg,
-                    pitchUncertaintyDeg = initialCalibration?.pitchStdDeg,
-                    knownBrightStarNames = r.knownBrightStarNames(),
-                    pngBase64 = png,
                 ),
             )
         }
@@ -880,8 +1018,6 @@ fun StarMapScreen(
      * 視野の衛星を読み上げる。**スマホのボタンからだけ呼ぶ。**
      *
      * グラスのタップは星座の解説に使う（#36 で衛星は星座のおまけになった）。
-     * LLM は使わない。機体名・方角・高度・日照はすべて端末が計算した確定値なので、
-     * 生成に投げると待つだけ損をする。
      */
     fun narrateSatellitesNow() {
         val scene = satellites
@@ -890,6 +1026,14 @@ fun StarMapScreen(
             return
         }
         val latched = latchedLook()
+        // 衛星の案内も文字で読めるようにする。中身が違うだけで、出す場所は星座と同じ
+        narrator.reset()
+        explanationHeading = "%s %d°".format(cardinalDirection16(latched.azDeg), latched.altDeg.roundToInt())
+        explanationLook = look()
+        explanationSpoke = false
+        explanationDropped = 0
+        glassPage = GlassPage.EXPLANATION
+
         narrationJob = scope.launch {
             val inView = withContext(Dispatchers.Default) {
                 val observer = Observer(site.latDeg, site.lonDeg)
@@ -939,6 +1083,13 @@ fun StarMapScreen(
 
     /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
     fun toggleNarration() {
+        // **解説画面を出している間のタップは「もう終わり」**（#40）。止めて星図へ戻す。
+        // ここで新しい解説を始めると、根拠にするのは前に焼いた古い絵になってしまう
+        if (glassPage == GlassPage.EXPLANATION) {
+            stopNarration()
+            leaveGlassExplanation("タップで星図へ戻る")
+            return
+        }
         if (narrator.busy || speaking) stopNarration() else startNarration()
     }
 
@@ -1015,14 +1166,14 @@ fun StarMapScreen(
             )
 
             Spacer(Modifier.height(16.dp))
-            Text("AI 星座解説", style = MaterialTheme.typography.titleMedium)
+            Text("星座解説", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(4.dp))
             NarrationPanel(
                 status = when {
-                    speaking && narration.phase == NarrationPhase.GENERATING -> "解説を受信しながら読み上げています"
                     speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
-                    narration.phase == NarrationPhase.GENERATING -> "星座を調べています…"
-                    BuildConfig.OPENAI_API_KEY.isEmpty() -> "AI解説を使うにはAPIキーの設定が必要です"
+                    // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
+                    BuildConfig.OPENAI_API_KEY.isEmpty() ->
+                        "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
                     else -> "グラスのツルを1回タップすると解説します"
                 },
                 subject = narration.constellation,
@@ -1501,3 +1652,29 @@ private const val REDRAW_DEG = 6.0
  * 0.6.0 で SDK が直列化したため、次のフレームのパケットは後ろに並ぶだけになった。
  */
 private const val SETTLE_MS = 200L
+
+/**
+ * 解説画面から星図へ戻すまでに首を振る量（#40）。
+ *
+ * 描き直しの [REDRAW_DEG] より大きく取る。同じ大きさだと、**読んでいる間の首の揺れで戻ってしまう**。
+ * 画角 35° の半分弱で、「別のところを見た」と言える量。
+ */
+private const val LEAVE_EXPLANATION_DEG = 15.0
+
+/** 読み上げが終わってから星図へ戻すまでの余韻 */
+private const val EXPLANATION_LINGER_MS = 5_000L
+
+/**
+ * 音が鳴らなかったときに解説を出したままにしておく時間。
+ *
+ * **騒がしい場所やイヤホンが無いときは文字が主役**（#40 の動機そのもの）なので、
+ * 読み終わる前に消えるのがいちばん悪い。140 文字の黙読に 16〜23 秒かかる。
+ */
+private const val EXPLANATION_READ_MS = 25_000L
+
+/** SSE の delta ごとに送らず、これだけ待ってからまとめて送る */
+private const val EXPLANATION_SEND_DEBOUNCE_MS = 150L
+
+/** 2 つの視線がどれだけ離れているか。方位と高度の大きいほうで見る */
+private fun Look.awayFrom(other: Look): Double =
+    max(abs(normalizeDeg(azDeg - other.azDeg)), abs(altDeg - other.altDeg))
