@@ -108,6 +108,21 @@ class Narrator(
     }
 
     /**
+     * 記録から読み直す（今夜の一覧から）。**文は作り直さない。**
+     *
+     * 前に喋ったものをそのまま渡すので、[speechParts] の切り方も 1 回目と同じになる。
+     * AI 音声のキャッシュは文字列そのものが鍵なので、**2 回目は通信が要らない**
+     * （圏外で聞き直しても、1 回目に鳴ったなら同じ声で鳴る）。
+     */
+    fun again(subject: String, text: String) {
+        val parts = speechParts(subject, text)
+        speaker.say(parts.first())
+        for (sentence in parts.drop(1)) speaker.add(sentence)
+        _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
+        log("記録から読み直し: $subject", false)
+    }
+
+    /**
      * 声で聞かれたことの途中経過（#38）。**喋らずに画面だけ**書き換える。
      *
      * 聞き取りと生成で数秒かかる。ここを黙って過ごすと、**ホールドが届いたのかどうかが
@@ -125,6 +140,26 @@ class Narrator(
         for (sentence in sentences) speaker.add(sentence)
         _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
         log("質問に回答（${text.length}文字・${sentences.size}文）", false)
+    }
+
+    /**
+     * **端末が既に持っている文**をそのまま喋って画面へ出す。[what] はログの見出し。
+     *
+     * 一口メモ（[SkyTips]）と、声のやり取りの聞き直しがここを通る。
+     * どちらも**文を作り直さない**ので、AI 音声のキャッシュ（文字列そのものが鍵）が当たり、
+     * **圏外でも 1 回目に鳴ったものは同じ声で鳴る**。
+     *
+     * [answer] と違って [Voice.say] から始めるのは、**前のものを言い終える前に
+     * 押し直されることがある**ため。積むと、押した回数ぶん順番待ちが伸びる。
+     */
+    fun retell(subject: String, text: String, what: String) {
+        val accumulator = SentenceAccumulator()
+        val sentences = accumulator.append(text) +
+            listOf(accumulator.flush()).filter { it.isNotBlank() }
+        sentences.firstOrNull()?.let { speaker.say(it) }
+        for (sentence in sentences.drop(1)) speaker.add(sentence)
+        _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
+        log("$what: $subject（${text.length}文字）", false)
     }
 
     /** 答えられなかったとき。**黙らない**ので、理由を短く喋る */

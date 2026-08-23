@@ -10,9 +10,9 @@ class GlassTextPageTest {
 
     @Test
     fun `1枚がパネルに収まる`() {
-        val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.bodyChars))
+        val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.headerBodyChars))
 
-        assertEquals("見出し 1 行＋本文", 1 + GlassTextPage.BODY_ROWS, page.elements.size)
+        assertEquals("見出し 1 行＋本文", GlassTextPage.ROWS, page.elements.size)
         assertEquals("入り切らない文字は無い", 0, page.dropped)
         for (element in page.elements) {
             assertTrue("id は 0..7", element.id in 0 until CANVAS_TEXT_SLOTS)
@@ -30,7 +30,7 @@ class GlassTextPageTest {
      */
     @Test
     fun `1枚は1電文に収まる`() {
-        val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.bodyChars))
+        val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.headerBodyChars))
 
         val batches = page.elements.updatesFrom(emptyList())
         assertEquals("1 電文で送り切れていない", 1, batches.size)
@@ -38,18 +38,112 @@ class GlassTextPageTest {
         assertTrue("画面に置く合計が $bytes バイト", bytes <= CANVAS_TEXT_BUDGET_BYTES)
     }
 
-    /** 入り切らない本文は捨てずにめくる */
+    /**
+     * **日本語で埋まった 1 枚も 1 電文に収まる。**
+     *
+     * 1 行の文字数を画素だけで決めていたときは 19 文字になり、日本語の 3 行が
+     * **207 バイトで 2 電文に割れた**。実機では後から送ったぶんに先の行が押し出されて、
+     * **解説が途中の行から始まったり末尾が出なかったりする**（190 バイトは画面の合計でもある）。
+     */
     @Test
-    fun `長い解説はめくって全部出す`() {
+    fun `日本語で埋め尽くしても1電文に収まる`() {
+        val page = GlassTextPage.explanation(
+            "あ".repeat(GlassTextPage.lineChars),
+            "い".repeat(GlassTextPage.headerBodyChars),
+        )
+
+        val bytes = page.elements.sumOf { it.byteSize() }
+        assertTrue("画面に置く合計が $bytes バイト", bytes <= CANVAS_TEXT_BUDGET_BYTES)
+        assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
+    }
+
+    /** いちばん長い星座名（みなみのかんむり座）＋方角でも見出しが切れない */
+    @Test
+    fun `長い星座名の見出しでも切れない`() {
+        val header = "みなみのかんむり座 南南西 30°"
+
+        val page = GlassTextPage.explanation(header, "い".repeat(GlassTextPage.headerBodyChars))
+
+        assertEquals("見出しが切れた", header, page.elements.first().text)
+        assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
+    }
+
+    /** 入り切らない本文は捨てずに流す */
+    @Test
+    fun `長い解説は流して全部出す`() {
         val body = "これは長い解説の文です。".repeat(8)
         val pages = GlassTextPage.pages("おとめ座 南南西 45°", body)
 
-        assertTrue("めくれていない", pages.size > 1)
+        assertTrue("流れていない", pages.size > 1)
         assertEquals("捨てている", 0, pages.last().dropped)
-        val shown = pages.flatMap { page -> page.elements.drop(1).map { it.text } }.joinToString("")
+        // 1 枚目は見出し＋本文 2 行。2 枚目からは下へ入った 1 行だけが新しい
+        val shown = buildString {
+            append(pages.first().elements.drop(1).joinToString("") { it.text })
+            for (page in pages.drop(1)) append(page.elements.last().text)
+        }
         assertEquals("文字が抜けた", body.replace("　", ""), shown)
         for (page in pages) {
             assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
+            assertTrue(
+                "1 枚が ${page.elements.sumOf { it.byteSize() }} バイト",
+                page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES,
+            )
+        }
+    }
+
+    /**
+     * **見出しは 1 枚目だけ。** 出したままだと本文が 2 行しか置けず、
+     * 一度に目に入る量が少なすぎる（行を増やしても入る文字は増えないので、
+     * 増やせるのは見出しを畳んだぶんだけ）。
+     */
+    @Test
+    fun `2枚目からは見出しを畳んで本文3行になる`() {
+        val header = "おとめ座 南南西 45°"
+
+        val pages = GlassTextPage.pages(header, "これは長い解説の文です。".repeat(8))
+
+        assertEquals("1 枚目に見出しが無い", header, pages.first().elements.first().text)
+        assertEquals("1 枚目の本文が 2 行でない", GlassTextPage.ROWS, pages.first().elements.size)
+        for (page in pages.drop(1)) {
+            assertEquals("本文が 3 行になっていない", GlassTextPage.BODY_ROWS, page.elements.size)
+            assertTrue("見出しが残っている", page.elements.none { it.text == header })
+        }
+    }
+
+    /**
+     * **1 行ずつ上へ流す。**
+     *
+     * 2 行まとめて入れ替えると 2 行とも新しくなり、どこから読めばよいか分からなくなる。
+     * 下の行がそのまま上へ来れば、読みかけの行を目で追い続けられる。
+     */
+    @Test
+    fun `次の1枚では下の行が上へ上がる`() {
+        val pages = GlassTextPage.pages("おとめ座", "これは長い解説の文です。".repeat(8))
+
+        for ((previous, next) in pages.zipWithNext()) {
+            val before = previous.elements.map { it.text }
+            val after = next.elements.map { it.text }
+            assertEquals("下の行が上へ来ていない", before.takeLast(2), after.dropLast(1))
+        }
+    }
+
+    /** めくる速さの根拠。**新しく出た文字数**が枚ごとに分かる */
+    @Test
+    fun `新しく出た文字数は1枚目だけ2行ぶん`() {
+        val pages = GlassTextPage.pages("おとめ座", "これは長い解説の文です。".repeat(8))
+
+        val first = pages.first()
+        assertEquals(
+            "1 枚目は見出しを除く 2 行が新しい",
+            first.elements.drop(1).sumOf { it.text.length },
+            first.revealed,
+        )
+        for (page in pages.drop(1)) {
+            assertEquals(
+                "2 枚目からは下の 1 行だけが新しい",
+                page.elements.last().text.length,
+                page.revealed,
+            )
         }
     }
 
@@ -99,10 +193,10 @@ class GlassTextPageTest {
 
     @Test
     fun `1枚に入り切らない文字は捨てて数える`() {
-        val body = "い".repeat(GlassTextPage.bodyChars + 40)
+        val body = "い".repeat(GlassTextPage.headerBodyChars + 40)
         val page = GlassTextPage.explanation("おとめ座", body)
 
-        assertEquals(1 + GlassTextPage.BODY_ROWS, page.elements.size)
+        assertEquals(GlassTextPage.ROWS, page.elements.size)
         assertEquals(40, page.dropped)
     }
 

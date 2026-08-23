@@ -477,6 +477,27 @@ fun bodiesInView(
 }
 
 /**
+ * 地平線より上にいる月・惑星。**視野は問わない**。
+ *
+ * [bodiesInView] が「いま向いている先に何があるか」なのに対し、こちらは
+ * 「**いまこの空に何が出ているか**」。一口メモ（`SkyTips`）のように、
+ * 視線と無関係に「今夜は木星が見えます」と言いたい場面がある。
+ *
+ * 並びは**明るい順**。目印になるかどうかは等級で決まる。
+ */
+fun bodiesUp(
+    site: Site,
+    epochMillis: Long,
+    limitMagnitude: Double = NAKED_EYE_MAGNITUDE,
+): List<ObservedStarFact> = SolarSystemBody.entries.mapNotNull { body ->
+    val position = bodyPosition(body, epochMillis)
+    if (position.magnitude > limitMagnitude) return@mapNotNull null
+    val aa = bodyAltAz(body, site, epochMillis)
+    if (aa[1] < 0.0) return@mapNotNull null
+    ObservedStarFact(body.nameJa, position.magnitude, aa[0], aa[1], distanceFromCenterDeg = 0.0)
+}.sortedBy { it.magnitude }
+
+/**
  * 星図に出す太陽系天体の等級の下限。
  *
  * **肉眼の限界（6 等）では切らない。** 天王星・海王星・冥王星は目に見えないが、

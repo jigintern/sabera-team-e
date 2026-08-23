@@ -21,13 +21,18 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
-import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
+import jp.jig.glasses.sample.kmp.support.AskHistory
+import jp.jig.glasses.sample.kmp.support.NightRecord
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -37,8 +42,12 @@ import kotlin.math.roundToInt
  * その中に星座絵・目印・声・BGM・音量まで入っていた。**BGM を切りたい人はログを開かない**ので、
  * 触れるはずの設定に辿り着けなかった。
  *
+ * **置くのは「使う機能」だけ。** 見え方・明るさ・音・観測地と、今夜の記録とログ。
+ * 眺めるだけの情報（空の状態・月齢・空にいる衛星の一覧・これから来るパス）は**置かない**。
+ * 空を見ている人はスマホを見ないし、同伴者にとっても**触れない情報は読み飛ばす行**になって、
+ * 触るはずの設定が下へ流れていくだけだった。
+ *
  * 星図そのものの表示（プレビュー・解説・ボタン 2 つ）はパネルを閉じた側に残す。
- * ここは**同伴者がスマホで見るぶん**と、**実機で数字を確かめるぶん**。
  */
 
 /** ログ 1 行。失敗だけ色を変えたいので持っておく */
@@ -83,43 +92,110 @@ private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boo
 }
 
 /**
- * いま空に出ている名前つきの衛星。**同伴者がスマホで見るためのもの。**
+ * 今夜どの星座を解説したか。**読み終わった解説文はどこにも残らなかった。**
  *
- * グラスのタップは星座の解説に使うので（#36）、衛星の案内はここから始める。
+ * 字幕は数秒でめくれ、声は一度きり。同伴者がスマホを覗いたときには次の星座に変わっている。
+ * ここから読み直せるようにしておく（**声も鳴らし直す**）。
+ *
+ * **1 つも無いときは何も出さない**（呼ぶ側が畳む）。設定パネルは使う機能だけに絞ってあるので、
+ * 「まだ何もありません」だけの区画を置かない。
  */
 @Composable
-internal fun SatellitesInSkyCard(
-    sightings: List<SatelliteScene.Sighting>,
-    onNarrate: () -> Unit,
+internal fun NightRecordCard(
+    entries: List<NightRecord.Seen>,
+    onAgain: (NightRecord.Seen) -> Unit,
+    onClear: () -> Unit,
 ) {
-    SettingsSection("いま空に出ている", "● は日が当たっていて肉眼でも見える可能性がある。○ は地球の影") {
-        Column(
-            Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState()),
-        ) {
-            if (sightings.isEmpty()) {
-                Text("名前つきの衛星が空に出ていない", style = MaterialTheme.typography.bodyMedium)
-            }
-            for (sighting in sightings) {
+    val clock = remember { SimpleDateFormat("HH:mm", Locale.JAPAN) }
+    SettingsSection("今夜見た星座", "%d 星座".format(entries.map { it.nameJa }.distinct().size)) {
+        // 新しいものが上。**下に伸びると、読みたい直前の解説がいちばん遠くなる**
+        for (entry in entries.asReversed().take(SHOWN_RECORDS)) {
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${if (sighting.sunlit) "●" else "○"} ${sighting.name}　${sighting.where}",
+                    "${clock.format(Date(entry.atMillis))}　${entry.nameJa}",
                     style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
                 )
-                // 「上昇中・最接近まで 3 分」。点の位置だけでは待つ価値が分からない
-                if (sighting.timing.isNotEmpty()) {
-                    Text(
-                        "　　${sighting.timing}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                TextButton(onClick = { onAgain(entry) }) { Text("もう一度") }
+            }
+            Text(
+                entry.text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (entries.size > SHOWN_RECORDS) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "ほかに ${entries.size - SHOWN_RECORDS} 件（古いものは畳んでいる）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (entries.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+                Text("今夜の記録を消す")
             }
         }
+    }
+}
+
+/** 記録を本文つきで出す件数。**全部並べると設定パネルが解説文で埋まる** */
+private const val SHOWN_RECORDS = 8
+
+/**
+ * 声で聞いたことと、返ってきた答え（#38）。
+ *
+ * 字幕は流れて消え、声は一度きり。**同伴者がスマホを覗いたときにはもう次の話**で、
+ * 聞いた本人も「さっき何と言われたか」を確かめられなかった。
+ *
+ * **答えは読み直せるようにする**（声も鳴らし直す）。断りや失敗もそのまま残すので、
+ * 質問が届かなかったのか答えが返らなかったのかがここで分かる。
+ *
+ * **1 つも無いときは何も出さない**（呼ぶ側が畳む）。
+ */
+@Composable
+internal fun AskHistoryCard(
+    exchanges: List<AskHistory.Exchange>,
+    onAgain: (AskHistory.Exchange) -> Unit,
+    onClear: () -> Unit,
+) {
+    val clock = remember { SimpleDateFormat("HH:mm", Locale.JAPAN) }
+    SettingsSection("声で聞いたこと", "%d 件".format(exchanges.size)) {
+        // 新しいものが上。**下に伸びると、いちばん読みたい直前のやり取りが遠くなる**
+        for (exchange in exchanges.asReversed().take(SHOWN_RECORDS)) {
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${clock.format(Date(exchange.atMillis))}　${exchange.question}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                // 答えが返らなかったものは鳴らし直さない（断り文をもう一度聞いても何も進まない）
+                if (exchange.answered) {
+                    TextButton(onClick = { onAgain(exchange) }) { Text("もう一度") }
+                }
+            }
+            Text(
+                exchange.answer,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (exchanges.size > SHOWN_RECORDS) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "ほかに ${exchanges.size - SHOWN_RECORDS} 件（古いものは畳んでいる）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Spacer(Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onNarrate,
-            enabled = sightings.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("この空の衛星を案内する") }
+        OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+            Text("やり取りを消す")
+        }
     }
 }
 
@@ -241,17 +317,18 @@ internal fun SoundSettings(
 }
 
 /**
- * 観測の状態と観測地。**実機で数字を確かめるための区画。**
+ * 観測の状態と観測地。
  *
- * 6DoF が来ているか・方位合わせのばらつき・描画と転送にかかった時間は、
- * 屋外で「出ない」と言われたときに最初に見る場所（field-check.md）。
+ * 6DoF が来ているか・方位合わせのばらつき・どこで観測しているかは、屋外で「出ない」と
+ * 言われたときに最初に見る場所（field-check.md）。
+ *
+ * **描画と転送の時間はここに出さない。** 送信のたびにログの 1 行に入っているので、
+ * 同じ数字を 2 か所に置くとパネルが数字で埋まる。
  */
 @Composable
 internal fun ObservationStatusCard(
     imuStarted: Boolean,
     calibration: CalibrationResult?,
-    panelSize: String,
-    mapSize: String?,
     siteSource: String,
     latText: String,
     onLatChange: (String) -> Unit,
@@ -259,8 +336,6 @@ internal fun ObservationStatusCard(
     onLonChange: (String) -> Unit,
     onLocate: () -> Unit,
     onRecalibrate: () -> Unit,
-    onSendNow: () -> Unit,
-    onClearGlass: () -> Unit,
 ) {
     SettingsSection("観測の状態") {
         StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
@@ -275,18 +350,9 @@ internal fun ObservationStatusCard(
                     )
             } ?: "まだ",
         )
-        StatusRow("星図の大きさ", panelSize)
-        if (mapSize != null) {
-            Text(mapSize, style = MaterialTheme.typography.bodySmall)
-        }
         StatusRow("観測地", siteSource)
         Spacer(Modifier.height(8.dp))
         CommandButton("方位を合わせる", onClick = onRecalibrate)
-        Row {
-            OutlinedButton(onClick = onSendNow, modifier = Modifier.weight(1f)) { Text("いま送る") }
-            Spacer(Modifier.padding(4.dp))
-            OutlinedButton(onClick = onClearGlass, modifier = Modifier.weight(1f)) { Text("表示を消す") }
-        }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onLocate, modifier = Modifier.fillMaxWidth()) {
             Text("現在地を取り直す")
