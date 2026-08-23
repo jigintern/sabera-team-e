@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 圏外かどうかを喋り分けるために回線の状態を見る -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+        読み上げと BGM の音量を、つまみの上限より上へ持ち上げる（LoudnessBoost）。
+        夜の屋外でスマホのスピーカーから鳴らすので、1.0 では足りない。
+        インストール時に付く権限で、実行時に聞かれることはない。
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"

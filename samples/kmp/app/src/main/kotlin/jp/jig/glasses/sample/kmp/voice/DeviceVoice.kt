@@ -1,10 +1,12 @@
 package jp.jig.glasses.sample.kmp.voice
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import jp.jig.glasses.sample.kmp.support.LoudnessBoost
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
@@ -30,6 +32,19 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
      */
     @Volatile
     var volume: Float = 1.0f
+
+    /**
+     * 読み上げを鳴らす音声セッション。**持ち上げ（[LoudnessBoost]）を付けるためだけ**に自分で作る。
+     *
+     * `KEY_PARAM_VOLUME` も 1.0 が上限なので、屋外で足りないぶんはここから上げるしかない。
+     * **エンジンによっては指定を無視する**が、そのときも音量が上がらないだけで今までどおり鳴る。
+     */
+    private val sessionId: Int = runCatching {
+        context.applicationContext.getSystemService(AudioManager::class.java)
+            ?.generateAudioSessionId() ?: AudioManager.ERROR
+    }.getOrDefault(AudioManager.ERROR)
+
+    private val boost = LoudnessBoost().apply { attach(sessionId) }
 
     @Volatile
     private var ready = false
@@ -151,6 +166,7 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
         val params = Bundle().apply {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f))
+            if (sessionId > 0) putInt(TextToSpeech.Engine.KEY_PARAM_SESSION_ID, sessionId)
         }
         _speaking.value = true
         tts.speak(text, mode, params, "sabera-${text.hashCode()}")
@@ -166,6 +182,7 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
     /** 画面を離れるときに呼ぶ。呼ばないとエンジンへの接続が残る */
     fun shutdown() {
         stop()
+        boost.release()
         tts.shutdown()
     }
 

@@ -7,6 +7,7 @@ import android.media.AudioTrack
 import android.util.Log
 import jp.jig.glasses.sample.kmp.narration.Narrator
 import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
+import jp.jig.glasses.sample.kmp.support.LoudnessBoost
 import jp.jig.glasses.sample.kmp.support.SingleFlight
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +88,26 @@ class CloudVoice(
     private val _broken = MutableStateFlow(false)
 
     /**
+     * **1 回の解説の中で声を入れ替えない。**
+     *
+     * 解説は「〇〇座ですね」＋各文を続けて積む。1 文だけ通信に失敗すると、そこから
+     * 端末の読み上げに落ちるので、**同じ解説の途中で別の人が喋り出したように聞こえる**
+     * （実機で踏んだ・2026-08-22）。落ちたらその解説は最後まで端末の読み上げで通す。
+     */
+    @Volatile
+    private var fellBack = false
+
+    /**
+     * 失敗したあと、AI 音声を試し直さない時刻まで。
+     *
+     * 圏外では**解説のたびに「1 文目は AI・2 文目から端末」**を繰り返す。
+     * 1 度落ちたらしばらく端末の読み上げだけにすれば、**次の解説は頭から同じ声**になる。
+     * キャッシュに当たるぶんまで捨てることになるが、**声が揃うほうを採る**。
+     */
+    @Volatile
+    private var coolDownUntil = 0L
+
+    /**
      * 読み上げの音量 0..1。BGM とのつり合いは場所と機種で変わるので、ユーザーが決める。
      *
      * 落とし先（端末の読み上げ）にも同じ値を渡す。**退避したときに音量が飛ぶと事故に聞こえる**。
@@ -104,6 +125,13 @@ class CloudVoice(
     /** 鳴っている最中の AudioTrack。つまみを動かしたその場で効かせるために持つ */
     @Volatile
     private var track: AudioTrack? = null
+
+    /**
+     * つまみの上限（1.0）より上へ持ち上げる（[LoudnessBoost]）。
+     *
+     * **AudioTrack は 1 文ごとに作り直す**ので、効果も文ごとに付け直して外す。
+     */
+    private val boost = LoudnessBoost()
 
     private val cacheDir = File(context.cacheDir, CACHE_DIR)
     private val queue = Channel<Utterance>(Channel.UNLIMITED)
@@ -169,6 +197,8 @@ class CloudVoice(
 
     override fun say(text: String) {
         if (text.isBlank()) return
+        // 言い直しは新しい解説の始まり。ここで声の選び直しをする
+        fellBack = false
         if (!usable()) {
             fallback.say(text)
             return
@@ -182,7 +212,8 @@ class CloudVoice(
 
     override fun add(text: String) {
         if (text.isBlank()) return
-        if (!usable()) {
+        // **1 文でも端末の読み上げに落ちたら、その解説は最後まで端末で通す**
+        if (fellBack || !usable()) {
             fallback.add(text)
             return
         }
@@ -190,6 +221,9 @@ class CloudVoice(
     }
 
     override fun stop() {
+        // 止めた時点でその解説は終わり。次に喋るぶんは声を選び直す
+        // （声の質問は [say] を通らず [add] だけで積むので、ここで戻さないと前回の落ちを引き継ぐ）
+        fellBack = false
         generation++
         current?.cancel()
         cancelPreparations()
@@ -226,7 +260,8 @@ class CloudVoice(
         }
     }
 
-    private fun usable(): Boolean = _enabled.value && !_broken.value && speech.configured
+    private fun usable(): Boolean = _enabled.value && !_broken.value && speech.configured &&
+        System.currentTimeMillis() >= coolDownUntil
 
     private fun enqueue(text: String, flush: Boolean) {
         val utteranceGeneration = generation
@@ -255,6 +290,11 @@ class CloudVoice(
     }
 
     private suspend fun speakOne(utterance: Utterance) {
+        // ここへ来る前に落ちていたら、積んであるぶんも端末の読み上げで通す（声を揃える）
+        if (fellBack) {
+            speakWithFallback(utterance)
+            return
+        }
         try {
             play(utterance.prepared.await())
         } catch (e: CancellationException) {
@@ -262,12 +302,17 @@ class CloudVoice(
         } catch (e: Throwable) {
             val permanent = (e as? OpenAiSpeech.SpeechException)?.permanent == true
             if (permanent) _broken.value = true
+            // **この解説はここから端末の読み上げで通す。** 次の文で AI 音声に戻すと、
+            // 同じ解説の中で声が入れ替わって別の人が喋り出したように聞こえる
+            fellBack = true
+            if (!permanent) coolDownUntil = System.currentTimeMillis() + FAILURE_COOLDOWN_MS
             Log.e(TAG, "AI 音声に失敗", e)
             log(
                 if (permanent) {
                     "AI 音声が使えない（${e.message}）。以後は端末の読み上げにする"
                 } else {
-                    "AI 音声が届かない（${e.message}）。この一言は端末の読み上げで喋る"
+                    "AI 音声が届かない（${e.message}）。" +
+                        "この解説と ${FAILURE_COOLDOWN_MS / 1000} 秒は端末の読み上げで通す"
                 },
                 true,
             )
@@ -318,6 +363,8 @@ class CloudVoice(
         } finally {
             this.track = null
             _sounding.value = false
+            // **効果を先に外す。** セッションが消えたあとに残すと次の 1 文に積み上がる
+            boost.release()
             runCatching {
                 track.stop()
                 track.release()
@@ -343,7 +390,10 @@ class CloudVoice(
             // 1文を検証し終えてから全量を載せる。通信速度と再生速度を切り離してノイズを防ぐ
             .setBufferSizeInBytes(bytes)
             .build()
-            .apply { setVolume(volumeValue) }
+            .apply {
+                setVolume(volumeValue)
+                boost.attach(audioSessionId)
+            }
     }
 
     /** キャッシュまたはAPIから、検証済みの1文ぶんPCMを得る。 */
@@ -437,9 +487,25 @@ class CloudVoice(
         const val DRAIN_POLL_MS = 50L
         const val DRAIN_MARGIN_MS = 3_000L
 
-        const val CACHE_MAX_CHARS = 48
+        /**
+         * キャッシュに残す文の長さの上限。
+         *
+         * 48 文字にしていたときは、**解説の各文（40〜80 文字）がほとんど残らなかった**。
+         * 残らないと先読み（[warm]）も効かないので、圏外では「〇〇座ですね」だけが AI 音声で、
+         * **続きが端末の読み上げになって声が入れ替わっていた**。
+         * 解説文は 88 星座ぶんしか種類が無いので、1 文まるごと残せば 2 回目からは通信が要らない。
+         */
+        const val CACHE_MAX_CHARS = 120
         const val CACHE_MAX_BYTES = 16L * 1024 * 1024
         const val CACHE_VERSION = "pcm16-static-v1"
+
+        /**
+         * 通信で 1 度落ちたあと、AI 音声を試し直さない時間。
+         *
+         * **解説ごとに「1 文目だけ AI」を繰り返さない**ためのもの。圏外に入ったら、
+         * 次の解説は頭から端末の読み上げで揃う。電波が戻れば自然に AI 音声へ返る。
+         */
+        const val FAILURE_COOLDOWN_MS = 60_000L
 
         /** 端末の読み上げを待つ上限。1 文字あたりの見込み ＋ 立ち上がりぶん */
         const val FALLBACK_BASE_MS = 3_000L
