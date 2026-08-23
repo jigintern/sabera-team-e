@@ -1,0 +1,195 @@
+package jp.jig.glasses.sample.kmp.glass
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+
+/**
+ * 文字を**画像に焼く**。
+ *
+ * **キャンバスのテキスト枠では字の大きさを変えられない。** 要素にあるのは座標と大きさと
+ * 文字だけで、フォントの指定が無い。見出しを大きく、本文を小さく、中央に揃える——
+ * といった組み方をしたければ、**自分で描いて画像として送る**しかない。
+ * 方位の文字（北東南西）を線で描いているのと同じ理由だが、日本語は線では描けないので
+ * Android の `Canvas` に任せる。
+ *
+ * **動かないものにだけ使う。** 画像は 1 枚 332〜390ms かかり、転送中は前の絵が消える。
+ * 起動直後の挨拶のように**一度出して置いておくもの**なら気にならないが、
+ * 回るもの（読み込み中のクルクル）はテキスト枠でやる。
+ *
+ * 出てくるのは 1 画素 1 バイトのグレースケール（[StarMap]）。**黒は透明**なので、
+ * 黒地に白で描けばそのまま緑の文字になる。量子化（3bit）と圧縮は SDK がやる。
+ */
+object GlassTextArt {
+
+    /**
+     * 見出しと本文を中央に組んだ 1 枚。
+     *
+     * 本文は**入る大きさまで自動で落とす**（[BODY_SIZES]）。ひとことの長さは
+     * メモによって倍近く変わるので、固定にすると溢れるか、短い文が間延びする。
+     */
+    fun splash(
+        title: String,
+        body: String,
+        width: Int = STAR_MAP_WIDTH,
+        height: Int = STAR_MAP_HEIGHT,
+    ): StarMap {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        // **黒は透明。** 塗りつぶしておくと、前に出ていた絵が透けない
+        canvas.drawColor(Color.BLACK)
+
+        val usable = width - 2 * MARGIN_X
+        val titlePaint = paint(TITLE_SIZE).apply {
+            // 長い名前でも切らない。**縮めてでも全部出す**
+            if (measureText(title) > usable) textSize = TITLE_SIZE * usable / measureText(title)
+        }
+        val titleBaseline = height * TITLE_BASELINE
+        canvas.drawText(title, width / 2f, titleBaseline, titlePaint)
+
+        // 本文が入る高さ。見出しの下から、下の余白まで
+        val room = height - MARGIN_Y - (titleBaseline + TITLE_GAP)
+        val bodyPaint = paint(BODY_SIZES.first())
+        var lines = wrap(body, bodyPaint, usable.toFloat())
+        for (size in BODY_SIZES) {
+            bodyPaint.textSize = size
+            lines = wrap(body, bodyPaint, usable.toFloat())
+            if (lines.size * size * LINE_SPACING <= room) break
+        }
+
+        var baseline = titleBaseline + TITLE_GAP + bodyPaint.textSize
+        for (line in lines) {
+            if (baseline > height - MARGIN_Y) break
+            canvas.drawText(line, width / 2f, baseline, bodyPaint)
+            baseline += bodyPaint.textSize * LINE_SPACING
+        }
+
+        return StarMap(width, height, toGray(bitmap), emptyList())
+    }
+
+    private fun paint(size: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = size
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.SANS_SERIF
+    }
+
+    /**
+     * 幅で折り返す。**キリのいいところで切る。**
+     *
+     * ただ幅で切ると**文の途中で改行が入って読みにくい**（実機で見て分かった）。
+     * 行が埋まったら、**句読点まで戻れるなら戻って切る**。戻りすぎると行がすかすかになるので、
+     * 行の [MIN_BREAK_RATIO] より後ろにある句読点だけを使う。
+     *
+     * 行頭に置けない字（。、」など）は、**はみ出しても前の行へ吸わせる**
+     * （[NO_LINE_START]。GlassTextPage と同じ考え方）。
+     */
+    private fun wrap(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val lines = ArrayList<String>()
+        var current = StringBuilder()
+        var i = 0
+        while (i < text.length) {
+            val ch = text[i]
+            if (ch == '\n') {
+                if (current.isNotEmpty()) lines += current.toString()
+                current = StringBuilder()
+                i++
+                continue
+            }
+            if (current.isEmpty() || paint.measureText(current.toString() + ch) <= maxWidth) {
+                current.append(ch)
+                i++
+                continue
+            }
+
+            // 行が埋まった。**まず句読点まで戻れるか見る**
+            val breakAt = current.lastIndexOfAny(BREAK_AFTER)
+            if (breakAt >= 0 && breakAt + 1 >= current.length * MIN_BREAK_RATIO) {
+                lines += current.substring(0, breakAt + 1)
+                // 戻したぶんは次の行へ持ち越す。**ここで ch は消費しない**
+                current = StringBuilder(current.substring(breakAt + 1))
+                continue
+            }
+            // 行頭に置けない字は、少しはみ出してでも前の行へ吸わせる
+            if (ch in NO_LINE_START &&
+                paint.measureText(current.toString() + ch) <= maxWidth * KINSOKU_SLACK
+            ) {
+                current.append(ch)
+                i++
+                continue
+            }
+            lines += current.toString()
+            current = StringBuilder()
+        }
+        if (current.isNotEmpty()) lines += current.toString()
+        return lines
+    }
+
+    /**
+     * 1 画素 1 バイトのグレースケールへ落とす。
+     *
+     * 黒地に白で描いてあるので、**赤の成分だけ見れば足りる**（3 色とも同じ値）。
+     */
+    private fun toGray(bitmap: Bitmap): ByteArray {
+        val width = bitmap.width
+        val height = bitmap.height
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val gray = ByteArray(pixels.size)
+        for (i in pixels.indices) gray[i] = ((pixels[i] shr 16) and 0xFF).toByte()
+        return gray
+    }
+
+    /** 左右の余白 */
+    private const val MARGIN_X = 24
+
+    /** 上下の余白 */
+    private const val MARGIN_Y = 20
+
+    /**
+     * 見出しの字の大きさ[画素]。本文の 2 倍で、題として読める。
+     *
+     * **これ以上大きくすると本文が縮む。** 64px にしていたときは 106 文字のひとことが
+     * 20px まで落ちた。実機で分かっているのは「**13.3px/文字では読めなかった**」ことだけなので、
+     * 20px は危ない側にある（[GlassTextPage] の `LABEL_CHAR_WIDTH` も参照）。
+     */
+    private const val TITLE_SIZE = 52f
+
+    /** 見出しのベースライン（高さに対する割合）。上に寄せて本文の場所を空ける */
+    private const val TITLE_BASELINE = 0.22f
+
+    /** 見出しと本文のあいだ[画素] */
+    private const val TITLE_GAP = 24f
+
+    /**
+     * 本文の字の大きさ[画素]。**入る大きさが見つかるまで上から順に試す。**
+     *
+     * ひとことの長さはメモによって倍近く変わる（60〜120 文字）。この並びなら
+     * **短いものは 30px で 4 行、長いものでも 24px で 6 行**に収まる。
+     * いちばん小さい 20px は最後の逃げ道で、そこまで落ちるなら**ひとことを短くするほうがよい**。
+     */
+    private val BODY_SIZES = floatArrayOf(30f, 27f, 24f, 22f, 20f)
+
+    /**
+     * 行送り（字の大きさに対する倍率）。
+     *
+     * **1.35 では本文が 20px まで落ちた。** 句読点で切るようにしたぶん行数が増えたので、
+     * 行送りと見出しの場所を詰めて **24px を保てるように**した
+     * （いちばん長いひとことが 113 文字・7 行）。
+     */
+    private const val LINE_SPACING = 1.25f
+
+    /** ここまで来ていれば、句読点まで戻って切ってよい（行の長さに対する割合） */
+    private const val MIN_BREAK_RATIO = 0.55f
+
+    /** 禁則ではみ出してよい幅（行幅に対する倍率）。「。。。」で延々伸びるのを止める */
+    private const val KINSOKU_SLACK = 1.08f
+
+    /** ここで切ると読みやすい。**句読点のうしろ** */
+    private val BREAK_AFTER = charArrayOf('。', '、')
+
+    /** 行頭に置かない字。折り返しに来たら前の行へ吸わせる */
+    private const val NO_LINE_START = "。、，．,.」』）)]｝}！？!?・…ー〜:;：；"
+}

@@ -109,6 +109,19 @@ internal fun List<CommandManager.CanvasElement>.updatesFrom(
     return chunkByBudget(clearsFor(previous)) + chunkByBudget(changed)
 }
 
+/**
+ * テキスト枠を全部空にする電文。**掃除用。**
+ *
+ * ファームは**消すまでテキストを持ち続ける**ので、前に動いていたアプリ（や前の版）が
+ * 置いた文字が残っていると、あとから送った画像に**重なって出る**（実機で踏んだ）。
+ * 何が残っているか知りようがないので、**8 枠ぶんまとめて空にする**。
+ * 12 バイト × 8 = 96 バイトで 1 電文に収まる。
+ */
+internal fun clearedCanvasText(): List<CommandManager.CanvasElement> =
+    (0 until CANVAS_TEXT_SLOTS).map { id ->
+        CommandManager.CanvasElement(id = id, x = 0, y = 0, width = 0, height = 0, text = "")
+    }
+
 /** 上書きでは消え残る枠を、先に空文字で消す */
 private fun List<CommandManager.CanvasElement>.clearsFor(
     previous: List<CommandManager.CanvasElement>,
