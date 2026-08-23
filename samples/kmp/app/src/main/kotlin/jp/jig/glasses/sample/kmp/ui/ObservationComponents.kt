@@ -134,40 +134,33 @@ internal fun SkyNowCard(
     /** 重ねている衛星の数。出していないときは null */
     satellites: Int?,
 ) {
-    Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SaberaSurface),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text("いまの空", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(6.dp))
-            SkyNowRow(
-                "空の状態",
-                when (darkness) {
-                    SkyDarkness.DAY -> "昼。肉眼では星は見えない"
-                    SkyDarkness.CIVIL -> "薄明。明るい星と惑星から見えてくる"
-                    SkyDarkness.NIGHT -> "夜。星が見える"
-                },
-            )
-            SkyNowRow(
-                "月",
-                moon?.let {
-                    "%s（月齢 %.1f・輝面 %d%%）".format(it.nameJa, it.ageDays, (it.illuminated * 100).roundToInt())
-                } ?: "計算中",
-            )
-            SkyNowRow(
-                "視野の月と惑星",
-                if (bodies.isEmpty()) "いまは無い" else bodies.joinToString("・") { it.nameJa },
-            )
-            SkyNowRow(
-                "描いている星",
-                "%s・%.1f 等まで".format(density.label, density.limitMagnitude),
-            )
-            SkyNowRow(
-                "人工衛星",
-                satellites?.let { if (it == 0) "空に出ていない" else "$it 機が空に出ている" } ?: "重ねていない",
-            )
-        }
+    SettingsSection("いまの空") {
+        SkyNowRow(
+            "空の状態",
+            when (darkness) {
+                SkyDarkness.DAY -> "昼。肉眼では星は見えない"
+                SkyDarkness.CIVIL -> "薄明。明るい星と惑星から見えてくる"
+                SkyDarkness.NIGHT -> "夜。星が見える"
+            },
+        )
+        SkyNowRow(
+            "月",
+            moon?.let {
+                "%s（月齢 %.1f・輝面 %d%%）".format(it.nameJa, it.ageDays, (it.illuminated * 100).roundToInt())
+            } ?: "計算中",
+        )
+        SkyNowRow(
+            "視野の月と惑星",
+            if (bodies.isEmpty()) "いまは無い" else bodies.joinToString("・") { it.nameJa },
+        )
+        SkyNowRow(
+            "描いている星",
+            "%s・%.1f 等まで".format(density.label, density.limitMagnitude),
+        )
+        SkyNowRow(
+            "人工衛星",
+            satellites?.let { if (it == 0) "空に出ていない" else "$it 機が空に出ている" } ?: "重ねていない",
+        )
     }
 }
 

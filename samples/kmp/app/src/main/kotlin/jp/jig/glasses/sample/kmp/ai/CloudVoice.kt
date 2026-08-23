@@ -124,11 +124,24 @@ class CloudVoice(
     private val _speaking = MutableStateFlow(false)
 
     /**
+     * **AudioTrack が鳴っている間だけ** true。合成の待ちは含めない。
+     *
+     * [speaking] は積んだ時点で true になる（そうしないと画面側が合成中を「終わった」と読む）。
+     * 一方、**字幕を音に合わせるには鳴り出した時刻が要る**（#40）。生成に 1〜2 秒かかると、
+     * [speaking] を起点にめくった字幕は 1 枚ぶん先へ行ってしまう。
+     */
+    private val _sounding = MutableStateFlow(false)
+
+    /**
      * 鳴っているか。**端末の読み上げに落ちた発話も含める**
      * （画面側は 1 本の Flow だけを見て「終わったら待機に戻す」を判断している）。
      */
     override val speaking: StateFlow<Boolean> =
         combine(_speaking, fallback.speaking) { cloud, device -> cloud || device }
+            .stateIn(scope, SharingStarted.Eagerly, false)
+
+    override val sounding: StateFlow<Boolean> =
+        combine(_sounding, fallback.sounding) { cloud, device -> cloud || device }
             .stateIn(scope, SharingStarted.Eagerly, false)
 
     /** 喋れるか。AI 音声が使えるなら true、駄目でも端末の読み上げが生きていれば true */
@@ -179,6 +192,8 @@ class CloudVoice(
         cancelPreparations()
         fallback.stop()
         _speaking.value = false
+        // cancel は非同期なので play() の finally を待たずにここで落とす
+        _sounding.value = false
     }
 
     fun shutdown() {
@@ -282,6 +297,8 @@ class CloudVoice(
             val frames = pcm.size / Pcm16FrameAssembler.BYTES_PER_FRAME
             val durationMs = frames * 1_000L / OpenAiSpeech.SAMPLE_RATE
             track.play()
+            // ここが「音が出た」時刻。字幕はこれを待ってからめくる（#40）
+            _sounding.value = true
             val drained = withTimeoutOrNull(durationMs + DRAIN_MARGIN_MS) {
                 while (track.playbackHeadPosition.toLong() < frames) delay(DRAIN_POLL_MS)
                 true
@@ -297,6 +314,7 @@ class CloudVoice(
             }
         } finally {
             this.track = null
+            _sounding.value = false
             runCatching {
                 track.stop()
                 track.release()

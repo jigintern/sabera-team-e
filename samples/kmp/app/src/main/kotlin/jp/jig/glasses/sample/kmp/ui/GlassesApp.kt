@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.os.SystemClock
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,6 +55,26 @@ fun GlassesApp(manager: GlassManager) {
     var observingClient by remember { mutableStateOf<GlassClient?>(null) }
     var connectionLost by rememberSaveable { mutableStateOf(false) }
     val constellation = rememberSeasonalConstellation()
+
+    /** 戻るキーで観測をやめようとしているか。**一度の誤操作で観測を畳まない** */
+    var confirmLeaving by rememberSaveable { mutableStateOf(false) }
+
+    /**
+     * 戻るキーで 1 つ前の画面へ戻す。
+     *
+     * **既定のままだと戻るキーでアプリが終わる。** 観測中に終わると方位合わせからやり直しなので、
+     * 星図の画面だけは確認を挟む（設定パネルを開いているときは
+     * [StarMapScreen] 側の `BackHandler` が先に受けて、パネルを閉じるだけになる）。
+     * ホームでは受けない。**そこは終わってよい場所**で、握るとアプリを閉じられなくなる。
+     */
+    BackHandler(enabled = screen != AppScreen.HOME) {
+        when (screen) {
+            AppScreen.HOME -> Unit
+            AppScreen.CONNECTION -> screen = AppScreen.HOME
+            AppScreen.CALIBRATION -> screen = AppScreen.CONNECTION
+            AppScreen.STAR_MAP -> confirmLeaving = true
+        }
+    }
 
     // connectedDeviceは切断直後にnullになるため、猶予時間中もconnectedを確認できるよう最後のClientを保持する。
     LaunchedEffect(connectedClient) {
@@ -156,6 +178,66 @@ fun GlassesApp(manager: GlassManager) {
                 screen = AppScreen.CONNECTION
             },
         )
+    }
+
+    // 切断のダイアログが出ているなら、そちらが先。重ねて出さない
+    if (confirmLeaving && !connectionLost) {
+        LeaveObservationDialog(
+            onLeave = {
+                confirmLeaving = false
+                screen = AppScreen.HOME
+            },
+            onStay = { confirmLeaving = false },
+        )
+    }
+}
+
+/**
+ * 観測をやめるかの確認。
+ *
+ * **方位合わせをやり直すことになるので、一度の戻るキーでは畳まない。**
+ * ホームへ戻ってもう一度観測に入るには、接続確認と方位合わせを通る必要がある。
+ */
+@Composable
+private fun LeaveObservationDialog(onLeave: () -> Unit, onStay: () -> Unit) {
+    Dialog(onDismissRequest = onStay) {
+        Card(
+            modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+            colors = CardDefaults.cardColors(containerColor = SaberaSurface),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = "観測をやめますか",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "ホームへ戻ると、方位合わせからやり直しになります",
+                    color = Color.White.copy(alpha = 0.68f),
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onStay,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SaberaGreen,
+                        contentColor = SaberaOnAccent,
+                    ),
+                ) {
+                    Text("観測を続ける")
+                }
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
+                    Text("やめてホームへ", color = SaberaWarning)
+                }
+            }
+        }
     }
 }
 

@@ -22,11 +22,26 @@ import kotlin.math.sqrt
  */
 class GlassMic(private val commandManager: CommandManager) {
 
-    /** 録れた PCM。空なら一言も拾えなかった */
-    class Recording(val pcm: ByteArray, val speechMs: Long)
+    /**
+     * 録れた PCM。空なら一言も拾えなかった。
+     *
+     * [noiseFloorRms] と [thresholdRms] はログに残すために持つ。**しきい値が合っているかは
+     * 屋外の数字を見ないと決まらない**（風の夜と静かな夜で 1 桁変わる）。
+     */
+    class Recording(
+        val pcm: ByteArray,
+        val speechMs: Long,
+        val noiseFloorRms: Double = 0.0,
+        val thresholdRms: Double = SPEECH_RMS_MIN,
+    )
 
     /**
      * 喋り終わるまで録る。
+     *
+     * **しきい値はその場の暗騒音から決める。** 固定値（900）だけで見ていたときは、
+     * 風のある屋外で暗騒音が 900 を超え、**黙っても「黙った」と判定できずに毎回上限の
+     * 12 秒まで録り切っていた**（＝質問のたびに 12 秒待たされる）。逆に静かな夜は
+     * 900 のままでよいので、**下限を 900 として上に伸ばすだけ**にする。
      *
      * @param onLevel 0..1 に正規化した音の大きさ。画面に出して「聞こえている」ことを見せる
      */
@@ -36,12 +51,26 @@ class GlassMic(private val commandManager: CommandManager) {
         var silenceMs = 0L
         var startedAt = 0L
 
+        // 冒頭は「質問をどうぞ」を読んでいる時間なので、まだ声は乗っていない。
+        // **いちばん静かな塊**を暗騒音とみなす（読み終わって喋り出すのが早い人に引っ張られない）
+        var noiseFloor = Double.MAX_VALUE
+        var threshold = SPEECH_RMS_MIN
+
         val job = commandManager.micAudio.onEach { chunk ->
             buffer.write(chunk)
             val level = rms(chunk)
-            onLevel((level / SPEECH_RMS).coerceIn(0.0, 1.0).toFloat())
             val chunkMs = chunk.size * 1000L / (SAMPLE_RATE * 2)
-            if (level >= SPEECH_RMS) {
+            val elapsed = if (startedAt == 0L) 0L else System.currentTimeMillis() - startedAt
+            if (elapsed < NOISE_FLOOR_MS) {
+                noiseFloor = minOf(noiseFloor, level)
+                threshold = (noiseFloor * NOISE_MARGIN).coerceIn(SPEECH_RMS_MIN, SPEECH_RMS_MAX)
+                // 暗騒音を測っている間は喋りの判定をしない。ここで数え始めると、
+                // まだ決まっていないしきい値で「もう黙った」と読むことがある
+                onLevel(0f)
+                return@onEach
+            }
+            onLevel((level / threshold).coerceIn(0.0, 1.0).toFloat())
+            if (level >= threshold) {
                 speechMs += chunkMs
                 silenceMs = 0
             } else if (speechMs > 0) {
@@ -66,7 +95,12 @@ class GlassMic(private val commandManager: CommandManager) {
             job.cancel()
             runCatching { commandManager.stopMicStreaming() }
         }
-        Recording(buffer.toByteArray(), speechMs)
+        Recording(
+            pcm = buffer.toByteArray(),
+            speechMs = speechMs,
+            noiseFloorRms = if (noiseFloor == Double.MAX_VALUE) 0.0 else noiseFloor,
+            thresholdRms = threshold,
+        )
     }
 
     /** PCM16 の平均音量。無音の判定にしか使わないので二乗平均で足りる */
@@ -85,8 +119,23 @@ class GlassMic(private val commandManager: CommandManager) {
     companion object {
         const val SAMPLE_RATE = 16_000
 
-        /** 喋っているとみなす音量。静かな屋外の暗騒音より上、小声より下 */
-        private const val SPEECH_RMS = 900.0
+        /**
+         * 喋っているとみなす音量の下限。**静かな夜はこれで足りていた**ので、
+         * ここより下げない（下げると暗騒音を声と読んで、いつまでも黙ったことにならない）。
+         */
+        const val SPEECH_RMS_MIN = 900.0
+
+        /**
+         * しきい値の上限。ここまで上げても拾えないなら、風か人混みで**声の区切りは取れない**。
+         * 上げ続けると小声が丸ごと落ちるので、[MAX_MS] で切るほうに任せる。
+         */
+        private const val SPEECH_RMS_MAX = 4_000.0
+
+        /** 暗騒音を測る時間。「質問をどうぞ」を読んでいる間なので、まだ声は乗っていない */
+        private const val NOISE_FLOOR_MS = 400L
+
+        /** 暗騒音の何倍を声とみなすか。RMS は 2.5 倍で 8dB ほど上 */
+        private const val NOISE_MARGIN = 2.5
 
         /** これだけ黙ったら喋り終わり */
         private const val END_SILENCE_MS = 1_200L
@@ -94,8 +143,14 @@ class GlassMic(private val commandManager: CommandManager) {
         /** これだけ喋っていないと「終わり」と判断しない。息継ぎで切らないため */
         private const val MIN_SPEECH_MS = 400L
 
-        /** 一言も喋らなかったときに諦める時間 */
-        private const val SILENT_START_MS = 4_000L
+        /**
+         * 一言も喋らなかったときに諦める時間。
+         *
+         * **「聞いています。質問をどうぞ。」を読む時間が要る。** グラスに文字が出るのは
+         * マイクを開いた 0.2 秒後で、読んで質問を思いつくまでに数秒かかる。
+         * 4 秒では読み終わる前に締め切っていた。
+         */
+        private const val SILENT_START_MS = 6_000L
 
         /** 長く喋られても切る。**BLE を占有し続けると星図が止まる** */
         private const val MAX_MS = 12_000

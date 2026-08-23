@@ -347,6 +347,9 @@ fun CalibrationScreen(
         commit(measured)
     }
 
+    // 十字を丸に重ねている最中に消えると、やり直しになる
+    KeepScreenOn()
+
     Box(Modifier.fillMaxSize()) {
         SeasonalConstellationBackground(
             constellation = constellation,

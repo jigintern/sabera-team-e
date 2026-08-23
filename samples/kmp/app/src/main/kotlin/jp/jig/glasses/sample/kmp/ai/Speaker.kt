@@ -31,6 +31,15 @@ interface Voice {
 interface VoiceStatus {
     val speaking: StateFlow<Boolean>
 
+    /**
+     * **実際に音が出ているか。**
+     *
+     * [speaking] は「これから喋る」も含む（積んだ時点で true にしないと、画面側が
+     * 合成を待っている間を「もう終わった」と読む）。**字幕を音に合わせるにはこちらが要る。**
+     * 合成に数百 ms〜数秒かかるので、[speaking] を起点にめくると音より先に進む（#40）。
+     */
+    val sounding: StateFlow<Boolean>
+
     /** 喋れるか。**使えないまま黙るのがいちばん困る**ので、分からない間は null */
     val available: StateFlow<Boolean?>
 }
@@ -59,6 +68,10 @@ class Speaker(context: Context) : Voice, VoiceStatus {
 
     private val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking
+
+    /** 音が出たかどうか。エンジンの `onStart` が来てから立てる（積んだ時点では立てない） */
+    private val _sounding = MutableStateFlow(false)
+    override val sounding: StateFlow<Boolean> = _sounding
 
     private val _available = MutableStateFlow<Boolean?>(null)
     override val available: StateFlow<Boolean?> = _available
@@ -122,20 +135,24 @@ class Speaker(context: Context) : Voice, VoiceStatus {
             object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
                     _speaking.value = true
+                    _sounding.value = true
                 }
 
                 override fun onDone(utteranceId: String?) {
                     _speaking.value = tts.isSpeaking
+                    _sounding.value = tts.isSpeaking
                 }
 
                 @Deprecated("引数なしの onError は API 21 で置き換えられたが、抽象なので実装が要る")
                 override fun onError(utteranceId: String?) {
                     _speaking.value = false
+                    _sounding.value = false
                 }
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     Log.e(TAG, "読み上げに失敗 id=$utteranceId code=$errorCode")
                     _speaking.value = false
+                    _sounding.value = false
                 }
             },
         )
@@ -175,6 +192,7 @@ class Speaker(context: Context) : Voice, VoiceStatus {
         synchronized(pending) { pending.clear() }
         tts.stop()
         _speaking.value = false
+        _sounding.value = false
     }
 
     /** 画面を離れるときに呼ぶ。呼ばないとエンジンへの接続が残る */
