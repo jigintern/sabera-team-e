@@ -22,9 +22,9 @@
 | できたこと | 確かめ方 |
 |---|---|
 | SGP4 / SDP4 の伝播 | 参照実装と **151 点で最大 4mm 差**（`Sgp4Test`） |
-| 観測地から見た方位・高度 | 静止軌道の幾何の式と 0.1° 以内（`ObserverTest`・`CatalogTest`） |
+| 観測地から見た方位・高度 | 静止軌道の幾何の式と 0.1° 以内（`ObserverTest`・`TleCatalogTest`） |
 | 太陽の位置と地球の影 | 分点・至点の赤緯、真夜中の衛星が影に入ること（`SunlightTest`） |
-| 名前つき 24 機 ＋ スターリンク 10,748 機 | 全機の伝播で **7ms**（`CatalogTest`） |
+| 名前つき 24 機 ＋ スターリンク 10,748 機 | 全機の伝播で **7ms**（`TleCatalogTest`） |
 | 最接近までの時間 | 静止軌道では出さない・低軌道では距離が縮む（`SatelliteSceneTest`） |
 | 星図と同じ座標での描画 | 点と輪郭を焼いて**バッファ 355,000 / 380,000 バイト**（`SatelliteSceneTest`） |
 | `DOUBLE_TAP` での重ね切り替え | **実機未確認** |
@@ -54,7 +54,7 @@ TLE（Two-Line Element）に入っているのは**平均軌道要素**で、値
 |---|---|---|
 | [predict4java](https://github.com/davidmoten/predict4java) | **GPL** | **使えない**（このリポジトリは Apache 2.0） |
 | [Orekit](https://www.orekit.org/) | Apache 2.0 | **重い**うえ `orekit-data` を別に抱える必要があり端末同梱に向かない |
-| **Vallado の参照実装を自前移植** | 公開（Celestrak 配布） | **採用。** 700〜1,000 行。`Astro.kt` と同じ考え方 |
+| **Vallado の参照実装を自前移植** | 公開（Celestrak 配布） | **採用。** 700〜1,000 行。`sky/Coordinates.kt` と同じ考え方 |
 
 - Android の [Look4Sat](https://github.com/rt-bishop/Look4Sat) は predict4java 由来で GPL。
   **参考にはできるが取り込めない**
@@ -63,7 +63,7 @@ TLE（Two-Line Element）に入っているのは**平均軌道要素**で、値
 
 ### 計算量 — 測ったら心配なかった
 
-JVM・10,748 機（`CatalogTest`）：
+JVM・10,748 機（`TleCatalogTest`）：
 
 | 段 | 時間 |
 |---|---|
@@ -100,7 +100,7 @@ Celestrak の `GROUP=visual`（157 機）は「明るい順」の機械的な選
   名前を聞けば分かる側で、**GPS は「毎日使っているものが頭上にいる」**という驚きがある
 - **24 機より増やしても見え方は変わらない。** 視野に出せる名前はテキスト枠（8 個）で頭打ち。
   **選ぶ基準は「名前で分かるか」だけ**
-- **GPS・ガリレオ・みちびき・ひまわりの 10 機は深宇宙の分岐（SDP4）に入る**（`CatalogTest` で確認）
+- **GPS・ガリレオ・みちびき・ひまわりの 10 機は深宇宙の分岐（SDP4）に入る**（`TleCatalogTest` で確認）
 - **みちびき初号機（37158）は入れない。** 平均運動 0.877 周/日 ＝ 周期 27.4 時間で、
   **静止軌道より上の廃棄軌道に上げられている**（後継の 1R に交代済み）
 - 追加は**名前と NORAD 番号を 1 行足すだけ**（`tools/satellites-ja.json`）
@@ -220,7 +220,7 @@ https://celestrak.org/NORAD/elements/gp.php?GROUP=<group>&FORMAT=tle
 - 見える／見えないを**描き分ける**（日照なら塗り、影なら輪郭だけ）
 - **真夜中でもデモが成立する。** 薄暮の 1 時間しか動かない機能は開発中に確かめづらい
 
-そのために**太陽の位置**が要る。`Astro.kt` に低精度の太陽位置（誤差 0.01° 程度）を足せば
+そのために**太陽の位置**が要る。`sky/Coordinates.kt` に低精度の太陽位置（誤差 0.01° 程度）を足せば
 20 行ほどで済み、**星図の昼夜判定にも使える**。
 
 ## 一度に何機が視野に入るか
@@ -228,7 +228,7 @@ https://celestrak.org/NORAD/elements/gp.php?GROUP=<group>&FORMAT=tle
 **高度 550km の衛星が地平線より上に来るのは、真下の点が観測地から 23° 以内のとき**
 （`cos λ = R / (R + h)`）。地球の表面積に対する割合は 4.0%。
 
-| 見積り | 数 | 実測（`CatalogTest`） |
+| 見積り | 数 | 実測（`TleCatalogTest`） |
 |---|---|---|
 | 地平線より上のスターリンク | 400 機 | **460 機** |
 | 視野（35° × 22°）に入る割合 | 全天 2π sr の 3.7% | — |

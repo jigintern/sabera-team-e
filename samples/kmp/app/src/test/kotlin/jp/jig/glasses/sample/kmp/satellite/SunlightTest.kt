@@ -1,9 +1,9 @@
 package jp.jig.glasses.sample.kmp.satellite
 
-import jp.jig.glasses.sample.kmp.starmap.Site
-import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
-import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
-import jp.jig.glasses.sample.kmp.starmap.sunPosition
+import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
+import jp.jig.glasses.sample.kmp.sky.sunPosition
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

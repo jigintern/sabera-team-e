@@ -20,7 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONSTELLATIONS = ROOT / "data" / "constellations.json"
 OUT = ROOT / "data" / "constellation-lore.json"
 
-# グラスの解説画面に入る文字数（GlassTextPage.bodyChars と合わせる）。
+# グラスの解説画面に流し切れる文字数（GlassTextPage.pagedChars は 272 文字）。
 # 端末側は惑星が視野にあれば一言足すので、その余地も残す
 MAX_CHARS = 120
 

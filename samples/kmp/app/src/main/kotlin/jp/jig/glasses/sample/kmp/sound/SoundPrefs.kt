@@ -27,10 +27,21 @@ class SoundPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_BGM_ON, true)
         set(value) = prefs.edit().putBoolean(KEY_BGM_ON, value).apply()
 
+    /**
+     * AI 音声で喋るか。false なら端末の読み上げ。
+     *
+     * **ここを覚えないと、端末の読み上げを選んだ人が毎回選び直すことになる。**
+     * 音量と同じで、選ぶ理由（通信を使いたくない・声の好み）は場所ごとに変わらない。
+     */
+    var aiVoice: Boolean
+        get() = prefs.getBoolean(KEY_AI_VOICE, true)
+        set(value) = prefs.edit().putBoolean(KEY_AI_VOICE, value).apply()
+
     private companion object {
         const val PREFS_NAME = "starmap_sound"
         const val KEY_VOICE = "voice_volume"
         const val KEY_BGM = "bgm_volume"
         const val KEY_BGM_ON = "bgm_enabled"
+        const val KEY_AI_VOICE = "ai_voice"
     }
 }

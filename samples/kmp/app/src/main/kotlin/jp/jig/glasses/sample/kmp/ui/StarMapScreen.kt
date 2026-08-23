@@ -3,29 +3,21 @@ package jp.jig.glasses.sample.kmp.ui
 import android.content.Intent
 import android.graphics.Bitmap
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -41,7 +33,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -50,87 +41,109 @@ import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
-import jp.jig.glasses.sample.kmp.ai.AskFacts
-import jp.jig.glasses.sample.kmp.ai.AskGuard
-import jp.jig.glasses.sample.kmp.ai.GlassMic
-import jp.jig.glasses.sample.kmp.ai.NarrationInput
-import jp.jig.glasses.sample.kmp.ai.OpenAiAsk
-import jp.jig.glasses.sample.kmp.ai.NarrationPhase
-import jp.jig.glasses.sample.kmp.ai.CloudVoice
-import jp.jig.glasses.sample.kmp.ai.Narrator
-import jp.jig.glasses.sample.kmp.ai.OpenAiRequestTrace
-import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
-import jp.jig.glasses.sample.kmp.ai.SatellitePass
-import jp.jig.glasses.sample.kmp.ai.Speaker
+import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.alignment.HeadMotion
+import jp.jig.glasses.sample.kmp.alignment.Located
+import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.YawDriftCorrector
+import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
+import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
+import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
+import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
+import jp.jig.glasses.sample.kmp.glass.GlassPage
+import jp.jig.glasses.sample.kmp.glass.GlassTextPage
+import jp.jig.glasses.sample.kmp.glass.LabelKind
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
+import jp.jig.glasses.sample.kmp.glass.SkyBodyMark
+import jp.jig.glasses.sample.kmp.glass.StarMap
+import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
+import jp.jig.glasses.sample.kmp.glass.batched
+import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
+import jp.jig.glasses.sample.kmp.glass.constellationNames
+import jp.jig.glasses.sample.kmp.glass.toCanvasElements
+import jp.jig.glasses.sample.kmp.glass.updatesFrom
+import jp.jig.glasses.sample.kmp.narration.AskGuard
+import jp.jig.glasses.sample.kmp.narration.NarrationInput
+import jp.jig.glasses.sample.kmp.narration.NarrationPhase
+import jp.jig.glasses.sample.kmp.narration.Narrator
+import jp.jig.glasses.sample.kmp.narration.SkyTips
+import jp.jig.glasses.sample.kmp.openai.AskFacts
+import jp.jig.glasses.sample.kmp.openai.OpenAiAsk
+import jp.jig.glasses.sample.kmp.openai.OpenAiRequestTrace
+import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
-import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
-import jp.jig.glasses.sample.kmp.starmap.ConstellationLore
-import jp.jig.glasses.sample.kmp.starmap.GlassPage
-import jp.jig.glasses.sample.kmp.starmap.GlassTextPage
-import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
-import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
-import jp.jig.glasses.sample.kmp.starmap.Label
-import jp.jig.glasses.sample.kmp.starmap.LabelKind
-import jp.jig.glasses.sample.kmp.starmap.Located
-import jp.jig.glasses.sample.kmp.starmap.Locator
-import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
-import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
-import jp.jig.glasses.sample.kmp.starmap.bodiesInView
-import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
-import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
-import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.SessionLog
-import jp.jig.glasses.sample.kmp.starmap.Site
-import jp.jig.glasses.sample.kmp.starmap.StarCatalog
-import jp.jig.glasses.sample.kmp.starmap.StarMap
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_IMAGE_ID
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
-import jp.jig.glasses.sample.kmp.starmap.batched
-import jp.jig.glasses.sample.kmp.starmap.canvasBufferUsageBytes
-import jp.jig.glasses.sample.kmp.starmap.compressedSizeBytes
-import jp.jig.glasses.sample.kmp.starmap.constellationNames
+import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
+import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.SkyDensity
+import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
+import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
+import jp.jig.glasses.sample.kmp.sky.bodiesInView
+import jp.jig.glasses.sample.kmp.sky.bodiesUp
+import jp.jig.glasses.sample.kmp.sky.bodyAltAz
+import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.sky.moonPhase
+import jp.jig.glasses.sample.kmp.sky.normalizeDeg
+import jp.jig.glasses.sample.kmp.sky.rollFromAccel
+import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sound.Bgm
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
-import jp.jig.glasses.sample.kmp.starmap.MoonPhase
-import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
-import jp.jig.glasses.sample.kmp.starmap.SkyDensity
-import jp.jig.glasses.sample.kmp.starmap.moonPhase
-import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
-import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
-import jp.jig.glasses.sample.kmp.starmap.rollFromAccel
-import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
-import jp.jig.glasses.sample.kmp.starmap.toCanvasElements
-import jp.jig.glasses.sample.kmp.starmap.updatesFrom
+import jp.jig.glasses.sample.kmp.support.AskHistory
+import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.support.NightRecord
+import jp.jig.glasses.sample.kmp.support.SessionLog
+import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
+import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
+import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
+import jp.jig.glasses.sample.kmp.ui.component.LogLine
+import jp.jig.glasses.sample.kmp.ui.component.NarrationPanel
+import jp.jig.glasses.sample.kmp.ui.component.NightRecordCard
+import jp.jig.glasses.sample.kmp.ui.component.ObservationActions
+import jp.jig.glasses.sample.kmp.ui.component.ObservationPreview
+import jp.jig.glasses.sample.kmp.ui.component.ObservationStatusCard
+import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
+import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
+import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
+import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
+import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
+import jp.jig.glasses.sample.kmp.voice.CloudVoice
+import jp.jig.glasses.sample.kmp.voice.DeviceVoice
+import jp.jig.glasses.sample.kmp.voice.GlassMic
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
@@ -182,10 +195,12 @@ fun StarMapScreen(
         if (failed) Log.w(TAG, text) else Log.d(TAG, text)
     }
 
+    // **アプリの生きている間 1 回だけ読む**（[BundledData]）。方位を合わせ直すたびに
+    // 星表を読み直し、星座ごとの最輝星を全星と突き合わせ直していた
     LaunchedEffect(Unit) {
-        val loaded = runCatching { withContext(Dispatchers.IO) { StarCatalog.load(context) } }
+        val loaded = runCatching { BundledData.renderer(context) }
         loaded.onSuccess {
-            renderer = StarMapRenderer(it)
+            renderer = it
             log("星表を読み込んだ")
         }.onFailure {
             // 星表が壊れていると画面が黙って止まるので、理由を出す
@@ -269,21 +284,24 @@ fun StarMapScreen(
     // かといって絞りすぎるとスカスカで星座の形が読めないので、段階で選べるようにする
     var density by remember { mutableStateOf(SkyDensity.default) }
 
-    val drawLines = true
     // 星座絵。**星座線だけでは「なにに見立てたのか」が伝わらない**ので既定で敷く。
     // 星より暗い段で描くので星の位置は読めるが、うるさいと感じたら設定から切れる
     var showArt by remember { mutableStateOf(true) }
     // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
     var showGuides by remember { mutableStateOf(true) }
-    val showLabels = true
+
+    /** 設定パネルを開いているか。開いている間は上のバーの見出しも変える */
     var showDetails by remember { mutableStateOf(false) }
 
     // **衛星は星座のおまけ**（#36）。モードで分けず、同じ星図に重ねる。
     // 衛星だけを見たい人は少数で、狙っているのは天文の初心者なので、
-    // **星座＋αで衛星も見える**形にする。切り替えは上のボタンとダブルタップ
+    // **星座＋αで衛星も見える**形にする。切り替えはスマホの設定パネル
+    // （ダブルタップは一口メモへ譲った）
     var showSatellites by remember { mutableStateOf(true) }
+
+    /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
+    var tipIndex by remember { mutableStateOf(0) }
     var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
-    var sightings by remember { mutableStateOf<List<SatelliteScene.Sighting>>(emptyList()) }
     var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
 
     // SDK 0.6.0 は設定値の同期結果を公開していないため、
@@ -304,9 +322,10 @@ fun StarMapScreen(
     var drawnLook by remember { mutableStateOf<Look?>(null) }
     var drawnFov by remember { mutableStateOf(0.0) }
 
-    // 10,748 機ぶんあるので IO で読む。読み終わるまで衛星モードには入れない
+    // 10,748 機ぶんあるので IO で読む（[BundledData] が 1 回だけ読む）。
+    // 読み終わるまで衛星は重ねられない
     LaunchedEffect(Unit) {
-        val loaded = withContext(Dispatchers.IO) { SatelliteScene.load(context) }
+        val loaded = BundledData.satellites(context)
         satellites = loaded
         if (loaded.loaded) {
             log("人工衛星の軌道要素を読んだ")
@@ -321,9 +340,8 @@ fun StarMapScreen(
     // 解説の根拠は**その絵を焼いた視線**から作る。いまの視線で作り直すと、
     // グラスに出ている絵と食い違う（[drawnLook] は「送れた」絵の視線なので別に持つ）
     var lastMapLook by remember { mutableStateOf<Look?>(null) }
-    // スマホ側の「いまの空」に出す。**他の星見アプリが必ず出している情報**
+    // 解説の根拠（月・惑星）にそのまま渡すぶん。**絵と根拠を別に計算しない**
     var bodiesShown by remember { mutableStateOf<List<SkyBodyMark>>(emptyList()) }
-    var moon by remember { mutableStateOf<MoonPhase?>(null) }
     var renderMs by remember { mutableStateOf(0L) }
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1000L) }
@@ -405,26 +423,35 @@ fun StarMapScreen(
 
     LaunchedEffect(Unit) { commandManager.startImuData() }
 
-    // スマホ側の一覧。衛星を重ねている間は 3 秒、隠している間は 15 秒ごとに作り直す。
-    // **スターリンクは数えない**（群れで星座を埋めるので重ねない。伝播も丸ごと浮く）
-    LaunchedEffect(satellites, showSatellites, latText, lonText) {
-        val scene = satellites ?: return@LaunchedEffect
+    // 空の暗さ。**BGM の曲がこれで決まる**（時計だと同じ 19 時が夏と冬で違う空になる）。
+    // 星や衛星の一覧はスマホに出さないので、ここで測るのは太陽高度だけ
+    LaunchedEffect(latText, lonText) {
         while (true) {
-            val now = System.currentTimeMillis()
-            val observer = Observer(site.latDeg, site.lonDeg)
-            val computed = withContext(Dispatchers.Default) {
-                scene.aboveHorizon(observer, now) to sunAltitudeDeg(site, now)
+            val altitude = withContext(Dispatchers.Default) {
+                sunAltitudeDeg(site, System.currentTimeMillis())
             }
-            sightings = computed.first
-            skyDarkness = SkyDarkness.of(computed.second)
-            moon = moonPhase(now)
-            delay(if (showSatellites) SATELLITE_REFRESH_MS else CONSTELLATION_REFRESH_MS)
+            skyDarkness = SkyDarkness.of(altitude)
+            delay(SKY_DARKNESS_REFRESH_MS)
         }
     }
 
     // 送信は呼び出しから見ると積むだけで終わる。転送しきる前に次を入れると順番待ちが伸びるので、
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
+
+    /**
+     * 入ってきた時点でグラスを白紙に戻す。
+     *
+     * **記憶と実物が食い違うと、消し残りは以降どのフレームでも取れない。**
+     * [shownElements] は「グラスに置いた枠」の記憶で、消す必要のある枠を割り出す唯一の手がかり
+     * （[batched]）。Activity が作り直されると記憶だけが空に戻り、実物のラベルは残るので、
+     * 前の名前が画面に居座り続ける。縦固定（AndroidManifest）で回転は止めたが、
+     * 端末の文字サイズやダークモードの変更でも同じことが起きるので、入口で必ず揃える。
+     */
+    LaunchedEffect(commandManager) {
+        sendGate.withLock { runCatching { commandManager.clearCanvas() } }
+        shownElements = emptyList()
+    }
 
     // BRIGHTNESS_LEVEL は設定を送っただけでは見た目が変わらず、次の再描画で反映される。
     // その場で送り直せるよう、実際にグラスへ送った最後の画像だけを持つ
@@ -437,7 +464,6 @@ fun StarMapScreen(
      * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
      */
     var useMaxSize by remember(density, showArt, showGuides, showSatellites) { mutableStateOf(true) }
-
 
     /**
      * グラスに出しているページ。
@@ -537,14 +563,22 @@ fun StarMapScreen(
         )
     }
 
-    /** 送れたら true。送らずに帰ったときに「描いた視線」を進めると、次の描き直しが止まる */
-    suspend fun drawAndSend(): Boolean {
-        val r = renderer ?: return false
-        if (!sendGate.tryLock()) return false
+    /**
+     * 1 枚焼いて送る。**送れたら焼いた視線を返す**（送らずに帰ったときに「描いた視線」を
+     * 進めると、次の描き直しが止まる）。
+     *
+     * @param aim 焼く向き。**渡さなければいまの視線。** 首が止まる先へ先出しするときだけ渡す（[HeadMotion]）
+     */
+    suspend fun drawAndSend(aim: Look? = null): Look? {
+        val r = renderer ?: return null
+        if (!sendGate.tryLock()) return null
         sending = true
         try {
             val started = System.currentTimeMillis()
             val now = System.currentTimeMillis()
+            // **1 枚のあいだ向きを変えない。** ここで look() を呼び直すと、
+            // 星・衛星・月惑星・ラベルがそれぞれ違う瞬間の視線で計算される
+            val target = aim ?: look()
             val scene = satellites
             // **名前つき、しかも名前で分かるものだけを重ねる。** スターリンクの群れも、
             // 地球観測衛星（だいち・いぶき・しきさい…）も、初心者には名前が手がかりにならない。
@@ -552,7 +586,7 @@ fun StarMapScreen(
             val tracks = if (showSatellites && scene != null) {
                 withContext(Dispatchers.Default) {
                     val observer = Observer(site.latDeg, site.lonDeg)
-                    scene.tracksInView(observer, now, look(), fov.toDouble(), maxStarlink = 0)
+                    scene.tracksInView(observer, now, target, fov.toDouble(), maxStarlink = 0)
                         .filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
                         .take(MAX_SATELLITES_IN_VIEW)
                 }
@@ -560,7 +594,7 @@ fun StarMapScreen(
                 emptyList()
             }
             val bodies = withContext(Dispatchers.Default) {
-                bodiesInView(site, now, look(), fov.toDouble()).map {
+                bodiesInView(site, now, target, fov.toDouble()).map {
                     SkyBodyMark(
                         nameJa = it.nameJa,
                         azDeg = it.azDeg,
@@ -574,13 +608,15 @@ fun StarMapScreen(
                 r.render(
                     site = site,
                     epochMillis = now,
-                    look = look(),
+                    look = target,
                     fovDeg = fov.toDouble(),
                     limitMagnitude = density.limitMagnitude,
                     width = w,
                     height = h,
-                    drawLines = drawLines,
-                    maxLabels = if (showLabels) CANVAS_TEXT_SLOTS else 0,
+                    // 星座線と星座名は切れるようにしていない。**線が無いと星座に見えず、
+                    // 名前が無いと解説の主役も決まらない**（主役はラベルの先頭・#37）
+                    drawLines = true,
+                    maxLabels = CANVAS_TEXT_SLOTS,
                     tracks = tracks,
                     drawStars = true,
                     drawFigures = showFigures,
@@ -605,7 +641,7 @@ fun StarMapScreen(
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
             lastMap = map
-            lastMapLook = look()
+            lastMapLook = target
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
@@ -616,7 +652,7 @@ fun StarMapScreen(
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
                 log("バッファ超過 $used > $CANVAS_IMAGE_BUFFER_BYTES バイト", failed = true)
                 Log.w(TAG, "バッファ超過 ${map.width}x${map.height} used=$used")
-                return false
+                return null
             }
 
             val sendStarted = System.currentTimeMillis()
@@ -639,16 +675,17 @@ fun StarMapScreen(
             }
             shownElements = placed
             // 印だけ動かすために、この画像を焼いた条件を覚えておく
-            drawnLook = look()
+            drawnLook = target
             drawnFov = fov.toDouble()
             drawnRoll = glassRoll
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
 
-            val l = look()
+            val l = target
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
+                    (if (aim == null) "" else "先出し ") +
                     (if (tracks.isEmpty()) "" else "衛星${tracks.size}機 ") +
                     (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
                     "名前${placed.size}個 描画${renderMs}ms 転送約${transferMs}ms" +
@@ -664,14 +701,14 @@ fun StarMapScreen(
             delay(transferMs + SETTLE_MS)
             waitMs = System.currentTimeMillis() - sendStarted
             Log.d(TAG, "待ち ${waitMs}ms（見積り ${transferMs + SETTLE_MS}ms）")
-            return true
+            return target
         } catch (e: CancellationException) {
             // 画面を離れたときの中断。送信の失敗ではないので、そのまま上へ流す
             throw e
         } catch (e: Throwable) {
             log("失敗: ${e.message}", failed = true)
             Log.e(TAG, "drawAndSend で失敗", e)
-            return false
+            return null
         } finally {
             sending = false
             sendGate.unlock()
@@ -681,8 +718,8 @@ fun StarMapScreen(
     /**
      * 解説画面をグラスへ出す（#40）。
      *
-     * 送るのは**変わった行だけ**（[updatesFrom]）なので、1 文ごとに呼んでよい。
-     * 8 行を全部送っても 600 バイト弱・4 電文で、星図画像 1 枚の 1/10 で済む。
+     * 送るのは**変わった行だけ**（[updatesFrom]）なので、1 行流すごとに呼んでよい。
+     * 1 枚は 3 行で 190 バイト・1 電文に収まる（星図画像 1 枚の 1/30 で済む）。
      */
     suspend fun sendExplanationPage(page: GlassTextPage.Page) {
         sendGate.withLock {
@@ -714,20 +751,29 @@ fun StarMapScreen(
     }
 
     /**
-     * 「首が止まったら描き直す」追従。
+     * 「首が止まったら描き直す」追従。**止まりきる手前で、止まる先へ送る。**
      *
      * 1 枚の転送中はグラスが前の絵を捨てて何も出さない。動くたびに送ると
      * 表示より転送のほうが長く、点いては消えるだけになる（実機で確認）。
-     * 動いている間は前の絵を出したままにして、止まってから 1 枚だけ送る。
+     * かといって完全に止まるまで待つと、**止めてから絵が出るまで 0.5 秒以上**かかり、
+     * その間ずっとグラスは真っ暗になる。
+     *
+     * そこで**減速に入った時点で 1 枚だけ先出しする**（[HeadMotion]）。転送が終わるころの
+     * 視線を割り引いて外挿し、そこ向きの絵を焼く。送る枚数もバイト数も増えない。
+     * 外挿が足りなければ、止まったあとの描き直しが埋める。
      */
     var settled by remember { mutableStateOf(true) }
+    val headMotion = remember { HeadMotion() }
     LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
         var movedAt = 0L
+        /** 先出しした時刻。**首を振り続けている間に何枚も先出ししない**ための間隔 */
+        var predictedAt = 0L
         while (true) {
             val now = look()
+            headMotion.add(System.currentTimeMillis(), now)
             val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
             if (step > STILL_DEG) movedAt = System.currentTimeMillis()
             previous = now
@@ -752,7 +798,18 @@ fun StarMapScreen(
             if (settled && (drift > REDRAW_DEG || rolled > REDRAW_ROLL_DEG)) {
                 // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
                 // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
-                if (drawAndSend()) drawn = look()
+                drawAndSend()?.let {
+                    drawn = it
+                    predictedAt = 0L
+                }
+            } else if (
+                drift > REDRAW_DEG && headMotion.slowing &&
+                System.currentTimeMillis() - predictedAt > PREDICT_COOLDOWN_MS
+            ) {
+                // **止まる先へ 1 枚。** 行き過ぎるより届かないほうが安全なので割り引く
+                val aim = headMotion.predict(now, transferMs + SETTLE_MS, PREDICT_DAMPING)
+                predictedAt = System.currentTimeMillis()
+                drawAndSend(aim)?.let { drawn = it }
             }
             delay(POLL_MS)
         }
@@ -862,7 +919,8 @@ fun StarMapScreen(
     // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない。
     // 端末の TextToSpeech は棒読みで**プラネタリウムの雰囲気を壊す**ので、
     // 普段は AI 音声で喋り、作れないときだけ端末の読み上げに落ちる（CloudVoice）
-    val speaker = remember { Speaker(context) }
+    val soundPrefs = remember { SoundPrefs(context) }
+    val speaker = remember { DeviceVoice(context) }
     val voice = remember(speaker) {
         CloudVoice(
             context = context,
@@ -877,18 +935,26 @@ fun StarMapScreen(
             log = { text, failed -> log(text, failed) },
         )
     }
-    var aiVoice by remember { mutableStateOf(true) }
+    // 端末の読み上げを選んだ人に毎回選び直させない。**選ぶ理由は場所で変わらない**
+    var aiVoice by remember { mutableStateOf(soundPrefs.aiVoice) }
+    LaunchedEffect(aiVoice) { voice.enabled = aiVoice }
     DisposableEffect(voice) { onDispose { voice.shutdown(); speaker.shutdown() } }
 
     // **解説文は端末が持つ。** 星を見に行く場所は電波が届かないことが多く、
-    // その場で AI に作らせていた頃は、圏外だと一言も出せなかった
-    val lore = remember { ConstellationLore.load(context) }
-    LaunchedEffect(lore) { log("解説文を ${lore.size} 星座ぶん読んだ") }
+    // その場で AI に作らせていた頃は、圏外だと一言も出せなかった。
+    // 読むのは [BundledData] に任せる（画面を作り直すたびに 88 星座ぶん読み直していた）
+    val lore = remember { mutableStateOf(ConstellationLore.empty) }
+    LaunchedEffect(Unit) {
+        lore.value = BundledData.lore(context)
+        log("解説文を ${lore.value.size} 星座ぶん読んだ")
+    }
 
-    val narrator = remember(voice, lore) {
+    // **解説文が届いても作り直さない。** ここを lore で作り直すと、
+    // 読み込みが終わった瞬間に解説の状態（喋っている中身）が消える
+    val narrator = remember(voice) {
         Narrator(
             speaker = voice,
-            lore = { name -> lore.of(name) },
+            lore = { name -> lore.value.of(name) },
             log = { text, failed -> log(text, failed) },
         )
     }
@@ -906,6 +972,12 @@ fun StarMapScreen(
     val narration by narrator.state.collectAsState()
     val speaking by voice.speaking.collectAsState()
     val ttsAvailable by voice.available.collectAsState()
+
+    // 今夜の記録は画面より長生きする（[NightRecord]）。方位を合わせ直しても消えない
+    val nightSeen by NightRecord.seen.collectAsState()
+
+    // 声で聞いたやり取りも同じ扱い（[AskHistory]）。字幕は流れて消え、声は一度きり
+    val askHistory by AskHistory.exchanges.collectAsState()
 
     // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
@@ -931,15 +1003,20 @@ fun StarMapScreen(
             val header = listOf(state.constellation, explanationHeading)
                 .filter { it.isNotBlank() }
                 .joinToString("　")
-            // **字幕のようにめくる。** 1 枚に全部置くと最初の行が押し出されて消える
+            // **字幕のように流す。** 1 枚に全部置くと最初の行が押し出されて消える
             val pages = GlassTextPage.pages(header, state.text)
             explanationPaging = pages.size > 1
             for ((index, page) in pages.withIndex()) {
                 sendExplanationPage(page)
                 if (index == pages.lastIndex) break
-                // 読み上げの速さに合わせる。喋らないときも読める速さで送る
-                val shown = page.elements.drop(1).sumOf { it.text.length }
-                delay(max(EXPLANATION_PAGE_MIN_MS, shown * EXPLANATION_PAGE_PER_CHAR_MS))
+                // **1 枚目は音が出るまで置いておく。** 流す速さは読み上げに合わせてあるが、
+                // 数え始めが「文を積んだ時点」なので、合成の 1〜2 秒ぶん字幕が先へ行く。
+                // 声の質問の途中経過は喋らないので待たない（#38）
+                if (index == 0 && !asking) {
+                    withTimeoutOrNull(EXPLANATION_SOUND_WAIT_MS) { voice.sounding.first { it } }
+                }
+                // 新しく出た行を読む時間だけ置く。**流すほど少しずつゆっくりにする**
+                delay(explanationDwellMs(page.revealed, index))
             }
             explanationPaging = false
         }
@@ -968,17 +1045,21 @@ fun StarMapScreen(
      * （騒がしい場所やイヤホンが無いときは**文字が主役**）。
      *
      * `narration.phase` は本文では見ないが、**話が切り替わったら数え直す**ために鍵に入れている。
+     *
+     * **声で聞いている間は数えない**（#38）。聞き取りと回答は喋らないので [speaking] は false のまま、
+     * 途中経過はどれも `SPEAKING` なので鍵も変わらない。つまり「聞いています」から一度も
+     * 数え直さずに 25 秒が過ぎる。録音 12 秒＋文字起こし＋回答で超えると、
+     * **答えが届く前に星図へ戻り、字幕の組版ごと畳まれて答えが声だけになる。**
      */
-    LaunchedEffect(glassPage, speaking, narration.phase, explanationPaging) {
+    LaunchedEffect(glassPage, speaking, narration.phase, explanationPaging, asking) {
         if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
         // 読み上げが終わっても、字幕がまだ残っているうちは戻さない
-        if (speaking || explanationPaging) return@LaunchedEffect
+        if (speaking || explanationPaging || asking) return@LaunchedEffect
         delay(if (explanationSpoke) EXPLANATION_LINGER_MS else EXPLANATION_READ_MS)
         leaveGlassExplanation("解説が終わったので星図へ戻る")
     }
 
     // BGM は解説していない間も鳴らす。**プラネタリウムの雰囲気は無音では出ない**
-    val soundPrefs = remember { SoundPrefs(context) }
     var voiceVolume by remember { mutableStateOf(soundPrefs.voiceVolume) }
     var bgmVolume by remember { mutableStateOf(soundPrefs.bgmVolume) }
     var bgmOn by remember { mutableStateOf(soundPrefs.bgmEnabled) }
@@ -1000,7 +1081,7 @@ fun StarMapScreen(
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
     // **解説の主役と同じ選び方にする**（種別で絞らないと、月が視野にあるだけで
     // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
-    LaunchedEffect(lastMap, bodiesShown) {
+    LaunchedEffect(lastMap, bodiesShown, lore.value) {
         val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
         // **名乗りだけでなく解説の全文を作っておく。** ここを名乗りだけにしていたとき、
         // 圏外では「いて座ですね」が AI の声、続く解説が端末の読み上げになり、
@@ -1019,7 +1100,7 @@ fun StarMapScreen(
             localTime = "",
             visibleBodies = bodies,
         )
-        val script = Narrator.script(name, lore.of(name), warmInput)
+        val script = Narrator.script(name, lore.value.of(name), warmInput)
         for (part in Narrator.speechParts(name, script)) voice.warm(part)
     }
 
@@ -1036,6 +1117,29 @@ fun StarMapScreen(
 
     var narrationJob by remember { mutableStateOf<Job?>(null) }
     val timestamp = remember { SimpleDateFormat("yyyy-MM-dd HH:mm z", Locale.JAPAN) }
+
+    /**
+     * 解説と質問はここから走らせる。**取りこぼした例外でアプリを終わらせない。**
+     *
+     * `SupervisorJob` は兄弟を巻き込まないだけで、**未捕捉例外そのものは止めない**
+     * （既定のハンドラまで上がってプロセスが落ちる）。ここから呼ぶのは星表の計算と、
+     * マイク・通信という**外の事情で落ちる**ものばかりで、`drawAndSend` は同じ理由で
+     * `Throwable` を拾っている。
+     *
+     * **落ちるより、断って喋るほうが上**（app-flow.md「タップして無反応が一番よくない」）。
+     */
+    fun launchNarration(what: String, subject: String, block: suspend () -> Unit): Job = scope.launch {
+        try {
+            block()
+        } catch (e: CancellationException) {
+            // タップで止めた・画面を離れたときの中断。失敗ではないのでそのまま流す
+            throw e
+        } catch (e: Throwable) {
+            Log.e(TAG, "$what で失敗", e)
+            log("${what}で失敗: ${e.message}", failed = true)
+            narrator.cannotAnswer(subject, "うまく動きませんでした。もう一度お願いします。")
+        }
+    }
 
     fun startNarration() {
         val r = renderer
@@ -1063,7 +1167,7 @@ fun StarMapScreen(
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
 
-        narrationJob = scope.launch {
+        narrationJob = launchNarration("解説", shown?.constellationNames()?.firstOrNull().orEmpty()) {
             val observedAt = System.currentTimeMillis()
             // ラベルは視野中心に近い順に並んでいる。**先頭が主役。**
             // 主役以外は 2 つまで（並べるほどモデルが主役を選び直す余地が増える）
@@ -1099,47 +1203,12 @@ fun StarMapScreen(
                     visibleBodies = visibleBodies,
                 ),
             )
-        }
-    }
-
-    /**
-     * 視野の衛星を読み上げる。**スマホのボタンからだけ呼ぶ。**
-     *
-     * グラスのタップは星座の解説に使う（#36 で衛星は星座のおまけになった）。
-     */
-    fun narrateSatellitesNow() {
-        val scene = satellites
-        if (scene == null || !scene.loaded) {
-            log("軌道要素が読めていない", failed = scene != null)
-            return
-        }
-        val latched = latchedLook()
-        // 衛星の案内も文字で読めるようにする。中身が違うだけで、出す場所は星座と同じ
-        narrator.reset()
-        explanationHeading = "%s %d°".format(cardinalDirection16(latched.azDeg), latched.altDeg.roundToInt())
-        explanationSpoke = false
-        explanationDropped = 0
-        explanationPaging = false
-        glassPage = GlassPage.EXPLANATION
-
-        narrationJob = scope.launch {
-            val inView = withContext(Dispatchers.Default) {
-                val observer = Observer(site.latDeg, site.lonDeg)
-                // 名前つきだけ。スターリンクは名前を読み上げても意味がない
-                scene.tracksInView(
-                    observer, System.currentTimeMillis(), latched, fov.toDouble(), maxStarlink = 0,
-                ).map {
-                    SatellitePass(
-                        name = it.name,
-                        azDeg = it.nowAzDeg,
-                        altDeg = it.nowAltDeg,
-                        sunlit = it.sunlit,
-                        closestInMinutes = it.motion?.closestInMinutes,
-                        stationary = it.motion?.stationary ?: false,
-                    )
-                }
+            // **今夜の一覧に残す**（#10 の動機）。字幕は数秒でめくれ、声は一度きりなので、
+            // 同伴者がスマホを覗いたときには次の星座に変わっている
+            val spoken = narrator.state.value
+            if (spoken.phase == NarrationPhase.SPEAKING) {
+                NightRecord.add(spoken.constellation, System.currentTimeMillis(), spoken.text)
             }
-            narrator.narrateSatellites(inView)
         }
     }
 
@@ -1155,31 +1224,58 @@ fun StarMapScreen(
         if (asking) return
         val shown = lastMap?.takeIf { lastMapLook != null }
         val basis = lastMapLook ?: latchedLook()
-        val subject = shown?.constellationNames()?.firstOrNull().orEmpty()
+        // **質問の間は星座名も方角も出さない。** 見出しに名前が出ていると、聞いたことと
+        // 関係のない星座について答えているように見える（実機で「上に星座名が出る」）。
+        // AI へ渡す事実にはこれまでどおり星座が入っているので、答えの中身は変わらない
+        val subject = ""
 
         narrationJob?.cancel()
         narrator.stop()
         narrator.reset()
-        explanationHeading = "%s %d°".format(cardinalDirection16(basis.azDeg), basis.altDeg.roundToInt())
+        explanationHeading = ""
         explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
 
         asking = true
-        narrationJob = scope.launch {
+        // **マイクと通信はいちばん落ちやすい経路。** startMicStreaming が投げただけで
+        // アプリが終わっては、質問どころではなくなる（[launchNarration] が受け止める）
+        narrationJob = launchNarration("質問", subject) {
             try {
                 if (!ask.configured) {
                     narrator.cannotAnswer(subject, "AI の設定がないので、質問には答えられません。")
-                    return@launch
+                    return@launchNarration
                 }
-                narrator.progress(subject, "聞いています。質問をどうぞ。")
-                val recording = mic.record { level -> micLevel = level }
+                narrator.progress(subject, askPrompt(0f))
+                // **拾っている音の大きさをその場で返す。** 聞き取った文字が出るのは録り終わって
+                // からなので、喋っている最中に「届いているのか」を返せるのはこれだけ。
+                // 声が小さくて枠が伸びないなら、そのまま黙って待たれるより言い直せる
+                var meterAt = 0L
+                val recording = mic.record { level ->
+                    micLevel = level
+                    val at = System.currentTimeMillis()
+                    // マイクは毎秒 32,000 バイトを同じ BLE に流している。**枠の送り直しで
+                    // その帯域を食わない**ように、目で追える速さまで落とす
+                    if (at - meterAt >= MIC_METER_MS) {
+                        meterAt = at
+                        narrator.progress(subject, askPrompt(level))
+                    }
+                }
                 micLevel = 0f
-                log("録音 ${recording.pcm.size}バイト・声${recording.speechMs}ms")
+                // **しきい値が屋外で合っているかはこの行でしか分からない。**
+                // 暗騒音が高い夜は「上限まで録り切ったのに声 0ms」として出る
+                log(
+                    "録音 %dバイト・声%dms・暗騒音%.0f→しきい値%.0f".format(
+                        recording.pcm.size,
+                        recording.speechMs,
+                        recording.noiseFloorRms,
+                        recording.thresholdRms,
+                    ),
+                )
                 if (recording.speechMs == 0L) {
                     narrator.cannotAnswer(subject, "聞き取れませんでした。もう一度お願いします。")
-                    return@launch
+                    return@launchNarration
                 }
                 narrator.progress(subject, "聞き取っています。")
                 val wav = GlassMic.toWav(recording.pcm)
@@ -1187,13 +1283,13 @@ fun StarMapScreen(
                     .getOrElse { e ->
                         log("文字起こしに失敗: ${e.message}", failed = true)
                         narrator.cannotAnswer(subject, "いまは通信ができないので、質問には答えられません。")
-                        return@launch
+                        return@launchNarration
                     }
                 // **聞き取った文は指示ではなくデータ。** 画面へ出す前にここで整える
                 val question = AskGuard.sanitizeQuestion(heard)
                 if (question.isBlank()) {
                     narrator.cannotAnswer(subject, "聞き取れませんでした。もう一度お願いします。")
-                    return@launch
+                    return@launchNarration
                 }
                 log("質問: $question")
                 narrator.progress(subject, "「$question」")
@@ -1215,9 +1311,15 @@ fun StarMapScreen(
                 val reply = runCatching { withContext(Dispatchers.IO) { ask.answer(question, facts) } }
                     .getOrElse { e ->
                         log("回答の生成に失敗: ${e.message}", failed = true)
-                        narrator.cannotAnswer(subject, "うまく答えられませんでした。")
-                        return@launch
+                        val refusal = "うまく答えられませんでした。"
+                        // **答えられなかったやり取りも残す**（#38）。履歴に無いと、
+                        // 質問が届かなかったのか答えが返らなかったのかが分からない
+                        AskHistory.add(observedAt, question, refusal, answered = false)
+                        narrator.cannotAnswer(subject, refusal)
+                        return@launchNarration
                     }
+                // 断り（[AskGuard.OFF_TOPIC]）は鳴らし直しても何も進まないので、答えとしては数えない
+                AskHistory.add(observedAt, question, reply, answered = reply != AskGuard.OFF_TOPIC)
                 narrator.answer(subject, reply)
             } finally {
                 asking = false
@@ -1234,7 +1336,85 @@ fun StarMapScreen(
     }
 
     /**
-     * 衛星を重ねるかどうか。上のボタンとグラスのダブルタップで同じことをする。
+     * 今夜の記録から読み直す（[NightRecord]）。
+     *
+     * **文は作り直さない。** 1 回目と同じ文字列なので AI 音声のキャッシュが当たり、
+     * 圏外でも 1 回目に鳴ったものはそのまま鳴る。グラスにも字幕で出す（#40 と同じ道）。
+     */
+    fun replayRecord(entry: NightRecord.Seen) {
+        narrationJob?.cancel()
+        narrationJob = null
+        narrator.reset()
+        // 見出しの方角は出さない。**いま向いている方向とは関係ない**（記録は過去の視線）
+        explanationHeading = ""
+        explanationSpoke = false
+        explanationDropped = 0
+        explanationPaging = false
+        glassPage = GlassPage.EXPLANATION
+        narrator.again(entry.nameJa, entry.text)
+    }
+
+    /**
+     * ダブルタップの**一口メモ**。いまの時刻とこの場所から言えることを 1 つ出す。
+     *
+     * **通信も生成も要らない**（[SkyTips]）。解説文を同梱してあるのと同じ理由で、
+     * 星を見に行く場所ほど電波が届かない。
+     *
+     * **押すたびに次のメモへ進む。** 1 つしか言わないと、2 回目のダブルタップが
+     * 無反応と区別できない（**タップして無反応が一番よくない**・app-flow.md）。
+     */
+    fun showTip() {
+        narrationJob?.cancel()
+        narrator.stop()
+        narrator.reset()
+        // 見出しにはメモの題を出す（[Narrator.tip] の subject）。方角はメモと関係ない
+        explanationHeading = ""
+        explanationSpoke = false
+        explanationDropped = 0
+        explanationPaging = false
+        glassPage = GlassPage.EXPLANATION
+
+        narrationJob = launchNarration("一口メモ", "") {
+            val observedAt = System.currentTimeMillis()
+            val tip = withContext(Dispatchers.Default) {
+                val clock = Calendar.getInstance()
+                SkyTips.of(
+                    SkyTips.Sky(
+                        site = site,
+                        hourOfDay = clock.get(Calendar.HOUR_OF_DAY),
+                        month = clock.get(Calendar.MONTH) + 1,
+                        sunAltDeg = sunAltitudeDeg(site, observedAt),
+                        moon = moonPhase(observedAt),
+                        moonAltDeg = bodyAltAz(SolarSystemBody.MOON, site, observedAt)[1],
+                        bodiesUp = bodiesUp(site, observedAt),
+                    ),
+                    tipIndex,
+                )
+            }
+            tipIndex++
+            narrator.retell(tip.header, tip.text, what = "一口メモ")
+        }
+    }
+
+    /**
+     * 声のやり取りを読み直す（設定パネルの履歴から・[AskHistory]）。**文は作り直さない。**
+     *
+     * 見出しに出すのは**質問文**。何に対する答えかが分からないと、聞き直しても意味が取れない。
+     */
+    fun replayAsk(exchange: AskHistory.Exchange) {
+        narrationJob?.cancel()
+        narrationJob = null
+        narrator.reset()
+        explanationHeading = ""
+        explanationSpoke = false
+        explanationDropped = 0
+        explanationPaging = false
+        glassPage = GlassPage.EXPLANATION
+        narrator.retell(exchange.question, exchange.answer, what = "やり取りを聞き直し")
+    }
+
+    /**
+     * 衛星を重ねるかどうか。**切り替えはスマホの設定パネルだけ**。
      *
      * **モードの切り替えではない**（#36）。星座はどちらでも出たままで、
      * 衛星の点と名前が増えるか減るかだけが変わる。
@@ -1271,8 +1451,8 @@ fun StarMapScreen(
                 when (gesture) {
                     GestureType.SINGLE_TAP -> toggleNarration()
 
-                    // 「もっと詳しく」に当てていた枠。衛星を重ねるかの切り替えに使う
-                    GestureType.DOUBLE_TAP -> toggleSatellites()
+                    // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した
+                    GestureType.DOUBLE_TAP -> showTip()
 
                     // **長押しは声で聞く**（#38）。方位合わせはスマホのボタンに残してある
                     GestureType.HOLD -> askByVoice()
@@ -1282,6 +1462,13 @@ fun StarMapScreen(
         onDispose { job.cancel() }
     }
 
+    // 観測中は消灯させない。音の出し先はスマホで、同伴者はここで空の様子を見る
+    KeepScreenOn()
+
+    // **戻るキーで設定パネルを閉じる。** 上の「戻る」を押すには顔の前のスマホを見る必要があり、
+    // 空を見ている人には見えない。ここを取っておかないと、観測画面ごと畳まれる
+    BackHandler(enabled = showDetails) { showDetails = false }
+
     MaterialTheme(colorScheme = SaberaDarkColorScheme) {
         Box(Modifier.fillMaxSize()) {
             SeasonalConstellationBackground(
@@ -1290,328 +1477,189 @@ fun StarMapScreen(
             )
             Scaffold(
                 containerColor = Color.Transparent,
-        topBar = {
-            TopAppBar(
-                title = { Text(if (showDetails) "星図の設定" else "現在の星空") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xA608111B),
-                    titleContentColor = Color.White,
-                ),
-                navigationIcon = {
-                    if (showDetails) {
-                        TextButton(onClick = { showDetails = false }) {
-                            Text("戻る", color = Color.White)
-                        }
-                    }
-                },
-                actions = {
-                    // **衛星の切り替えはグラスのダブルタップと設定に置いた。**
-                    // 空を見ている人はスマホを見ないので、上のバーに常設する意味が無い
-                    if (!showDetails) {
-                        TextButton(onClick = { showDetails = true }) {
-                            Text("設定", color = Color.White)
-                        }
-                    }
-                },
-            )
-        },
-            ) { padding ->
-        Column(
-            Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
-        ) {
-            if (!showDetails) {
-            if (renderer == null) {
-                Text("星表を読み込み中…")
-                Spacer(Modifier.height(12.dp))
-            }
-
-            Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(4.dp))
-            ObservationPreview(preview, sending, transferMs)
-            Text(
-                "グラスの向きを止めると、その方角の星図に更新します",
-                style = MaterialTheme.typography.bodySmall,
-            )
-
-            Spacer(Modifier.height(16.dp))
-            Text("星座解説", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
-            NarrationPanel(
-                status = when {
-                    // 声で聞いている間は、同伴者にも「いま録っている」ことが見えるようにする
-                    asking -> "グラスのマイクで質問を聞いています %d%%".format((micLevel * 100).roundToInt())
-                    speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
-                    // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
-                    BuildConfig.OPENAI_API_KEY.isEmpty() ->
-                        "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
-                    else -> "グラスのツルを1回タップすると解説します"
-                },
-                subject = narration.constellation,
-                text = narration.text,
-                failed = narration.phase == NarrationPhase.FAILED,
-            )
-            ObservationActions(
-                primaryLabel = if (narrator.busy || speaking) "解説を止める" else "この星空を解説する",
-                onPrimary = { toggleNarration() },
-                onRecalibrate = onRecalibrate,
-            )
-            }
-
-            if (showDetails) {
-                // **メインの並びは星座のまま**（見出し → プレビュー → 解説 → ボタン 2 つ）。
-                // 情報カードと衛星の一覧はここへ畳む
-                Spacer(Modifier.height(16.dp))
-            // **他の星見アプリが必ず出している情報**を 1 枚に畳む。
-            // 同伴者がスマホで見るぶんなので、グラスには出さない
-            SkyNowCard(
-                darkness = skyDarkness,
-                moon = moon,
-                bodies = bodiesShown,
-                density = density,
-                satellites = if (showSatellites) sightings.size else null,
-            )
-
-            // **衛星は星座のおまけ**（#36）。一覧は同伴者がスマホで見るためのもので、
-                // 出ていないときは畳んでおく（星座の邪魔をしない）
-                if (showSatellites && satellites != null) {
-                    Spacer(Modifier.height(16.dp))
-                Text("いま空に出ている", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                Card(
-                    Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = SaberaSurface),
-                ) {
-                    Column(
-                        Modifier.fillMaxWidth().heightIn(max = 200.dp)
-                            .verticalScroll(rememberScrollState()).padding(12.dp),
-                    ) {
-                        if (sightings.isEmpty()) {
-                            Text("名前つきの衛星が空に出ていない", style = MaterialTheme.typography.bodyMedium)
-                        }
-                        for (sighting in sightings) {
-                            Text(
-                                "${if (sighting.sunlit) "●" else "○"} ${sighting.name}　${sighting.where}",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            // 「上昇中・最接近まで 3 分」。点の位置だけでは待つ価値が分からない
-                            if (sighting.timing.isNotEmpty()) {
-                                Text(
-                                    "　　${sighting.timing}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                topBar = {
+                    TopAppBar(
+                        title = { Text(if (showDetails) "星図の設定" else "現在の星空") },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color(0xA608111B),
+                            titleContentColor = Color.White,
+                        ),
+                        navigationIcon = {
+                            if (showDetails) {
+                                TextButton(onClick = { showDetails = false }) {
+                                    Text("戻る", color = Color.White)
+                                }
                             }
+                        },
+                        actions = {
+                            // **止める手段はどの画面でも消さない。** 解説と設定は同じ画面の
+                            // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
+                            // （戻るキーを知らないと止められない）
+                            if (narrator.busy || speaking || asking) {
+                                TextButton(onClick = { toggleNarration() }) {
+                                    Text("解説を止める", color = Color.White)
+                                }
+                            }
+                            // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
+                            // スマホを見ないので、上のバーに常設する意味が無い
+                            if (!showDetails) {
+                                TextButton(onClick = { showDetails = true }) {
+                                    Text("設定", color = Color.White)
+                                }
+                            }
+                        },
+                    )
+                },
+            ) { padding ->
+                Column(
+                    Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
+                    // 数字と設定は「設定」を開いた側へ全部やる（空を見ている人はスマホを見ない）
+                    if (!showDetails) {
+                        if (renderer == null) {
+                            Text("星表を読み込み中…")
+                            Spacer(Modifier.height(12.dp))
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "● は日が当たっていて肉眼でも見える可能性がある。○ は地球の影",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                // **グラスのタップは星座の解説に使う**（#36）。衛星の案内はここから
-                OutlinedButton(
-                    onClick = { narrateSatellitesNow() },
-                    enabled = sightings.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("この空の衛星を案内する") }
-                }
 
-                Spacer(Modifier.height(16.dp))
-                BrightnessSettingsCard(
-                    level = brightnessLevel,
-                    configured = brightnessConfigured,
-                    onLevelChange = { applyBrightness(it) },
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("空の濃さ", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    // **見えない星を描かないのがいちばん効く**（見えている星と対応が取れなくなる）
-                    "${density.label}：${density.hint}（${"%.1f".format(density.limitMagnitude)} 等まで）",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    for (step in SkyDensity.entries) {
-                        val selected = step == density
-                        TextButton(
-                            onClick = {
+                        Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(4.dp))
+                        ObservationPreview(preview, sending, transferMs)
+                        Text(
+                            "グラスの向きを止めると、その方角の星図に更新します",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                        Text("星座解説", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(4.dp))
+                        NarrationPanel(
+                            status = when {
+                                // 声で聞いている間は、同伴者にも「いま録っている」ことが見えるようにする。
+                                // 枠はグラスに出しているものと同じ（どちらを見ても同じ強さが見える）
+                                asking ->
+                                    "グラスのマイクで質問を聞いています ${micMeter(micLevel)}"
+                                speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
+                                // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
+                                BuildConfig.OPENAI_API_KEY.isEmpty() ->
+                                    "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
+                                else -> "グラスのツルを1回タップすると解説します"
+                            },
+                            subject = narration.constellation,
+                            text = narration.text,
+                            failed = narration.phase == NarrationPhase.FAILED,
+                        )
+                        ObservationActions(
+                            primaryLabel = if (narrator.busy || speaking) "解説を止める" else "この星空を解説する",
+                            onPrimary = { toggleNarration() },
+                            onRecalibrate = onRecalibrate,
+                        )
+                    } else {
+                        // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
+                        // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
+                        ObservationPreview(
+                            preview,
+                            sending,
+                            transferMs,
+                            modifier = Modifier.fillMaxWidth(0.62f),
+                        )
+
+                        // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
+                        // 1 つも無いうちは出さない（使う機能だけを置く）
+                        if (nightSeen.isNotEmpty()) {
+                            NightRecordCard(
+                                entries = nightSeen,
+                                onAgain = { replayRecord(it) },
+                                onClear = {
+                                    NightRecord.clear()
+                                    log("今夜の記録を消した")
+                                },
+                            )
+                        }
+
+                        // 声で聞いたやり取り。**答えはここにしか残らない**（#38）
+                        if (askHistory.isNotEmpty()) {
+                            AskHistoryCard(
+                                exchanges = askHistory,
+                                onAgain = { replayAsk(it) },
+                                onClear = {
+                                    AskHistory.clear()
+                                    log("声のやり取りを消した")
+                                },
+                            )
+                        }
+
+                        SkyViewSettings(
+                            density = density,
+                            onDensityChange = { step ->
                                 density = step
+                                // 次の 1 枚で入れ替わるように、描いた視線を捨てる
                                 drawnLook = null
                                 log("空の濃さ: ${step.label}（${step.limitMagnitude} 等まで）")
                             },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.textButtonColors(
-                                containerColor = if (selected) Color(0xFF2D6A4F) else Color.Transparent,
-                            ),
-                        ) {
-                            Text(
-                                step.label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) Color.White else MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (showSatellites) "人工衛星: 星図に重ねる" else "人工衛星: 出さない",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Switch(checked = showSatellites, onCheckedChange = { toggleSatellites() })
-                }
-
-                Spacer(Modifier.height(16.dp))
-                StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
-                StatusRow(
-                    "方位合わせ",
-                    initialCalibration?.let {
-                        "${(System.currentTimeMillis() - it.calibratedAt) / 1000} 秒前・" +
-                            "方位±%.1f° / 仰角±%.1f°（%d件）".format(
-                                it.headingStdDeg,
-                                it.pitchStdDeg,
-                                it.sampleCount,
-                            )
-                    } ?: "まだ",
-                )
-            Spacer(Modifier.height(16.dp))
-            CommandButton("方位を合わせる", onClick = onRecalibrate)
-            Row {
-                OutlinedButton(
-                    onClick = { scope.launch { drawAndSend() } },
-                    modifier = Modifier.weight(1f),
-                ) { Text("いま送る") }
-                Spacer(Modifier.padding(4.dp))
-                OutlinedButton(
-                    onClick = {
-                        lastSentMap = null
-                        scope.launch {
-                            sendGate.withLock {
-                                commandManager.clearCanvas()
-                                shownElements = emptyList()
-                                log("表示を消した")
-                            }
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("表示を消す") }
-            }
-
-            Spacer(Modifier.height(16.dp))
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(8.dp)) {
-                    Text("ログ", style = MaterialTheme.typography.titleMedium)
-                    // 画面に出るのは直近 40 行だけ。長い計測はファイルに残っているので、
-                    // 何バイト溜まっているかを出して書き出しと消去へ導く
-                    Text(
-                        "記録 %.1f KB（画面は直近 %d 行）".format(logBytes / 1024.0, LOG_LINES),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (showArt) "星座絵: 出す（星より暗く敷く）" else "星座絵: 出さない",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = showArt,
-                            onCheckedChange = {
+                            showSatellites = showSatellites,
+                            onSatellitesChange = { toggleSatellites() },
+                            showArt = showArt,
+                            onArtChange = {
                                 showArt = it
-                                // 次の 1 枚で入れ替わるように、描いた視線を捨てる
                                 drawnLook = null
                                 log(if (it) "星座絵を出す" else "星座絵を消す")
                             },
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (showGuides) "目印: 地平線と方位（北東南西）を出す" else "目印: 出さない",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = showGuides,
-                            onCheckedChange = {
+                            showGuides = showGuides,
+                            onGuidesChange = {
                                 showGuides = it
                                 drawnLook = null
                                 log(if (it) "目印を出す" else "目印を消す")
                             },
                         )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Text("方位: ドリフト補正あり", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(4.dp))
-                    Spacer(Modifier.height(4.dp))
-                    // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
-                    // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (aiVoice) "声: AI 音声（落ち着いた解説員）" else "声: 端末の読み上げ",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
+
+                        BrightnessSettings(
+                            level = brightnessLevel,
+                            configured = brightnessConfigured,
+                            onLevelChange = { applyBrightness(it) },
                         )
-                        Switch(
-                            checked = aiVoice,
-                            onCheckedChange = {
+
+                        SoundSettings(
+                            aiVoice = aiVoice,
+                            onAiVoiceChange = {
                                 aiVoice = it
-                                voice.enabled = it
+                                soundPrefs.aiVoice = it
                                 voice.stop()
                                 log(if (it) "声: AI 音声にした" else "声: 端末の読み上げに戻した")
                             },
-                        )
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    // 適正な音量は場所（屋外の暗騒音）と機種で変わる。ここで合わせて覚えさせる
-                    Text(
-                        "読み上げの音量 %d%%".format((voiceVolume * 100).roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Slider(
-                        value = voiceVolume,
-                        onValueChange = { voiceVolume = it },
-                        onValueChangeFinished = { soundPrefs.voiceVolume = voiceVolume },
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            if (bgmOn) "BGM（いま ${bgmTrack?.label ?: "止まっている"}）" else "BGM なし",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = bgmOn,
-                            onCheckedChange = {
+                            voiceVolume = voiceVolume,
+                            onVoiceVolumeChange = { voiceVolume = it },
+                            onVoiceVolumeCommit = { soundPrefs.voiceVolume = voiceVolume },
+                            bgmOn = bgmOn,
+                            onBgmChange = {
                                 bgmOn = it
                                 soundPrefs.bgmEnabled = it
                                 log(if (it) "BGM を入れた" else "BGM を止めた")
                             },
+                            bgmVolume = bgmVolume,
+                            onBgmVolumeChange = { bgmVolume = it },
+                            onBgmVolumeCommit = { soundPrefs.bgmVolume = bgmVolume },
+                            bgmTrackLabel = bgmTrack?.label,
                         )
-                    }
-                    Text(
-                        "BGM の音量 %d%%（解説中は自動で下がる）".format((bgmVolume * 100).roundToInt()),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Slider(
-                        value = bgmVolume,
-                        onValueChange = { bgmVolume = it },
-                        onValueChangeFinished = { soundPrefs.bgmVolume = bgmVolume },
-                        enabled = bgmOn,
-                    )
-                    // CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えないので、
-                    // ここにも出しておく
-                    Text(
-                        "BGM: Silver Blue Light / Fluidscape by Kevin MacLeod " +
-                            "(incompetech.com) CC BY 4.0",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF8A9BA8),
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Row {
-                        OutlinedButton(
-                            onClick = {
+
+                        ObservationStatusCard(
+                            imuStarted = imuStarted,
+                            calibration = initialCalibration,
+                            siteSource = siteSource,
+                            latText = latText,
+                            onLatChange = { latText = it },
+                            lonText = lonText,
+                            onLonChange = { lonText = it },
+                            onLocate = { locateNow++ },
+                            onRecalibrate = onRecalibrate,
+                        )
+
+                        SessionLogCard(
+                            logBytes = logBytes,
+                            visibleLines = LOG_LINES,
+                            lines = logs,
+                            onExport = {
                                 val intent = sessionLog.shareIntent()
                                 if (intent == null) {
                                     log("記録がまだ空", failed = true)
@@ -1619,101 +1667,20 @@ fun StarMapScreen(
                                     context.startActivity(Intent.createChooser(intent, "記録を書き出す"))
                                 }
                             },
-                            modifier = Modifier.weight(1f),
-                        ) { Text("記録を書き出す") }
-                        Spacer(Modifier.padding(4.dp))
-                        OutlinedButton(
-                            onClick = {
+                            onClear = {
                                 sessionLog.clear()
                                 logs.clear()
                                 log("記録を消した。ここから計測しなおす")
                             },
-                            modifier = Modifier.weight(1f),
-                        ) { Text("記録を消す") }
+                        )
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 180.dp)
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        if (logs.isEmpty()) {
-                            Text("まだ何も送っていない", style = MaterialTheme.typography.bodySmall)
-                        }
-                        for (line in logs) {
-                            Text(
-                                "${line.at}  ${line.text}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (line.failed) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
+                    Spacer(Modifier.height(24.dp))
                 }
-            }
-
-            Spacer(Modifier.height(16.dp))
-                StatusRow("画面サイズ", "${STAR_MAP_WIDTH}×${STAR_MAP_HEIGHT}")
-                lastMap?.let {
-                    Text(
-                        "${it.width}×${it.height} / 描画 $renderMs ms / " +
-                            "転送 見積り $transferMs ms・実測 $waitMs ms",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                StatusRow("観測地", siteSource)
-                OutlinedButton(
-                    onClick = { locateNow++ },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("現在地を取り直す") }
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = latText,
-                    onValueChange = { latText = it },
-                    label = { Text("緯度") },
-                    isError = latText.toDoubleOrNull() == null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = lonText,
-                    onValueChange = { lonText = it },
-                    label = { Text("経度") },
-                    isError = lonText.toDoubleOrNull() == null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            Spacer(Modifier.height(24.dp))
-        }
             }
         }
     }
 }
 
-/** ログ 1 行。失敗だけ色を変えたいので持っておく */
-private data class LogLine(val at: String, val text: String, val failed: Boolean)
-
-@Composable
-private fun StatusRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.3f))
-        Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(0.7f))
-    }
-}
-
-/**
- * 1 パケット（200 バイト）を書き出すのにかかる時間。
- *
- * **実測は 8〜9ms**（528×330・圧縮後 6.1〜6.7KB を 12 回、実測 332〜390ms）。
- * 20ms だと見積りが倍以上になり、そのぶん次の絵を無駄に待っていた。
- *
- * 実測より少し多めの 10ms にしてある。短くしすぎても 0.6.0 の SDK が送信を直列化するので
- * 絵は壊れず順番待ちが伸びるだけなので、実測より少し多めの 10ms にしてある。
- */
 /**
  * 200 バイト 1 パケットの見積り時間。
  *
@@ -1724,6 +1691,37 @@ private const val PACKET_MS_DEFAULT = 9f
 
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
+
+/**
+ * 質問を待っている間の画面（#38）。**1 行目は言葉、2 行目は拾っている音。**
+ *
+ * 「聞いています」だけだと、**声が届いているのか黙って待たれているのか分からない**。
+ * 文字起こしは録り終わってから 1 回なので、喋っている最中に返せるのは音の大きさだけ。
+ */
+private fun askPrompt(level: Float): String = "質問をどうぞ。\n" + micMeter(level)
+
+/**
+ * 拾っている音の大きさを枠で描く。
+ *
+ * **グラスの字形は分からない**ので、JIS の記号（■□）だけで作る。
+ * しきい値（[jp.jig.glasses.sample.kmp.voice.GlassMic] が暗騒音から決める）で 1 に届くので、
+ * **枠が伸びていれば「声として拾えている」**ことになる。
+ */
+private fun micMeter(level: Float): String {
+    val filled = (level.coerceIn(0f, 1f) * MIC_METER_CELLS).roundToInt()
+    return "■".repeat(filled) + "□".repeat(MIC_METER_CELLS - filled)
+}
+
+/** 枠の数。1 行（17 文字）に収まる範囲で、伸び縮みが目で分かる長さ */
+private const val MIC_METER_CELLS = 8
+
+/**
+ * 音の大きさを送り直す間隔。
+ *
+ * マイクは毎秒 32,000 バイトを同じ BLE に流しているので、**枠の更新でその帯域を食わない**。
+ * 0.4 秒あれば声の強弱は目で追える。
+ */
+private const val MIC_METER_MS = 400L
 
 /**
  * ドリフトの材料を残す間隔。
@@ -1802,8 +1800,8 @@ private const val HISTORY_MS = 3_000L
  */
 private const val MARKER_INTERVAL_MS = 1_500L
 
-private const val SATELLITE_REFRESH_MS = 3_000L
-private const val CONSTELLATION_REFRESH_MS = 15_000L
+/** 空の暗さを測り直す間隔。薄暮から夜へ移るのは数十分かかる */
+private const val SKY_DARKNESS_REFRESH_MS = 15_000L
 
 /** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
 private const val STILL_DEG = 1.0
@@ -1844,6 +1842,22 @@ private const val SETTLE_MS = 80L
 private const val REDRAW_ROLL_DEG = 5.0
 
 /**
+ * 先出しの外挿をどれだけ割り引くか（0..1）。
+ *
+ * **行き過ぎるより届かないほうが安全。** 足りない分は止まったあとの描き直しが埋めるが、
+ * 行き過ぎた絵は「合っていない星図」として出たままになる。
+ */
+private const val PREDICT_DAMPING = 0.6
+
+/**
+ * 先出しを繰り返さない間隔。
+ *
+ * 首を振り続けている間に何枚も先出しすると、**転送のたびに画面が消えて点滅になる**
+ * （動きに追従させない理由そのもの）。転送 1 枚が 0.4 秒なので、その 3 倍を空ける。
+ */
+private const val PREDICT_COOLDOWN_MS = 1_200L
+
+/**
  * 首の傾きを寄せる速さ（0..1）。
  *
  * 加速度は 1 サンプルごとに揺れるので、そのまま使うと絵がぱたぱた回る。
@@ -1865,10 +1879,52 @@ private const val EXPLANATION_READ_MS = 25_000L
 /** 話が切り替わってから最初の 1 枚を送るまで。畳まれた古い本文を出さないための間 */
 private const val EXPLANATION_SEND_DEBOUNCE_MS = 150L
 
-/** 字幕を 1 枚出しておく最短の時間 */
-private const val EXPLANATION_PAGE_MIN_MS = 2_600L
+/**
+ * 1 枚目を出したあと、音が出るのを待つ上限。
+ *
+ * AI 音声の合成は 1〜2 秒。**待ちすぎるより先へ進むほうが害が小さい**（字幕だけで読む人が
+ * 主役の場面もある）ので、鳴らなければ黙読の速さでめくる。
+ */
+private const val EXPLANATION_SOUND_WAIT_MS = 3_000L
 
-/** 1 文字あたりのめくり時間。読み上げはおよそ 7 文字／秒 */
+/**
+ * 字幕を 1 枚出しておく最短の時間。
+ *
+ * 1 行ずつ流すようになったので、**下限も 1 行ぶん**。最後のほうに短い行が来たときに、
+ * 目に入る前に流れていくのを止めるためだけの値で、埋まった行（17 文字）では効かない。
+ */
+private const val EXPLANATION_PAGE_MIN_MS = 1_600L
+
+/** 1 文字あたりの送り時間。読み上げはおよそ 7 文字／秒 */
 private const val EXPLANATION_PAGE_PER_CHAR_MS = 150L
 
+/**
+ * 1 行流すごとに、次まで置く時間を何割ずつ延ばすか。
+ *
+ * **読み上げは文の切れ目で息が入る**が、字幕は 1 文字あたり一定で数えているので、
+ * **流すほど字幕が声より先へ出ていく**。1 行ごとに少しずつ長く置けば、そのぶんを取り返せる。
+ * 読む側から見ても、後ろの行ほど前の行を思い出しながら読むので、同じ速さでは追いつかない。
+ * **実機未確認**（読む速さは人と明るさで変わるので、合わなければここだけ直す）。
+ */
+private const val EXPLANATION_SCROLL_SLOWDOWN = 0.06
+
+/**
+ * 遅くする頭打ち。
+ *
+ * 際限なく遅くすると、**声が終わったあと字幕だけが延々と残る**。
+ * いちばん長い解説（16 行）でも、最後の行は 1.4 倍で頭打ちになる。
+ */
+private const val EXPLANATION_SCROLL_SLOWDOWN_MAX = 1.4
+
+/**
+ * 字幕を次の 1 行へ送るまでの時間。
+ *
+ * [revealed] はその 1 枚で新しく出た文字数（1 枚目だけ 2 行ぶん）、[step] は何枚目か。
+ * **Android に触らないので JVM テストで固定できる。**
+ */
+internal fun explanationDwellMs(revealed: Int, step: Int): Long {
+    val read = max(EXPLANATION_PAGE_MIN_MS, revealed * EXPLANATION_PAGE_PER_CHAR_MS)
+    val slowdown = min(1.0 + step * EXPLANATION_SCROLL_SLOWDOWN, EXPLANATION_SCROLL_SLOWDOWN_MAX)
+    return (read * slowdown).toLong()
+}
 

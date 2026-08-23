@@ -53,17 +53,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.jigglass.glass.GlassClient
-import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimate
-import jp.jig.glasses.sample.kmp.starmap.CalibrationEstimator
-import jp.jig.glasses.sample.kmp.starmap.CalibrationMarker
-import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
-import jp.jig.glasses.sample.kmp.starmap.Compass
-import jp.jig.glasses.sample.kmp.starmap.Locator
-import jp.jig.glasses.sample.kmp.starmap.MagneticQuality
-import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
-import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.cardinalDirection8
+import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimate
+import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimator
+import jp.jig.glasses.sample.kmp.alignment.CalibrationMarker
+import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.alignment.Compass
+import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.MagneticQuality
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.cardinalDirection8
+import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
+import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
+import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
+import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -347,6 +352,9 @@ fun CalibrationScreen(
         commit(measured)
     }
 
+    // 十字を丸に重ねている最中に消えると、やり直しになる
+    KeepScreenOn()
+
     Box(Modifier.fillMaxSize()) {
         SeasonalConstellationBackground(
             constellation = constellation,
@@ -537,7 +545,6 @@ fun CalibrationScreen(
         }
     }
 }
-
 
 @Composable
 private fun CompassDial(

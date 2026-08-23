@@ -1,8 +1,8 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.app.Activity
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,6 +32,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.jigglass.glass.GlassClient
 import app.jigglass.glass.GlassManager
+import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
+import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
+import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
+import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
