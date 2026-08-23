@@ -6,7 +6,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -18,10 +17,21 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
 class SingleFlightTest {
+    /**
+     * **`coroutineScope { }` で囲んではいけない。**
+     *
+     * [SingleFlight] は渡したスコープの子として [SupervisorJob] を作る（失敗で親を巻き込まない
+     * ため）。**`SupervisorJob` は自分では完了しない**ので、構造化並行性で子の完了を待つと
+     * そこで永久に止まる。囲んでいたときは `:app:testDebugUnitTest` が返ってこなくなり、
+     * **1 つのテストのせいで JVM テストを 1 件も確認できなかった。**
+     *
+     * アプリ側は画面のスコープを渡していて、画面を離れるとキャンセルが伝わるので同じことは起きない。
+     */
     @Test
     fun `同じキーの先読みは一度しか実行しない`() = runBlocking {
-        coroutineScope {
-            val singleFlight = SingleFlight<String>(this)
+        val scope = CoroutineScope(Job() + Dispatchers.Unconfined)
+        try {
+            val singleFlight = SingleFlight<String>(scope)
             val release = CompletableDeferred<Unit>()
             val calls = AtomicInteger()
 
@@ -35,6 +45,8 @@ class SingleFlightTest {
             release.complete(Unit)
             first.await()
             assertEquals(1, calls.get())
+        } finally {
+            scope.cancel()
         }
     }
 

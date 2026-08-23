@@ -404,7 +404,7 @@ class Sgp4(val tle: Tle) {
          */
         private const val AFSPC_MODE = true
 
-        /** グリニッジ平均恒星時[rad]。`Astro.kt` のものとは基準が違うので混ぜない */
+        /** グリニッジ平均恒星時[rad]。`sky/Coordinates.kt` のものとは基準が違うので混ぜない */
         fun gstime(jdut1: Double): Double {
             val tut1 = (jdut1 - 2451545.0) / 36525.0
             var temp = -6.2e-6 * tut1 * tut1 * tut1 + 0.093104 * tut1 * tut1 +

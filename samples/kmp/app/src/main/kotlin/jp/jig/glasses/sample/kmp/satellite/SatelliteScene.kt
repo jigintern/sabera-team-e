@@ -148,6 +148,137 @@ class SatelliteScene(
         return sightings.sortedByDescending { it.altDeg }.take(limit)
     }
 
+    /**
+     * これから空へ上がってくる 1 機ぶん。
+     *
+     * **「いま空に出ている」だけでは、待つという選択ができない。** 空が真っ暗な方角を
+     * 見上げていても、10 分後にそこを ISS が通るなら待つ価値がある。
+     */
+    class Pass(
+        val name: String,
+        /** 地平線から出る時刻と、いちばん高くなる時刻 */
+        val risesAtMillis: Long,
+        val peakAtMillis: Long,
+        /** 出る方角・いちばん高いところの方角・沈む方角 */
+        val riseAzDeg: Double,
+        val peakAzDeg: Double,
+        val setAzDeg: Double,
+        /** いちばん高いところの高度[度] */
+        val peakAltDeg: Double,
+        /** いちばん高いところで日が当たっているか。当たっていなければ肉眼では見えない */
+        val sunlitAtPeak: Boolean,
+    ) {
+
+        /** 「西 → 南東」。**どちらから来てどちらへ抜けるか**が分かれば待つ向きが決まる */
+        val path: String
+            get() = "${cardinalDirection16(riseAzDeg)} → ${cardinalDirection16(setAzDeg)}"
+
+        /** 「最大 62°（南南西）」 */
+        val peak: String
+            get() = "最大 ${peakAltDeg.roundToInt()}°（${cardinalDirection16(peakAzDeg)}）"
+
+        /** あと何分で上がってくるか。過ぎているぶんは 0 に丸めない（呼ぶ側で見分ける） */
+        fun risesInMinutes(nowMillis: Long): Double = (risesAtMillis - nowMillis) / 60_000.0
+    }
+
+    /**
+     * これから見えるパス。**近い順**に返す。
+     *
+     * 静止軌道と測位衛星は返らない。**同じ場所に居続けるものに「次のパス」は無い**し、
+     * 高度 20,000km の機体は上がってきても肉眼では点にもならないので、
+     * [PASS_MAX_RANGE_KM] より遠い機体は落とす。
+     *
+     * 1 機につき**最初に条件を満たすパス 1 本だけ**を返す。同じ機体の 2 本目を並べても、
+     * 見に行く判断は変わらない。
+     *
+     * @param include 機体名でさらに絞る。**名前で「なにか」が分かるものだけ**に使う（#36）
+     */
+    fun nextPasses(
+        observer: Observer,
+        epochMillis: Long,
+        withinMinutes: Double = PASS_WINDOW_MIN,
+        minPeakAltDeg: Double = PASS_MIN_PEAK_DEG,
+        limit: Int = PASS_LIMIT,
+        include: (String) -> Boolean = { true },
+    ): List<Pass> {
+        val steps = (withinMinutes / PASS_STEP_MIN).toInt()
+        val found = ArrayList<Pass>()
+        for (sgp4 in named) {
+            if (!include(sgp4.tle.name)) continue
+            // 上がってくるところが見たいので、いま既に出ている機体はこのパスを見送る
+            // （そちらは「いま空に出ている」の一覧に載っている）
+            var wasUp = true
+            var riseAt = 0L
+            var riseAz = 0.0
+            var peakAlt = -90.0
+            var peakAz = 0.0
+            var peakAt = 0L
+            var peakRange = Double.MAX_VALUE
+            var lastAz = 0.0
+            for (i in 0..steps) {
+                val at = epochMillis + (i * PASS_STEP_MIN * 60_000.0).toLong()
+                val state = sgp4.at(at) ?: break
+                val look = observer.look(state, at)
+                val up = look.altDeg > 0.0
+                if (up && !wasUp) {
+                    riseAt = at
+                    riseAz = look.azDeg
+                    peakAlt = look.altDeg
+                    peakAz = look.azDeg
+                    peakAt = at
+                    peakRange = look.rangeKm
+                }
+                if (up && riseAt != 0L) {
+                    if (look.altDeg > peakAlt) {
+                        peakAlt = look.altDeg
+                        peakAz = look.azDeg
+                        peakAt = at
+                        peakRange = look.rangeKm
+                    }
+                    lastAz = look.azDeg
+                }
+                // 沈んだ時点で 1 本が閉じる。低すぎるパスは捨てて次を探す
+                if (!up && wasUp && riseAt != 0L) {
+                    if (peakAlt >= minPeakAltDeg && peakRange <= PASS_MAX_RANGE_KM) {
+                        found += pass(sgp4, riseAt, riseAz, peakAt, peakAz, peakAlt, look.azDeg)
+                        break
+                    }
+                    riseAt = 0L
+                    peakAlt = -90.0
+                }
+                wasUp = up
+            }
+            // 窓の端でまだ空にいるぶんも出す。**沈むまで待って捨てると、
+            // いちばん近いパスが「窓に収まらなかった」だけで消える**
+            if (riseAt != 0L && found.none { it.name == sgp4.tle.name } &&
+                peakAlt >= minPeakAltDeg && peakRange <= PASS_MAX_RANGE_KM
+            ) {
+                found += pass(sgp4, riseAt, riseAz, peakAt, peakAz, peakAlt, lastAz)
+            }
+        }
+        return found.sortedBy { it.risesAtMillis }.take(limit)
+    }
+
+    private fun pass(
+        sgp4: Sgp4,
+        riseAt: Long,
+        riseAz: Double,
+        peakAt: Long,
+        peakAz: Double,
+        peakAlt: Double,
+        setAz: Double,
+    ): Pass = Pass(
+        name = sgp4.tle.name,
+        risesAtMillis = riseAt,
+        peakAtMillis = peakAt,
+        riseAzDeg = riseAz,
+        peakAzDeg = peakAz,
+        setAzDeg = setAz,
+        peakAltDeg = peakAlt,
+        // 日照はいちばん高いところで見る。そこがいちばん明るく、探すのもそこ
+        sunlitAtPeak = sgp4.at(peakAt)?.let { isSunlit(it, peakAt) } ?: false,
+    )
+
     /** 軌道要素を読めたか。assets が入っていないと空になる */
     val loaded: Boolean get() = named.isNotEmpty()
 
@@ -241,6 +372,35 @@ class SatelliteScene(
 
         /** 距離の振れ幅がこれ未満なら「動いていない」とみなす */
         private const val APPROACH_MIN_SPREAD = 0.005
+
+        /**
+         * パス予報を探す窓と刻み。
+         *
+         * ISS の周期が 92 分なので、90 分あれば低軌道の機体はおおむね 1 回は回ってくる。
+         * 刻みは 0.5 分。パスそのものが 10 分ほどなので、これで出る時刻は 30 秒の精度になる
+         * （待ち合わせに使うには十分で、名前つき 24 機 × 180 点なら伝播も数 ms）。
+         */
+        private const val PASS_WINDOW_MIN = 90.0
+        private const val PASS_STEP_MIN = 0.5
+
+        /**
+         * これ未満のパスは出さない[度]。
+         *
+         * **街中では 20° より下は建物と木で見えない。** 低いパスまで並べると、
+         * 出かけても見えないものを待つことになる。
+         */
+        private const val PASS_MIN_PEAK_DEG = 20.0
+
+        /**
+         * これより遠い機体はパスとして出さない[km]。
+         *
+         * 測位衛星（20,000km）と静止衛星（36,000km）を落とすための線。
+         * **遠い機体は上がってきても肉眼では見えず、「次はいつ」に意味が無い。**
+         */
+        private const val PASS_MAX_RANGE_KM = 2_500.0
+
+        /** 並べるパスの数。**近い順に数本**あれば待つかどうかは決められる */
+        private const val PASS_LIMIT = 4
 
         /** 名前を出す数。衛星モードでは星座名を出さないので、テキスト枠 8 個を丸ごと使える */
         const val MAX_NAMED = 8

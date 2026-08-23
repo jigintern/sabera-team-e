@@ -17,7 +17,7 @@ private const val WGS84_F = 1.0 / 298.257223563
 
 /** 観測地から見た衛星。星と違って**距離が効く**ので、視差を無視できない */
 class Topocentric(
-    /** 方位角[度]。真北 0°・東回り。`Astro.kt` と同じ約束 */
+    /** 方位角[度]。真北 0°・東回り。`sky/Coordinates.kt` と同じ約束 */
     val azDeg: Double,
     /** 高度[度]。地平線が 0 */
     val altDeg: Double,
@@ -31,7 +31,7 @@ class SubPoint(val latDeg: Double, val lonDeg: Double, val altitudeKm: Double)
 /**
  * 観測地。緯度経度は測位から、高さは海抜[km]。
  *
- * **星の座標変換（`Astro.kt`）とは別物。** 星は無限遠なので向きだけで決まるが、
+ * **星の座標変換（`sky/Coordinates.kt`）とは別物。** 星は無限遠なので向きだけで決まるが、
  * 衛星は数百 km しか離れていないので、**観測地の位置ベクトルを引かないと数度ずれる**。
  */
 class Observer(val latDeg: Double, val lonDeg: Double, val heightKm: Double = 0.0) {
