@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.util.Log
 import androidx.annotation.RawRes
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,8 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import jp.jig.glasses.sample.kmp.R
-import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
 
 /**
  * 流す曲。**空の暗さで選ぶ。**

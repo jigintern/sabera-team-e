@@ -39,75 +39,88 @@ import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
-import jp.jig.glasses.sample.kmp.BuildConfig
-import jp.jig.glasses.sample.kmp.ai.AskFacts
-import jp.jig.glasses.sample.kmp.ai.AskGuard
-import jp.jig.glasses.sample.kmp.ai.GlassMic
-import jp.jig.glasses.sample.kmp.ai.NarrationInput
-import jp.jig.glasses.sample.kmp.ai.OpenAiAsk
-import jp.jig.glasses.sample.kmp.ai.NarrationPhase
-import jp.jig.glasses.sample.kmp.ai.CloudVoice
-import jp.jig.glasses.sample.kmp.ai.Narrator
-import jp.jig.glasses.sample.kmp.ai.OpenAiRequestTrace
-import jp.jig.glasses.sample.kmp.ai.OpenAiSpeech
-import jp.jig.glasses.sample.kmp.ai.SatellitePass
-import jp.jig.glasses.sample.kmp.ai.Speaker
+import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.alignment.Located
+import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.YawDriftCorrector
+import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
+import jp.jig.glasses.sample.kmp.catalog.StarCatalog
+import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
+import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
+import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
+import jp.jig.glasses.sample.kmp.glass.GlassPage
+import jp.jig.glasses.sample.kmp.glass.GlassTextPage
+import jp.jig.glasses.sample.kmp.glass.LabelKind
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
+import jp.jig.glasses.sample.kmp.glass.SkyBodyMark
+import jp.jig.glasses.sample.kmp.glass.StarMap
+import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
+import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
+import jp.jig.glasses.sample.kmp.glass.constellationNames
+import jp.jig.glasses.sample.kmp.glass.toCanvasElements
+import jp.jig.glasses.sample.kmp.narration.AskGuard
+import jp.jig.glasses.sample.kmp.narration.NarrationInput
+import jp.jig.glasses.sample.kmp.narration.NarrationPhase
+import jp.jig.glasses.sample.kmp.narration.Narrator
+import jp.jig.glasses.sample.kmp.narration.SatellitePass
+import jp.jig.glasses.sample.kmp.openai.AskFacts
+import jp.jig.glasses.sample.kmp.openai.OpenAiAsk
+import jp.jig.glasses.sample.kmp.openai.OpenAiRequestTrace
+import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_PACKET_BYTES
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
-import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
-import jp.jig.glasses.sample.kmp.starmap.ConstellationLore
-import jp.jig.glasses.sample.kmp.starmap.GlassPage
-import jp.jig.glasses.sample.kmp.starmap.GlassTextPage
-import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
-import jp.jig.glasses.sample.kmp.starmap.azimuthFromYaw
-import jp.jig.glasses.sample.kmp.starmap.LabelKind
-import jp.jig.glasses.sample.kmp.starmap.Located
-import jp.jig.glasses.sample.kmp.starmap.Locator
-import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.SkyBodyMark
-import jp.jig.glasses.sample.kmp.starmap.SolarSystemBody
-import jp.jig.glasses.sample.kmp.starmap.bodiesInView
-import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
-import jp.jig.glasses.sample.kmp.starmap.ObservedStarFact
-import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.SessionLog
-import jp.jig.glasses.sample.kmp.starmap.Site
-import jp.jig.glasses.sample.kmp.starmap.StarCatalog
-import jp.jig.glasses.sample.kmp.starmap.StarMap
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_MAX_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_IMAGE_ID
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.YawDriftCorrector
-import jp.jig.glasses.sample.kmp.starmap.batched
-import jp.jig.glasses.sample.kmp.starmap.canvasBufferUsageBytes
-import jp.jig.glasses.sample.kmp.starmap.compressedSizeBytes
-import jp.jig.glasses.sample.kmp.starmap.constellationNames
+import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.MoonPhase
+import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
+import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.SkyDensity
+import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
+import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
+import jp.jig.glasses.sample.kmp.sky.bodiesInView
+import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.sky.moonPhase
+import jp.jig.glasses.sample.kmp.sky.normalizeDeg
+import jp.jig.glasses.sample.kmp.sky.rollFromAccel
+import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sound.Bgm
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
-import jp.jig.glasses.sample.kmp.starmap.MoonPhase
-import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
-import jp.jig.glasses.sample.kmp.starmap.SkyDensity
-import jp.jig.glasses.sample.kmp.starmap.moonPhase
-import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
-import jp.jig.glasses.sample.kmp.starmap.normalizeDeg
-import jp.jig.glasses.sample.kmp.starmap.rollFromAccel
-import jp.jig.glasses.sample.kmp.starmap.sunAltitudeDeg
-import jp.jig.glasses.sample.kmp.starmap.toCanvasElements
-import jp.jig.glasses.sample.kmp.starmap.updatesFrom
+import jp.jig.glasses.sample.kmp.support.SessionLog
+import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
+import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
+import jp.jig.glasses.sample.kmp.ui.component.LogLine
+import jp.jig.glasses.sample.kmp.ui.component.NarrationPanel
+import jp.jig.glasses.sample.kmp.ui.component.ObservationActions
+import jp.jig.glasses.sample.kmp.ui.component.ObservationPreview
+import jp.jig.glasses.sample.kmp.ui.component.ObservationStatusCard
+import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
+import jp.jig.glasses.sample.kmp.ui.component.SatellitesInSkyCard
+import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
+import jp.jig.glasses.sample.kmp.ui.component.SkyNowCard
+import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
+import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
+import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
+import jp.jig.glasses.sample.kmp.voice.CloudVoice
+import jp.jig.glasses.sample.kmp.voice.DeviceVoice
+import jp.jig.glasses.sample.kmp.voice.GlassMic
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
@@ -441,7 +454,6 @@ fun StarMapScreen(
      * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
      */
     var useMaxSize by remember(density, showArt, showGuides, showSatellites) { mutableStateOf(true) }
-
 
     /**
      * グラスに出しているページ。
@@ -868,7 +880,7 @@ fun StarMapScreen(
     // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない。
     // 端末の TextToSpeech は棒読みで**プラネタリウムの雰囲気を壊す**ので、
     // 普段は AI 音声で喋り、作れないときだけ端末の読み上げに落ちる（CloudVoice）
-    val speaker = remember { Speaker(context) }
+    val speaker = remember { DeviceVoice(context) }
     val voice = remember(speaker) {
         CloudVoice(
             context = context,
@@ -1706,5 +1718,4 @@ private const val EXPLANATION_PAGE_MIN_MS = 2_600L
 
 /** 1 文字あたりのめくり時間。読み上げはおよそ 7 文字／秒 */
 private const val EXPLANATION_PAGE_PER_CHAR_MS = 150L
-
 

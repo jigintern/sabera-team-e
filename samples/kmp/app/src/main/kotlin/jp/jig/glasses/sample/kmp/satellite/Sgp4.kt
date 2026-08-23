@@ -16,7 +16,7 @@ import kotlin.math.sqrt
  * 検算は `Sgp4Test` が参照実装の出力と突き合わせている。
  *
  * **周期 225 分以上（みちびき・ひまわりなど）は深宇宙の分岐に入る。**
- * そちらの係数は [DeepSpace] にある。
+ * そちらの係数は [Sdp4DeepSpace] にある。
  */
 class Sgp4(val tle: Tle) {
 
@@ -54,7 +54,7 @@ class Sgp4(val tle: Tle) {
     private var gsto = 0.0
 
     /** 深宇宙のときだけ作る。近地球では null */
-    private var deep: DeepSpace? = null
+    private var deep: Sdp4DeepSpace? = null
 
     init {
         // initl 相当
@@ -149,7 +149,7 @@ class Sgp4(val tle: Tle) {
 
             if (deepSpace) {
                 isimp = 1
-                val ds = DeepSpace()
+                val ds = Sdp4DeepSpace()
                 val tc = 0.0
                 ds.initCoefficients(
                     epoch = tle.epochDaysSince1950,
@@ -161,7 +161,7 @@ class Sgp4(val tle: Tle) {
                     np = noUnkozai,
                 )
                 // 参照実装はここで dpper を init='y' で呼ぶが、その場合は何も書き換えないので省く
-                val els = DeepSpace.Elements(
+                val els = Sdp4DeepSpace.Elements(
                     em = tle.ecco, argpm = 0.0, inclm = tle.inclo,
                     mm = 0.0, nm = noUnkozai, nodem = 0.0,
                 )
@@ -233,7 +233,7 @@ class Sgp4(val tle: Tle) {
 
         val ds = deep
         if (ds != null) {
-            val els = DeepSpace.Elements(
+            val els = Sdp4DeepSpace.Elements(
                 em = em, argpm = argpm, inclm = inclm, mm = mm, nm = nm, nodem = nodem,
             )
             ds.applyResonance(
@@ -273,7 +273,7 @@ class Sgp4(val tle: Tle) {
         var cosip = cosim
 
         if (ds != null) {
-            val perturbed = DeepSpace.Perturbed(
+            val perturbed = Sdp4DeepSpace.Perturbed(
                 ep = ep, inclp = xincp, nodep = nodep, argpp = argpp, mp = mp,
             )
             ds.applyPeriodics(tsince, tle.inclo, initializing = false, els = perturbed, afspc = AFSPC_MODE)

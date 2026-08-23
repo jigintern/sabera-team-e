@@ -1,15 +1,13 @@
 package jp.jig.glasses.sample.kmp.satellite
 
 import android.content.Context
-import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.SkyMotion
-import jp.jig.glasses.sample.kmp.starmap.SkyTrack
-import jp.jig.glasses.sample.kmp.starmap.cardinalDirection16
-import jp.jig.glasses.sample.kmp.starmap.enu
-import kotlin.math.roundToInt
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.sky.enu
 import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 /**
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。

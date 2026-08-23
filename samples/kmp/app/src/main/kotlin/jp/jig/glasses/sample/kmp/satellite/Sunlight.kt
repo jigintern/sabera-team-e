@@ -1,6 +1,6 @@
 package jp.jig.glasses.sample.kmp.satellite
 
-import jp.jig.glasses.sample.kmp.starmap.sunPosition
+import jp.jig.glasses.sample.kmp.sky.sunPosition
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin

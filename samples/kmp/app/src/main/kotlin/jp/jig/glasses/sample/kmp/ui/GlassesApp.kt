@@ -34,8 +34,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import app.jigglass.glass.GlassClient
 import app.jigglass.glass.GlassManager
+import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
+import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
+import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
+import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
+import jp.jig.glasses.sample.kmp.ui.component.rememberSeasonalConstellation
 import kotlinx.coroutines.delay
-import jp.jig.glasses.sample.kmp.starmap.CalibrationResult
 
 /**
  * ホームから観測を始め、未接続なら接続確認、接続済みなら方位合わせを経て星図へ進む。

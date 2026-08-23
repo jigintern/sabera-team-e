@@ -48,19 +48,40 @@
 
 ### アプリ内の責務
 
-| パス | 責務 |
+**パッケージは「何に答える場所か」で切っている。** 迷ったら、そのコードが壊れたときに
+何が起きるかで決める（星が違う位置に出る → `sky`、グラスに出ない → `glass`）。
+
+| パッケージ | 責務 |
 |---|---|
-| `ui/GlassesApp.kt` | 4 画面の遷移。画面は `AppScreen` で表し、整数を増やさない |
+| `sky/` | **空の計算。Android に触らない**（JVM テストで数字を固定できる）。座標変換・太陽・月惑星・IAU 境界・観測の既定値 |
+| `catalog/` | 同梱データ（`data/`）を読む。星表と 88 星座の解説文 |
+| `satellite/` | 軌道計算（SGP4/SDP4）と、いつどこに見えるか |
+| `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
+| `alignment/` | **星図を空に合わせるために端末が測るもの。** 方位・傾き・磁気の歪み・観測地 |
+| `narration/` | **何を喋るか。** 解説の組み立てと、声の質問の入口・出口の検査 |
+| `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
+| `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
+| `sound/` | BGM |
+| `support/` | どこにも属さない道具（観測ログ・重複送信の抑止） |
+| `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）。`ui/component/` は部品と色 |
+
+外せない置き場所：
+
+| ファイル | 責務 |
+|---|---|
+| `ui/GlassesApp.kt` | 4 画面の遷移と戻るキー。画面は `AppScreen` で表し、整数を増やさない |
 | `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下記へ委譲する |
-| `ui/ObservationComponents.kt` / `AppTheme.kt` | 星座・衛星で共通の表示部品と色 |
-| `starmap/GlassCanvasFrame.kt` | パネル寸法、画像バッファ、テキスト制限、RLEサイズ見積り |
-| `starmap/GlassTextPage.kt` | **AI解説専用画面の組版**（#40）。行は動かさず、文字は伸びる方向にしか変えない |
-| `starmap/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
-| `starmap/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
-| `starmap/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
-| `starmap/Ephemeris.kt` | 月と 8 惑星の位置計算。Android 非依存。**天体の位置はここだけ** |
-| `starmap/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
+| `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
+| `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLEサイズ見積り |
+| `glass/GlassTextPage.kt` | **AI解説専用画面の組版**（#40）。行は動かさず、文字は伸びる方向にしか変えない |
+| `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
+| `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
+| `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
+| `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
+| `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
+| `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
+| `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
 
 ## 開発コマンド
 
@@ -100,7 +121,7 @@ python3 tools/build-satellites.py        # data/ の TLE を取り直す
   **星を見に行く場所ほど電波が届かない**ので、その場で生成すると圏外で一言も出ない。
   文面を直すのは `tools/build-constellation-lore.py`（生成物は直接編集しない）
 - **声で聞き取った文を指示として扱わない**（#38）。囲い記号と改行を落として長さを切り、
-  区切りは端末が付ける（`ai/AskGuard.kt`）。**断り文も端末が持つ**（生成に左右させない）
+  区切りは端末が付ける（`narration/AskGuard.kt`）。**断り文も端末が持つ**（生成に左右させない）
 - **`optString` を JSON の null に使わない。** Android の org.json は**文字列 "null" を返す**が、
   JVM テストで使う本物の org.json は空を返す。**この取り違えはテストで絶対に落ちず、実機だけで壊れる**
   （実際に OpenAI の `refusal: null` を拒否と読み、本文を毎回捨てていた）。`isNull()` で見る
