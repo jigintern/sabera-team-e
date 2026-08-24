@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
@@ -68,13 +69,21 @@ internal fun NarrationPanel(
     subject: String,
     text: String,
     failed: Boolean,
+    modifier: Modifier = Modifier,
+    // **null = 高さを親に預ける。** 本文が余った縦を吸うので、後ろのボタンが下端へ落ちる。
+    // 横画面は縦幅が 350dp ほどしかなく、上限で切ると解説の下に何もない帯が残る
+    maxTextHeight: Dp? = 160.dp,
 ) {
+    val fill = maxTextHeight == null
     Card(
-        Modifier.fillMaxWidth(),
+        modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
-        Column(Modifier.padding(12.dp)) {
-            Text(status, color = MaterialTheme.colorScheme.primary)
+        // 親から高さをもらったときだけ縦も埋める（縦画面で入れると画面いっぱいに伸びる）
+        Column((if (fill) Modifier.fillMaxSize() else Modifier.fillMaxWidth()).padding(12.dp)) {
+            if (status.isNotEmpty()) {
+                Text(status, color = MaterialTheme.colorScheme.primary)
+            }
             if (subject.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(subject, style = MaterialTheme.typography.titleLarge)
@@ -82,7 +91,13 @@ internal fun NarrationPanel(
             Spacer(Modifier.height(8.dp))
             Text(
                 text,
-                modifier = Modifier.fillMaxWidth().heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.fillMaxWidth()
+                    // 直に null を見る（fill 経由だとスマートキャストが効かない）
+                    .then(
+                        if (maxTextHeight == null) Modifier.weight(1f)
+                        else Modifier.heightIn(max = maxTextHeight),
+                    )
+                    .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )

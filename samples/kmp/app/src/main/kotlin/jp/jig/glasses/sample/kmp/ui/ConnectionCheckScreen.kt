@@ -78,7 +78,7 @@ fun ConnectionCheckScreen(
             Spacer(Modifier.height(sectionGap))
 
             Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SaberaSurface),
             ) {
                 Column(
@@ -118,7 +118,7 @@ fun ConnectionCheckScreen(
             error?.let { message ->
                 Spacer(Modifier.height(16.dp))
                 Card(
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+                    modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xE65A2026)),
                 ) {
                     Text(
@@ -134,7 +134,7 @@ fun ConnectionCheckScreen(
             if (connected) {
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                     colors = connectionButtonColors(),
                 ) {
                     Text("星図へ進む")
@@ -160,7 +160,7 @@ fun ConnectionCheckScreen(
                         }
                     },
                     enabled = !scanning,
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                     colors = connectionButtonColors(),
                 ) {
                     Text(if (scanning) "接続中…" else "SABERAを接続する")

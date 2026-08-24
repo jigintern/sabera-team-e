@@ -54,7 +54,7 @@ fun HomeScreen(
             )
             Button(
                 onClick = onStart,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SaberaGreen,
                     contentColor = SaberaOnAccent,

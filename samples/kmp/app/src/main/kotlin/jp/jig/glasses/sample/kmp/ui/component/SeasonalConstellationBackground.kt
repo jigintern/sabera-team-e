@@ -43,6 +43,14 @@ fun rememberSeasonalConstellation(): ConstellationBackground {
     return candidates[selectedIndex]
 }
 
+/**
+ * 右下の星座名が要る高さ（余白 20dp ＋ labelMedium の行送り）。
+ *
+ * **上に板を重ねる側はここを空ける。** 数値を重ねる側に持たせると必ずずれるので、
+ * 名前を描いているこちらが宣言する。
+ */
+val BACKGROUND_LABEL_CLEARANCE = 40.dp
+
 @Composable
 fun SeasonalConstellationBackground(
     constellation: ConstellationBackground,
