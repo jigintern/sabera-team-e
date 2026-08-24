@@ -13,6 +13,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 圏外かどうかを喋り分けるために回線の状態を見る -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!--
+        読み上げと BGM の音量を、つまみの上限より上へ持ち上げる（LoudnessBoost）。
+        夜の屋外でスマホのスピーカーから鳴らすので、1.0 では足りない。
+        インストール時に付く権限で、実行時に聞かれることはない。
+    -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -27,10 +33,17 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Sabera">
 
+        <!--
+            縦固定。**回転で Activity が作り直されると観測がやり直しになる。**
+            星表の再読込だけでなく、グラスに置いたテキスト枠の記憶（shownElements）まで消えるので
+            前のラベルが画面に残り、解説画面を出している最中だと文字を消せなくなる。
+            方位合わせは「スマホを顔の前にかざす」操作なので、観測の入口がいちばん回転しやすい。
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

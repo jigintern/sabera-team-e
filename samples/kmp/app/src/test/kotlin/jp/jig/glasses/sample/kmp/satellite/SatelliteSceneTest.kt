@@ -1,18 +1,19 @@
 package jp.jig.glasses.sample.kmp.satellite
 
-import jp.jig.glasses.sample.kmp.starmap.Constellation
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_IMAGE_BUFFER_BYTES
-import jp.jig.glasses.sample.kmp.starmap.CANVAS_TEXT_SLOTS
-import jp.jig.glasses.sample.kmp.starmap.Look
-import jp.jig.glasses.sample.kmp.starmap.ObservationDefaults
-import jp.jig.glasses.sample.kmp.starmap.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.PANEL_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.Star
-import jp.jig.glasses.sample.kmp.starmap.StarCatalog
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_HEIGHT
-import jp.jig.glasses.sample.kmp.starmap.STAR_MAP_WIDTH
-import jp.jig.glasses.sample.kmp.starmap.StarMapRenderer
-import jp.jig.glasses.sample.kmp.starmap.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.catalog.Constellation
+import jp.jig.glasses.sample.kmp.catalog.Star
+import jp.jig.glasses.sample.kmp.catalog.StarCatalog
+import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
+import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
+import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
+import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.enu
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -162,9 +163,9 @@ class SatelliteSceneTest {
 
         // 視野の半分より外にいるものが混ざっていないか。
         // fovDeg は横幅なので、視線からの角度は半分＋余裕までしか入らない
-        val forward = jp.jig.glasses.sample.kmp.starmap.enu(away.azDeg, away.altDeg)
+        val forward = enu(away.azDeg, away.altDeg)
         for (t in tracks) {
-            val v = jp.jig.glasses.sample.kmp.starmap.enu(t.nowAzDeg, t.nowAltDeg)
+            val v = enu(t.nowAzDeg, t.nowAltDeg)
             val sep = Math.toDegrees(Math.acos((v dot forward).coerceIn(-1.0, 1.0)))
             val diagonalScale = hypot(1.0, PANEL_HEIGHT.toDouble() / PANEL_WIDTH)
             val limit = ObservationDefaults.STAR_MAP_FOV_DEG * 0.5 * diagonalScale * SatelliteScene.VIEW_MARGIN_SCALE

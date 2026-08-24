@@ -12,7 +12,7 @@ AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様
 |---|---|
 | **Android 実機** | **BLE 必須。エミュレータでは動かない** |
 | Android Studio / JDK 17 | |
-| Python 3 | 同梱データと天球シミュレータの生成 |
+| Python 3 | 同梱データの生成 |
 
 ### 2. GitHub PAT を設定する（最初の関門）
 
@@ -31,7 +31,7 @@ GitHubPackagesPassword=<read:packages を持つ PAT>
   **変えると認証されない**
 - **PAT は絶対にコミットしない**
 
-### 3. OpenAI の API キーを置く（AI 解説を使うときだけ）
+### 3. OpenAI の API キーを置く（読み上げの声を良くするときだけ）
 
 ```bash
 cp .env.example .env   # OPENAI_API_KEY= に手で書き込む
@@ -40,11 +40,10 @@ cp .env.example .env   # OPENAI_API_KEY= に手で書き込む
 - `.env` は `.gitignore` 済み。テンプレートの `.env.example` だけを追跡している
 - 探す順は `.env` → `local.properties` → `~/.gradle/gradle.properties`（`openAiApiKey`）→ 環境変数
 - **リポジトリの外に置きたいなら `~/.gradle/gradle.properties`**（SDK 取得の PAT と同じ場所）
-- **キーが無くてもビルドは通る。** 星図までは動き、タップすると「AI の設定がありません」と喋る
+- **キーは声にしか使わない。** 星座の解説文は 88 星座ぶん同梱してあるので
+  （`data/constellation-lore.json`）、**キーが無くても解説は最後まで喋る**。
+  変わるのは声だけで、端末の `TextToSpeech` に落ちる
 - **キーは APK に埋まる。** 逆コンパイルすれば読めるので、**配布せず手元の実機で動かす**前提
-- **モデルを変えたら `OPENAI_REASONING_EFFORT` も見直す。** 推論するモデルなら `none`、
-  推論を持たないモデル（`gpt-4o` など）なら**空**にする（送ると 400 で弾かれる）。
-  切り忘れると遅くなるうえ、**本文が空で返って「解説がうまく作れませんでした」になる**
 - **`.env` を書き換えたらビルドし直す。** 値は `BuildConfig` に焼かれるので、再起動では変わらない
 
 ### 4. 動かす

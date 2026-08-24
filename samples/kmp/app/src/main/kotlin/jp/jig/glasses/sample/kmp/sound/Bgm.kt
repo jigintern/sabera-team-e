@@ -5,6 +5,9 @@ import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.util.Log
 import androidx.annotation.RawRes
+import jp.jig.glasses.sample.kmp.R
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.support.LoudnessBoost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,8 +16,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import jp.jig.glasses.sample.kmp.R
-import jp.jig.glasses.sample.kmp.starmap.SkyDarkness
 
 /**
  * 流す曲。**空の暗さで選ぶ。**
@@ -74,6 +75,13 @@ class Bgm(
     private var volumeValue = DEFAULT_VOLUME
     private var duckedValue = false
 
+    /**
+     * 読み上げと**同じ量だけ**持ち上げる（[LoudnessBoost]）。
+     *
+     * 片方だけ上げると、解説と BGM のつり合い（[DUCK_FACTOR] で取ってある）が崩れる。
+     */
+    private val boost = LoudnessBoost()
+
     var enabled: Boolean
         get() = enabledValue
         set(value) {
@@ -106,6 +114,7 @@ class Bgm(
 
     fun release() {
         fade?.cancel()
+        boost.release()
         runCatching {
             player?.stop()
             player?.release()
@@ -122,6 +131,7 @@ class Bgm(
         scope.launch {
             gate.withLock {
                 rampNow(0f, FADE_MS)
+                boost.release()
                 runCatching {
                     player?.stop()
                     player?.release()
@@ -162,6 +172,7 @@ class Bgm(
                 created.isLooping = true
                 created.setVolume(0f, 0f)
                 applied = 0f
+                boost.attach(runCatching { created.audioSessionId }.getOrDefault(0))
                 runCatching { created.start() }
                 player = created
                 playing = next
