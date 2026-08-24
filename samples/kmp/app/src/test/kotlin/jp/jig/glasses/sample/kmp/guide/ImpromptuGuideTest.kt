@@ -135,4 +135,27 @@ class ImpromptuGuideTest {
         }
         assertTrue(lines.all { it.startsWith("次は") && it.endsWith("さそり座です。") })
     }
+
+    /**
+     * 探している間、星図のラベルに出す「どちらを向くか」。
+     *
+     * **喋る文と読む文が食い違わない**ことを固定する。騒がしい場所では文字が主役なので、
+     * 聞こえた言葉と読める言葉が違うと、どちらが正しいのか分からなくなる。
+     */
+    @Test
+    fun `ラベルの方角は喋る文と同じ語からできている`() {
+        for (altDeg in listOf(80.0, 50.0, 35.0, 22.0)) {
+            val target = constellation("さそり座", 202.5, altDeg)
+            val where = ImpromptuGuide.where(target)
+            val intro = ImpromptuGuide.intro(target)
+
+            // 「南南西 高いところ」の 2 語が、そのまま読み上げ文にも出ている
+            for (word in where.split(" ")) {
+                assertTrue("「$word」が読み上げ文に無い（$intro）", word in intro)
+            }
+            for (jargon in listOf("高度", "方位角", "等級", "度")) {
+                assertFalse("専門用語が出ている「$jargon」", jargon in where)
+            }
+        }
+    }
 }

@@ -808,7 +808,13 @@ fun StarMapScreen(
                 map = renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
             }
             guidanceSession?.let { guidance ->
-                map = map.withGuidanceLabel(guidance.target.nameJa, guidanceFrame?.arrived == true)
+                map = map.withGuidanceLabel(
+                    guidance.target.nameJa,
+                    guidanceFrame?.arrived == true,
+                    // ガイド中は**声で言った方角を文字にも残す**。声で頼んだ案内は
+                    // 「案内中」のまま（自分で名前を言った直後なので、方角だけが要る）
+                    where = guideProgress?.let { ImpromptuGuide.where(guidance.target) },
+                )
             }
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
@@ -1594,6 +1600,27 @@ fun StarMapScreen(
         withTimeoutOrNull(SPEECH_END_TIMEOUT_MS) { voice.speaking.first { !it } }
     }
 
+    /**
+     * 字幕を流し終わるまで次の段へ進まない（05_app-flow.md）。
+     *
+     * **読み上げは字幕より先に終わる。** 字幕は 1 行流すごとに 6% ずつ遅くしてあるので、
+     * 声が止まった時点で最後の数行はまだ出ていない。そこで進むと、
+     * [leaveGlassExplanation] が**読み切る前に消す**ことになる。
+     *
+     * 畳む条件（字幕・読み上げ・声の質問・5 秒の余韻）はワンタップ解説がすでに持っている。
+     * ここは「解説画面から出た」ことだけを待ち、**待ち方の規則を 2 か所に置かない**。
+     * 首の上下フリックで読み直せば向こうが数え直すので、**そのぶんツアーも待つ**。
+     *
+     * **手で送られたら待たない**（1 回タップの反応が鈍る）。
+     */
+    suspend fun awaitExplanationClosed(index: Int) {
+        if (guideIndex != index) return
+        withTimeoutOrNull(SUBTITLE_DRAIN_TIMEOUT_MS) {
+            snapshotFlow { glassPage to guideIndex }
+                .first { (page, current) -> page != GlassPage.EXPLANATION || current != index }
+        }
+    }
+
     fun startGuide(guide: StarGuide) {
         if (guide.steps.isEmpty()) return
         stopGuide("前のガイドを終了")
@@ -1664,8 +1691,16 @@ fun StarMapScreen(
                 val narrating = guideProgress?.copy(phase = GuidePhase.NARRATING)
                 guideProgress = narrating
                 // **進み具合の枠をグラスに増やさない**（8 つは星座名と月惑星で埋まる）。
-                // 見出しはもともと 1 行あるので、そこへ「3/5」を混ぜる
-                explanationHeading = "${step.step.targetName} ${narrating?.counter.orEmpty()}"
+                // 見出しはもともと 1 行あるので、そこへ「3/5」を混ぜる。
+                //
+                // **星座名はここに入れない。** 見出しは `state.constellation` と連結されるので、
+                // 入れると「さそり座　さそり座 3/5」と二重に出る（ワンタップは方角を入れている）。
+                //
+                // **高度は落とす。** 見出しは 1 行 17 文字で切られる。ワンタップと同じ
+                // 「南南西 45°」にすると、いちばん長い「みなみのかんむり座」で 21 文字になり、
+                // **後ろにある進み具合から先に消える**。着いたあとに要るのは度数より、
+                // ツアーのどこにいるかのほう
+                explanationHeading = "${cardinalDirection16(target.aim.azDeg)} ${narrating?.counter.orEmpty()}"
                 explanationSpoke = false
                 explanationDropped = 0
                 explanationPaging = false
@@ -1675,6 +1710,7 @@ fun StarMapScreen(
                 // 解説した星座は今夜の記録に残す（タップしたときと同じ扱い）
                 NightRecord.add(step.step.targetName, System.currentTimeMillis(), step.step.body)
                 awaitSpeech()
+                awaitExplanationClosed(index)
                 if (guideIndex == index) guideIndex = index + 1
             }
             guideProgress = null
@@ -2501,6 +2537,14 @@ private const val SPEECH_START_TIMEOUT_MS = 5_000L
  * ふつうは 100 文字を 15 秒ほどで読み終わる。
  */
 private const val SPEECH_END_TIMEOUT_MS = 90_000L
+
+/**
+ * 字幕が流れ切るのを諦めるまで。**ツアーを止めないための保険。**
+ *
+ * 字幕 16 行（22 秒ほど）＋ 最後の 1 枚の据え置き 6 秒 ＋ 余韻 5 秒でも 35 秒ほどなので、
+ * ここに掛かるのは何かが詰まったときだけ。
+ */
+private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
 
 /** 地平線すれすれは遮蔽物や大気で見つけにくいため、案内前に断りを入れる。 */
 private const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0

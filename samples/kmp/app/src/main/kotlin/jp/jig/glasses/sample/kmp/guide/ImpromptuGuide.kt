@@ -122,15 +122,24 @@ object ImpromptuGuide {
      * 星座の形をここで説明しない（グラスの星図がそのまま見せている）し、
      * **天文の言葉も使わない**（「高度 45 度」ではなく「高いところ」）。
      */
-    fun intro(target: GuidanceTarget): String {
-        val where = cardinalDirection16(target.aim.azDeg)
-        val height = when {
-            target.aim.altDeg >= 70.0 -> "ほとんど真上"
-            target.aim.altDeg >= 45.0 -> "高いところ"
-            target.aim.altDeg >= 30.0 -> "少し上のほう"
-            else -> "低いところ"
-        }
-        return "次は${where}の${height}、${target.nameJa}です。"
+    fun intro(target: GuidanceTarget): String =
+        "次は${cardinalDirection16(target.aim.azDeg)}の${heightWord(target.aim.altDeg)}、${target.nameJa}です。"
+
+    /**
+     * 探している間、星図のラベルに添える「どちらを向くか」。「南南西 高いところ」。
+     *
+     * **喋る文（[intro]）と同じ語から作る。** 騒がしい場所では文字が主役なので、
+     * 聞こえた言葉と読める言葉が食い違うと、どちらが正しいのか分からなくなる。
+     */
+    fun where(target: GuidanceTarget): String =
+        "${cardinalDirection16(target.aim.azDeg)} ${heightWord(target.aim.altDeg)}"
+
+    /** 高さの言い換え。**度で言わない**（初心者には何をすればよいか分からない） */
+    private fun heightWord(altDeg: Double): String = when {
+        altDeg >= 70.0 -> "ほとんど真上"
+        altDeg >= 45.0 -> "高いところ"
+        altDeg >= 30.0 -> "少し上のほう"
+        else -> "低いところ"
     }
 
     /**
