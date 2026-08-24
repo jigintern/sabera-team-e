@@ -318,4 +318,20 @@ class SatelliteSceneTest {
         // 超えたぶんは黙って落ちる（星座と分け合っていたころは 3 個までだった）
         assertTrue(SatelliteScene.MAX_NAMED <= 8)
     }
+
+    @Test
+    fun `案内中の衛星は同じIDのまま現在位置を更新する`() {
+        val scene = scene()
+        val now = System.currentTimeMillis()
+        val target = scene.guidanceTargets(observer, now) { it == "ISS" }.single()
+        val refreshed = checkNotNull(scene.refreshGuidanceTarget(target, observer, now + 10_000L))
+
+        assertEquals(target.id, refreshed.id)
+        assertEquals("ISS", refreshed.nameJa)
+        assertTrue("国際宇宙ステーションの別名が無い", "国際宇宙ステーション" in refreshed.aliases)
+        assertTrue(
+            "10秒後も衛星の案内位置が動いていない",
+            target.aim.azDeg != refreshed.aim.azDeg || target.aim.altDeg != refreshed.aim.altDeg,
+        )
+    }
 }

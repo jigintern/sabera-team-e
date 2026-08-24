@@ -4,6 +4,8 @@ import android.content.Context
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
+import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.enu
 import kotlin.math.hypot
@@ -146,6 +148,45 @@ class SatelliteScene(
             )
         }
         return sightings.sortedByDescending { it.altDeg }.take(limit)
+    }
+
+    /** 名前付き衛星を案内候補へ変える。地平線の下も断る根拠として返す。 */
+    fun guidanceTargets(
+        observer: Observer,
+        epochMillis: Long,
+        include: (String) -> Boolean = { true },
+    ): List<GuidanceTarget> = named.mapNotNull { sgp4 ->
+        if (!include(sgp4.tle.name)) return@mapNotNull null
+        val state = sgp4.at(epochMillis) ?: return@mapNotNull null
+        val look = observer.look(state, epochMillis)
+        GuidanceTarget(
+            id = "satellite:${sgp4.tle.noradId}",
+            nameJa = sgp4.tle.name,
+            kind = GuidanceTargetKind.SATELLITE,
+            aim = Look(look.azDeg, look.altDeg),
+            aliases = satelliteAliases(sgp4.tle.name),
+        )
+    }
+
+    /** 60秒の案内中に動く衛星だけ、同じIDから現在位置を引き直す。 */
+    fun refreshGuidanceTarget(
+        target: GuidanceTarget,
+        observer: Observer,
+        epochMillis: Long,
+    ): GuidanceTarget? {
+        if (target.kind != GuidanceTargetKind.SATELLITE) return target
+        val number = target.id.substringAfter("satellite:").toIntOrNull() ?: return null
+        val sgp4 = named.firstOrNull { it.tle.noradId == number } ?: return null
+        val state = sgp4.at(epochMillis) ?: return null
+        val look = observer.look(state, epochMillis)
+        return target.copy(aim = Look(look.azDeg, look.altDeg))
+    }
+
+    private fun satelliteAliases(name: String): Set<String> = when {
+        name == "ISS" -> setOf("国際宇宙ステーション", "きぼう")
+        name.startsWith("みちびき") -> setOf(name + "号", name.replace("R", "号機後継機"))
+        name.startsWith("ひまわり") -> setOf(name + "号")
+        else -> emptySet()
     }
 
     /**
