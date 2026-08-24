@@ -1475,6 +1475,13 @@ fun StarMapScreen(
         return null
     }
 
+    /** 転送キューが混んでいても、確認文が実際に届いてから1.5秒置いて適用する。 */
+    suspend fun showCommandConfirmation(text: String) {
+        narrator.progress("", text)
+        sendTextPage(GlassTextPage.explanation("", text))
+        delay(COMMAND_CONFIRM_MS)
+    }
+
     /** スマホ操作も音声と同じ確認表示と許可済みコマンドを通す。 */
     fun runPhoneCommand(command: SkyCommand, confirmation: String) {
         narrationJob?.cancel()
@@ -1486,8 +1493,7 @@ fun StarMapScreen(
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
         narrationJob = launchNarration("スマホ操作", "") {
-            narrator.progress("", confirmation)
-            delay(COMMAND_CONFIRM_MS)
+            showCommandConfirmation(confirmation)
             val error = applySkyCommand(command)
             if (error != null) {
                 simulationMessage = error
@@ -1700,8 +1706,7 @@ fun StarMapScreen(
                             return@launchNarration
                         }
                         // 解釈を見せてから適用する。聞き間違いのまま星図だけ変わる状態を作らない。
-                        narrator.progress(subject, parsed.confirmation)
-                        delay(COMMAND_CONFIRM_MS)
+                        showCommandConfirmation(parsed.confirmation)
                         val error = applySkyCommand(parsed.command)
                         if (error != null) {
                             narrator.cannotAnswer(subject, error)
