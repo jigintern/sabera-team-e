@@ -1,5 +1,7 @@
 package jp.jig.glasses.sample.kmp.glass
 
+import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+
 // グラスに出す 1 枚ぶんの星図と、その上に置く名前。
 // **絵と名前は 1 つの器で持ち歩く。** 別々に計算すると、グラスに「オリオン座」と
 // 出ているのに別の星座を喋る（#37）。解説の主役は constellationNames() の先頭。
@@ -12,6 +14,8 @@ package jp.jig.glasses.sample.kmp.glass
  * 種別を持たせずに先頭を取ると、月が視野にあるだけで主役が「月」になる。
  */
 enum class LabelKind {
+    /** 案内中の対象名。8枠の先頭へ予約する。 */
+    GUIDANCE,
     CONSTELLATION,
     BODY,
     SATELLITE,
@@ -51,6 +55,24 @@ data class SkyBodyMark(
     val moon: Boolean = false,
 )
 
+/**
+ * 流星群の放射点。
+ *
+ * **名前は焼かない**（テキスト枠は星座名と月惑星で埋まっている）。
+ * 中心から外へ短い線が伸びる印にして、**「ここから放射する」を形で読ませる**。
+ * 群の名前は一口メモ（`SkyTips`）が喋る。
+ */
+data class MeteorRadiantMark(val nameJa: String, val azDeg: Double, val altDeg: Double)
+
+/** 到着時に、通常の星図と同じ1枚へ焼き込む対象の強調。 */
+data class GuidanceHighlight(
+    val nameJa: String,
+    val kind: GuidanceTargetKind,
+    val azDeg: Double,
+    val altDeg: Double,
+    val arrived: Boolean,
+)
+
 class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: List<Label>)
 
 /**
@@ -61,3 +83,15 @@ class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: 
  */
 fun StarMap.constellationNames(): List<String> =
     labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
+
+/** 案内名は重なりで落とさないよう、テキスト枠の先頭へ置く。 */
+fun StarMap.withGuidanceLabel(name: String, arrived: Boolean): StarMap {
+    val text = if (arrived) "$name このあたり" else "$name 案内中"
+    val label = Label(text, width / 2, GUIDANCE_LABEL_Y_PX, LabelKind.GUIDANCE)
+    // 周囲の名前が並ぶと、どれへ向かっているかを読み違える。星と天体名は残し、
+    // 星座と大三角などの結びの名前だけを案内中は引く。
+    val focused = labels.filterNot { it.kind == LabelKind.CONSTELLATION || it.kind == LabelKind.ASTERISM }
+    return StarMap(width, height, gray, listOf(label) + focused)
+}
+
+private const val GUIDANCE_LABEL_Y_PX = 24

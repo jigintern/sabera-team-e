@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
@@ -28,19 +29,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GlassClient
 import app.jigglass.glass.GlassManager
+import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.glass.GlassTextArt
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.clearedCanvasText
+import jp.jig.glasses.sample.kmp.narration.SkyTips
+import jp.jig.glasses.sample.kmp.narration.tonightSky
+import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
 import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
 import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
 import jp.jig.glasses.sample.kmp.ui.component.rememberSeasonalConstellation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlin.random.Random
 
 /**
  * ホームから観測を始め、未接続なら接続確認、接続済みなら方位合わせを経て星図へ進む。
@@ -60,6 +77,24 @@ fun GlassesApp(manager: GlassManager) {
     var observingClient by remember { mutableStateOf<GlassClient?>(null) }
     var connectionLost by rememberSaveable { mutableStateOf(false) }
     val constellation = rememberSeasonalConstellation()
+    val context = LocalContext.current
+    val splashLogo = remember(context) {
+        requireNotNull(BitmapFactory.decodeResource(context.resources, R.drawable.hoshishirube_logo))
+    }
+
+    /**
+     * 起動直後にグラスへ出すひとことの番号。**起動ごとに変える。**
+     *
+     * 毎回同じ文が出ると、出ていること自体に気づかなくなる。
+     * `SkyTips` 側で件数の剰余を取るので、大きい数でよい。
+     */
+    val splashTip = remember { Random.nextInt(SPLASH_TIP_SPREAD) }
+
+    /**
+     * 起動直後の表示を送る口。**画面が変わるたびに作り直さない。**
+     * `createCommandManager()` は呼ぶたびに通知の購読を足すので、積み上がる。
+     */
+    val splashCommands = remember(connectedClient) { connectedClient?.createCommandManager() }
 
     /** 戻るキーで観測をやめようとしているか。**一度の誤操作で観測を畳まない** */
     var confirmLeaving by rememberSaveable { mutableStateOf(false) }
@@ -103,6 +138,57 @@ fun GlassesApp(manager: GlassManager) {
                 if (now - startedAt >= CONNECTION_LOST_GRACE_MS) connectionLost = true
             }
             delay(CONNECTION_CHECK_INTERVAL_MS)
+        }
+    }
+
+    /**
+     * ホームと接続確認の間、グラスに「星しるべ」と今日のひとことを出す。
+     *
+     * **つないでから最初の星図が届くまで、グラスは真っ暗だった。** ホームも接続確認も
+     * グラスへ一度も送っていなかったので、かけている人には**動いているのかどうかも
+     * 分からない**（「タップして無反応が一番よくない」と同じ話）。
+     *
+     * 採用ロゴとひとことを 1 枚の画像に焼く。ロゴの専用字形と本文の大きさを両立するには、
+     * フォントを指定できないテキスト枠では組めない。
+     *
+     * ひとことは**起動ごとに違うものから始める**（[splashTip]）。毎回同じ文が出ると、
+     * 出ていること自体に気づかなくなる。
+     *
+     * 観測地は既定値（[ObservationDefaults]）。**まだ測位していない**ので、
+     * 場所によって変わるメモは少しずれるが、ここは挨拶なので追わない。
+     */
+    LaunchedEffect(screen, connectedClient) {
+        val client = connectedClient
+        val greeting = screen == AppScreen.HOME || screen == AppScreen.CONNECTION
+        val commands = splashCommands
+        if (client == null || commands == null || !greeting) return@LaunchedEffect
+        val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
+        val tip = SkyTips.of(sky, splashTip)
+        // **画像に焼く。** テキスト枠では字の大きさを変えられないので、
+        // 専用ロゴと本文を中央に揃える組み方ができない
+        val art = withContext(Dispatchers.Default) {
+            GlassTextArt.splash(logo = splashLogo, body = tip.text)
+        }
+        try {
+            // **先にテキスト枠を掃除する。** ファームは消すまで文字を持ち続けるので、
+            // 前に動いていたときの星座名などが残っていると、この画像に重なって出る（実機で踏んだ）
+            commands.sendCanvasElements(clearedCanvasText())
+            // **動かないので 1 回だけ送る。** 1 枚 332〜390ms かかるが、置いておくだけなら気にならない
+            commands.sendCanvasImage(
+                id = STAR_MAP_IMAGE_ID,
+                x = (PANEL_WIDTH - art.width) / 2,
+                y = (PANEL_HEIGHT - art.height) / 2,
+                width = art.width,
+                height = art.height,
+                grayscale = art.gray,
+            )
+            awaitCancellation()
+        } finally {
+            // **消してから次の画面へ渡す。** 方位合わせは別の id（十字）を送るので、
+            // ここを残すと十字の裏に挨拶が残ったままになる
+            withContext(NonCancellable) {
+                runCatching { commands.removeCanvasImage(STAR_MAP_IMAGE_ID) }
+            }
         }
     }
 
@@ -303,6 +389,9 @@ private enum class AppScreen {
     CALIBRATION,
     STAR_MAP,
 }
+
+/** 起動ごとのひとことを散らす幅。件数より十分大きければよい */
+private const val SPLASH_TIP_SPREAD = 1_000
 
 private const val CONNECTION_CHECK_INTERVAL_MS = 1_000L
 private const val CONNECTION_LOST_GRACE_MS = 2_000L

@@ -13,7 +13,7 @@ import kotlin.math.tan
 
 /**
  * 座標変換パイプラインの ①〜⑤。
- * 仕様は docs/team-e/coordinate-system.md。Android に依存しないので JVM テストから直接叩ける。
+ * 仕様は docs/team-e/03_coordinate-system.md。Android に依存しないので JVM テストから直接叩ける。
  *
  * world 座標系は ENU（X=東 / Y=北 / Z=天頂）、方位角は北 = 0° の東回り、右手系。
  * ここを変えると全段の符号が狂うので、規約はこのファイルだけに置く。

@@ -1,91 +1,89 @@
-# SABERA team-e
+# 星しるべ
 
-> jig.jp サマーインターン SABERA コース
+> 空にかざしたSABERAへ星座を重ね、見ている星空を音声で案内するアプリ
 
-## 概要
+## できること
 
-**空にかざすと視界と星座が重なり、AI に頼むと今見えている星座を解説してくれるアプリ**
+- スマホのセンサーとSABERAの6DoFから、見ている方向を求める
+- 星・星座線・星座名・月・惑星・人工衛星をSABERAへ重ねる
+- ツルを1回タップして、見ている星座の解説を聞く
+- 解説文をSABERAへ字幕で表示し、スマホから読み上げる
+- ツルを長押しして、星空について声で質問する
+- 88星座の解説を端末へ同梱し、圏外でも案内する
 
-- スマホのセンサーとグラスの 6DoF から視野内の星座を割り出す
-- グラスに星図と星座名を出す
-- ツルを 1 回タップすると、その星座の解説が返ってきて読み上げられる
-- **人工衛星モード**に切り替えると、いま空を通っている衛星を同じ座標で出す
+## 画面プレビュー
 
-## 進捗状況
+### スマホ
 
-- 実装は `samples/kmp/app`
-- 仕様は [docs/team-e/index.md](docs/team-e/index.md)
+<img src="docs/images/smartphone-home.png" alt="星しるべのスマホホーム画面" width="280">
 
-| | 状態 |
-|---|---|
-| 星図をグラスに出す | **実機で確認済み。** キャンバスに 528×330、星座名はテキストで手前に重ねる |
-| 首の向きに追従する | **実機で確認済み。** 首が止まってから 1 枚（転送中は前の絵が消える） |
-| 方位合わせ | **実機で確認済み。** グラスの十字とスマホのマーカーを重ねる |
-| 観測地の測位 | **実機で確認済み。** 融合 → GPS → 基地局。取れなければ手入力 |
-| 星座解説と読み上げ | **同梱の解説文**（88 星座）を読み上げ、グラスの解説専用画面へ文字で出す。**通信は要らない**。**実機確認待ち** |
-| 衛星の軌道計算（SGP4 / SDP4） | **JVM テストのみ。** 参照実装と 4mm 差。24 機＋スターリンク 10,748 機を同梱 |
-| 衛星の描画とモード切り替え | **実機未確認** |
-| 設定画面からの明るさ調節 | **実機で調整中。** 手動5段階。設定後に星図を再送して反映する |
+- 採用ロゴ、季節の星座、開始ボタンを表示する
+- 実装と同じ素材・色・配置から作ったプレビュー
+- 作り直し：`java -Djava.awt.headless=true tools/compose-phone-preview.java`
 
-## 開発の仕方
+### SABERA
 
-1. [CONTRIBUTING.md](CONTRIBUTING.md) を読む
-2. **GitHub PAT を設定する**（これが無いとビルドが通らない → [docs/github-pat.md](docs/github-pat.md)）
-3. **Android 実機**を用意する（BLE 必須。エミュレータでは動かない）
+![SABERAに表示する星図](docs/images/glass-star-map.png)
+
+- 黒い部分は光らず、肉眼の空が透けて見える
+- 星座線と実際の星がつながる位置へ表示する
+- 首が止まってから星図を更新し、転送中の点滅を抑える
+
+![SABERAの解説画面](docs/images/glass-caption.png)
+
+- 解説中は星図を消し、1枚3行の字幕を1行ずつ送る
+- 1回タップすると星図へ戻る
+- 読み上げと字幕が終わると、5秒後に自動で戻る
+- 画像は見え方の説明用で、実機の写真ではない
+
+## 実装状況
+
+- **実機確認済み**
+  - 星図と星座名の表示
+  - 首の向きへの追従
+  - 方位合わせ
+  - 観測地の測位
+- **実装済み・実機確認待ち**
+  - 星座解説の字幕と読み上げ
+  - 音声での質問
+  - 人工衛星の描画
+  - 採用ロゴのスマホ・ランチャー・SABERA表示
+- **JVMテスト済み**
+  - 座標変換
+  - 星座判定
+  - 衛星の軌道計算（SGP4 / SDP4）
+
+最新の状態は [仕様書の入口](docs/team-e/00_index.md) を参照。
+
+## 動かす
+
+- Android実機とSABERAを用意する
+- JDK 17とAndroid Studioを入れる
+- private SDK取得用のGitHub PATを設定する
+- 詳細は [CONTRIBUTING.md](CONTRIBUTING.md) を読む
 
 ```bash
 cd samples/kmp
 ./gradlew :app:installDebug
 ```
 
-- 読み上げを AI 音声にするなら `cp .env.example .env` して `OPENAI_API_KEY` を書く
-  （**無くても解説は喋る**。端末の読み上げに落ちるだけ）
+- `OPENAI_API_KEY`はAI音声と声の質問にだけ使う
+- APIキーがなくても、同梱の解説と端末の読み上げで動く
+- 秘密情報はリポジトリへコミットしない
 
-## リポジトリの歩き方
+## 開発者向けリンク
 
-| パス | 中身 |
-|---|---|
-| [AGENTS.md](AGENTS.md) | 技術的な前提・SDK の制約・未決定事項。AI エージェント向けだが人間が読んでもよい |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 環境構築・進め方・コミット規約・困ったとき |
-| [docs/team-e/index.md](docs/team-e/index.md) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
-| `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
-| `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
-| `tools/` | 同梱データの生成スクリプト |
-| [docs/github-pat.md](docs/github-pat.md) | privateなSDKを取得するためのPAT設定 |
-
-## SDK について
-
-- このアプリは **Sabera App SDK**（`jp.jig.sabera.app.sdk:sabera-app-core`）の上に作る
-- 上流 → [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk) /
-- 公開ドキュメント → **<https://jig-sabera.github.io/sabera-sdk/>**
-
-- **0.6.0 まで取り込み済み**
-- team-e が使っている主な API — `sendCanvasImage`（星図）/ `sendCanvasElements`（星座名）/
-  `imuData`（6DoF）/ `gestureEvents`（ツルの操作）
-- **グラスから音は鳴らせない**（スピーカーが無い）。読み上げはスマホから
-- 制約の詳細 → [グラス出力の制約](docs/team-e/glass-output.md)
-
-SDKの使い方・APIリファレンス・追加履歴は
-[上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を正とする。
-このリポジトリには[GitHub PATの作り方](docs/github-pat.md)だけを置く。
-
-### SDK の取得設定
-
-private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている。
-**`read:packages` スコープの PAT が要る。** `~/.gradle/gradle.properties` に置く：
-
-```properties
-GitHubPackagesUsername=<GitHubのユーザー名>
-GitHubPackagesPassword=<read:packages を持つ PAT>
-```
-
-**Android 実機のみを対象にしている。** iOS 向けの SPM 定義（`Package.swift`）は
-上流でも SDK 0.0.10 のまま追従していないので、team-e では撤去した。
+- [仕様・実装状況](docs/team-e/00_index.md)
+- [グラス出力の制約](docs/team-e/02_glass-output.md)
+- [画面遷移とジェスチャー](docs/team-e/05_app-flow.md)
+- [コードとデータの地図](docs/team-e/10_code-map.md)
+- [実装上の落とし穴](docs/team-e/11_pitfalls.md)
+- [実機で測った数字](docs/team-e/12_measurements.md)
+- [コントリビューションガイド](CONTRIBUTING.md)
+- [Sabera App SDK 公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)
 
 ## ライセンス
 
-| 対象 | ライセンス |
-|---|---|
-| このリポジトリのサンプル・ラッパーコード | [Apache License 2.0](LICENSE) |
-| Sabera App SDK 本体（AAR / XCFramework） | **SDK 利用規約**（Apache 2.0 の対象外） |
-| 同梱の星表データ（d3-celestial / XHIP） | BSD-3-Clause。帰属は [NOTICE](NOTICE) |
+- サンプル・ラッパーコード： [Apache License 2.0](LICENSE)
+- Sabera App SDK本体：SDK利用規約（Apache License 2.0の対象外）
+- 同梱の星表データ：BSD-3-Clause。帰属は [NOTICE](NOTICE)

@@ -45,9 +45,18 @@ class StarCatalog(
     val milkyWay: List<List<DoubleArray>> = emptyList(),
 ) {
     companion object {
-        fun load(context: Context): StarCatalog {
+        fun load(context: Context): StarCatalog = parse { context.readAsset(it) }
+
+        /**
+         * 読み口を差し替えられる本体。
+         *
+         * **Android から切り離してあるのは、JVM でも同じ星表を読めるようにするため。**
+         * 実機に入れる assets と `data/` の JSON は同じものなので、
+         * ドキュメント用の見本画像（`DocumentImagesTest`）も同じ経路で描ける。
+         */
+        fun parse(readAsset: (String) -> String): StarCatalog {
             val stars = ArrayList<Star>(2000)
-            JSONObject(context.readAsset("stars.json")).getJSONArray("stars").let { arr ->
+            JSONObject(readAsset("stars.json")).getJSONArray("stars").let { arr ->
                 for (i in 0 until arr.length()) {
                     val s = arr.getJSONArray(i)
                     stars += Star(s.getInt(0), s.getDouble(1), s.getDouble(2), s.getDouble(3))
@@ -55,7 +64,7 @@ class StarCatalog(
             }
 
             val constellations = ArrayList<Constellation>(88)
-            JSONObject(context.readAsset("constellations.json")).getJSONArray("constellations").let { arr ->
+            JSONObject(readAsset("constellations.json")).getJSONArray("constellations").let { arr ->
                 for (i in 0 until arr.length()) {
                     val c = arr.getJSONObject(i)
                     val lines = c.getJSONArray("lines")
@@ -74,14 +83,14 @@ class StarCatalog(
             }
 
             val names = HashMap<Int, String>()
-            JSONObject(context.readAsset("bright-stars.json")).getJSONArray("stars").let { arr ->
+            JSONObject(readAsset("bright-stars.json")).getJSONArray("stars").let { arr ->
                 for (i in 0 until arr.length()) {
                     val s = arr.getJSONObject(i)
                     names[s.getInt("hip")] = s.getString("nameJa")
                 }
             }
 
-            val boundaryJson = JSONObject(context.readAsset("constellation-boundaries.json"))
+            val boundaryJson = JSONObject(readAsset("constellation-boundaries.json"))
             val boundaryRows = ArrayList<ConstellationBoundary>(boundaryJson.getInt("count"))
             boundaryJson.getJSONArray("boundaries").let { arr ->
                 for (i in 0 until arr.length()) {
@@ -102,7 +111,7 @@ class StarCatalog(
             // 星座絵は無くても動く。**追加し忘れても星図は出る**ようにしておく
             val figures = HashMap<String, ConstellationFigure>()
             runCatching {
-                JSONObject(context.readAsset("constellation-figures.json"))
+                JSONObject(readAsset("constellation-figures.json"))
                     .getJSONObject("figures")
             }.getOrNull()?.let { obj ->
                 for (abbr in obj.keys()) {
@@ -124,7 +133,7 @@ class StarCatalog(
             // 結びと天の川も無くても動く（データを足し忘れても星図は出る）
             val asterisms = ArrayList<Asterism>()
             val milkyWay = ArrayList<List<DoubleArray>>()
-            runCatching { JSONObject(context.readAsset("asterisms.json")) }.getOrNull()?.let { json ->
+            runCatching { JSONObject(readAsset("asterisms.json")) }.getOrNull()?.let { json ->
                 json.optJSONArray("asterisms")?.let { arr ->
                     for (i in 0 until arr.length()) {
                         val a = arr.getJSONObject(i)

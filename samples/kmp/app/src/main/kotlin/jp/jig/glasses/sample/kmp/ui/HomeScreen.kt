@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,9 +17,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import jp.jig.glasses.sample.kmp.ui.component.AppNameTextStyle
+import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
@@ -40,11 +43,12 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
-            Text(
-                text = "星しるべ",
-                style = AppNameTextStyle,
-                color = Color.White,
-                textAlign = TextAlign.Center,
+            // 間隔と中央寄せは Column の arrangement が持つ（横で weight の空きを積まない）
+            Image(
+                painter = painterResource(R.drawable.hoshishirube_logo),
+                contentDescription = "星しるべ",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(96.dp),
             )
             Text(
                 text = "星空を、もっと身近に。",

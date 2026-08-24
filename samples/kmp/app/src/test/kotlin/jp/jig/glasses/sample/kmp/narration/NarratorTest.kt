@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * **タップして無反応が一番よくない**（app-flow.md）ので、どの経路でも必ず何か喋ることを押さえる。
+ * **タップして無反応が一番よくない**（05_app-flow.md）ので、どの経路でも必ず何か喋ることを押さえる。
  * 読み上げは [Voice] を差し替えて、喋った内容を文字で受け取る。
  */
 class NarratorTest {

@@ -5,6 +5,7 @@ import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /** 一口メモ 1 つ。[header] はグラスの見出し 1 行、[text] は本文（読み上げる文でもある） */
@@ -35,6 +36,52 @@ object SkyTips {
         val moonAltDeg: Double,
         /** 地平線より上にいる月・惑星（明るい順）。`bodiesUp` の結果をそのまま渡す */
         val bodiesUp: List<ObservedStarFact>,
+        /**
+         * これから上がってくる人工衛星。**近いものが 1 機だけ**。
+         *
+         * 呼ぶ側が `SatelliteScene.nextPasses` から詰め替える（ここは衛星の計算に触らない）。
+         */
+        val risingPass: RisingPass? = null,
+        /** その日に活動している流星群。無ければ null */
+        val shower: ActiveShower? = null,
+    )
+
+    /**
+     * これから上がってくる 1 機。
+     *
+     * **「いま空に出ている」だけでは、待つという選択ができない。**
+     * 真っ暗な方角でも、10 分後にそこを ISS が通るなら待つ価値がある。
+     */
+    class RisingPass(
+        val nameJa: String,
+        val inMinutes: Double,
+        /**
+         * 出る方角と抜ける方角。
+         *
+         * `SatelliteScene.Pass.path`（「西 → 南東」）を**そのまま使わない**。
+         * ここは読み上げる文なので、矢印が記号のまま読まれてしまう。
+         */
+        val riseDirection: String,
+        val setDirection: String,
+        val peakAltDeg: Int,
+        val peakDirection: String,
+        /** いちばん高いところで日が当たっているか。当たっていなければ肉眼では見えない */
+        val sunlit: Boolean,
+    )
+
+    /**
+     * その日の流星群と、いまの放射点の位置。
+     *
+     * [zhr] は**理想条件**の 1 時間あたりの出現数なので、喋るときは必ず条件を断る。
+     */
+    class ActiveShower(
+        val nameJa: String,
+        val zhr: Int,
+        val nearPeak: Boolean,
+        /** 極大まであと何日。過ぎていればマイナス */
+        val daysToPeak: Int,
+        val radiantAzDeg: Double,
+        val radiantAltDeg: Double,
     )
 
     /**
@@ -55,6 +102,9 @@ object SkyTips {
      * 「星は 1 時間に 15 度動く」のような、いつ押しても同じことは後ろに置く。
      */
     fun candidates(sky: Sky): List<SkyTip> = listOfNotNull(
+        // **時間が決まっているものが先。** 待てば見えるものは、待つと決められるうちに言う
+        risingPass(sky),
+        shower(sky),
         darkness(sky),
         moon(sky),
         planet(sky),
@@ -62,6 +112,74 @@ object SkyTips {
         place(sky),
         motion(sky),
     )
+
+    /**
+     * まもなく上がってくる人工衛星。**呼ぶ側が近いパスに絞って渡す**ので、あれば必ず先頭。
+     *
+     * 出る方角と抜ける方角を言うのは、**待つ向きが決まらないと待てない**から。
+     */
+    private fun risingPass(sky: Sky): SkyTip? {
+        val pass = sky.risingPass ?: return null
+        val minutes = ceil(pass.inMinutes).toInt().coerceAtLeast(1)
+        return SkyTip(
+            "まもなく人工衛星",
+            "あと%d分で%sが上がってきます。%sから%sへ抜けて、いちばん高いところは高度%d度、%sです。".format(
+                minutes,
+                pass.nameJa,
+                pass.riseDirection,
+                pass.setDirection,
+                pass.peakAltDeg,
+                pass.peakDirection,
+            ) + if (pass.sunlit) {
+                "日が当たっているので、動く光として肉眼でも見えます。"
+            } else {
+                "ただし地球の影に入るので、肉眼では見えません。"
+            },
+        )
+    }
+
+    /**
+     * その日の流星群。**「今夜がいちばん多い日」は見に行く理由そのもの。**
+     *
+     * **専門用語を使わない。** 「極大」「放射点」「ZHR」は天文の言葉で、
+     * **使う人は天文の初心者**（AGENTS.md）。言われても何をすればよいか分からない。
+     * 極大は「いちばんよく流れる日」、放射点は「流れ星のもと」と言い換える。
+     *
+     * **もとを見つめさせない。** 流れ星は空全体に出るし、もとのすぐそばに出るものは
+     * 短くて目立たない。方角を言うのは「どちらの空が主役か」を伝えるため。
+     */
+    private fun shower(sky: Sky): SkyTip? {
+        val shower = sky.shower ?: return null
+        val where = if (shower.radiantAltDeg < 0.0) {
+            "流れ星のもとになるあたりは、まだ地平線の下です。昇ってくるほど数が増えるので、夜がふけてからのほうがよく見えます。"
+        } else {
+            "流れ星は%sの空、高度%d度あたりを中心に、空じゅうへ飛び出します。".format(
+                cardinalDirection16(shower.radiantAzDeg),
+                shower.radiantAltDeg.roundToInt(),
+            )
+        }
+        // 数を言うのはいちばん多い日のころだけ。**外れた日の見積りは当てにならない**
+        val howMany = when {
+            shower.nearPeak ->
+                "街あかりの無いところなら、1時間に%d個ほど見えます。".format(shower.zhr)
+
+            // **過ぎた日を「あと -11 日」と言わない。** 活動期間は極大よりずっと長いので、
+            // 極大のあとに開く日のほうがむしろ多い（実機のログで踏んだ）
+            shower.daysToPeak > 0 ->
+                "いちばん多い日まで、あと%d日です。".format(shower.daysToPeak)
+
+            else -> "いちばん多い日は過ぎましたが、まだ流れています。"
+        }
+        val lead = if (shower.nearPeak) {
+            "今夜は${shower.nameJa}が、いちばんよく流れる日です。"
+        } else {
+            "いまは${shower.nameJa}の時季です。"
+        }
+        return SkyTip(
+            "今夜の流れ星",
+            lead + where + howMany + "一点を見つめるより、そのまわりを広く眺めるほうが、長い流れ星に出会えます。",
+        )
+    }
 
     /** いまの空がどれだけ暗いか。**暗さで「何を探せるか」が決まる** */
     private fun darkness(sky: Sky): SkyTip = when {
@@ -79,14 +197,14 @@ object SkyTips {
 
         sky.sunAltDeg > -18.0 -> SkyTip(
             "空の明るさ",
-            "まだ薄明が残っています。太陽が地平線の下十八度まで沈むと、" +
-                "空はいちばん暗くなり、見える星が一気に増えます。",
+            "日が沈んだあとの明るさが、まだ空に残っています。" +
+                "あと少しで空はいちばん暗くなり、見える星が一気に増えます。",
         )
 
         else -> SkyTip(
             "いちばん暗い空",
-            "太陽は地平線の下十八度より深くにいます。今夜これ以上暗くはならないので、" +
-                "天の川をねらうならいまです。",
+            "いま空はいちばん暗い状態です。これ以上暗くはならないので、" +
+                "天の川をさがすならいまです。",
         )
     }
 
@@ -114,8 +232,8 @@ object SkyTips {
 
             else -> SkyTip(
                 "今夜の月",
-                "今夜は${name}で、月齢はおよそ${age}日。" +
-                    "欠けぎわのクレーターがいちばん立体的に見えるころです。",
+                "今夜は${name}で、新月から数えて${age}日目。" +
+                    "光と影の境目では、クレーターの影がいちばん長く伸びて見えます。",
             )
         }
     }
@@ -180,14 +298,14 @@ object SkyTips {
         return if (sky.site.latDeg > 0.0) {
             SkyTip(
                 "この場所の空",
-                "ここは北緯およそ${degrees}度。北極星は真北の高度${degrees}度にあって、" +
-                    "空はその一点を軸に回っています。",
+                "北極星は真北の空、高度${degrees}度あたりにあります。" +
+                    "ほかの星はみんな、その一点を中心にゆっくり回っています。",
             )
         } else {
             SkyTip(
                 "この場所の空",
-                "ここは南緯およそ${degrees}度。北極星は見えず、" +
-                    "空は南の天の極を軸に回っています。",
+                "ここからは北極星が見えません。星は南の空にある一点を中心に、" +
+                    "ゆっくり回っています。",
             )
         }
     }
@@ -203,8 +321,8 @@ object SkyTips {
         } else {
             SkyTip(
                 "星の動き",
-                "星は一時間に十五度ずつ、東から西へ動きます。" +
-                    "同じ星を同じ場所で見るなら、一か月あとには二時間早い時刻になります。",
+                "腕をのばした握りこぶし一つが、およそ十度。" +
+                    "星は一時間にその一つ半ぶん、東から西へ動きます。",
             )
         }
 }

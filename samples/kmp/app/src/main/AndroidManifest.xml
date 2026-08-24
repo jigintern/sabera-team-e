@@ -29,7 +29,9 @@
 
     <application
         android:name=".SaberaApplication"
+        android:icon="@mipmap/ic_launcher"
         android:label="星しるべ"
+        android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.Sabera">
 

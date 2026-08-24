@@ -26,4 +26,5 @@ jobs:
           python3 tools/build-constellation-lore.py
           python3 tools/build-constellation-figures.py
           python3 tools/build-asterisms.py
+          python3 tools/build-meteor-showers.py
           git diff --exit-code -- data/

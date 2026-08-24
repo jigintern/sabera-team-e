@@ -29,9 +29,6 @@ internal val MPlusRoundedFontFamily = FontFamily(
 
 private val DefaultTypography = Typography()
 
-/** アプリ名だけは書体を検討中のため、Material 3の既定スタイルを維持する。 */
-internal val AppNameTextStyle = DefaultTypography.displaySmall.copy(fontFamily = FontFamily.Default)
-
 /** サイズ・行間・字間は既定値のまま、用途に応じて書体とウェイトだけを揃える。 */
 internal val SaberaTypography = DefaultTypography.copy(
     displayLarge = DefaultTypography.displayLarge.withMPlusRounded(FontWeight.Bold),
