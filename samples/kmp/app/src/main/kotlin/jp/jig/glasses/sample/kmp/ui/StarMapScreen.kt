@@ -57,6 +57,9 @@ import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
 import jp.jig.glasses.sample.kmp.glass.GlassPage
 import jp.jig.glasses.sample.kmp.glass.GlassTextPage
+import jp.jig.glasses.sample.kmp.glass.GuidanceHighlight
+import jp.jig.glasses.sample.kmp.glass.GUIDANCE_OVERLAY_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.GUIDANCE_OVERLAY_SIZE
 import jp.jig.glasses.sample.kmp.glass.MeteorRadiantMark
 import jp.jig.glasses.sample.kmp.glass.LabelKind
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
@@ -73,8 +76,10 @@ import jp.jig.glasses.sample.kmp.glass.batched
 import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
 import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
 import jp.jig.glasses.sample.kmp.glass.constellationNames
+import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
+import jp.jig.glasses.sample.kmp.glass.withGuidanceLabel
 import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.narration.NarrationInput
 import jp.jig.glasses.sample.kmp.narration.NarrationPhase
@@ -88,6 +93,13 @@ import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.GuidanceEvent
+import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
+import jp.jig.glasses.sample.kmp.sky.GuidanceRequest
+import jp.jig.glasses.sample.kmp.sky.GuidanceRequestParser
+import jp.jig.glasses.sample.kmp.sky.GuidanceSession
+import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
+import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
@@ -97,6 +109,7 @@ import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.sky.bodiesInView
 import jp.jig.glasses.sample.kmp.sky.bodiesUp
+import jp.jig.glasses.sample.kmp.sky.bodyGuidanceTargets
 import jp.jig.glasses.sample.kmp.sky.bodyAltAz
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
@@ -106,6 +119,7 @@ import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import jp.jig.glasses.sample.kmp.sky.rollFromAccel
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
+import jp.jig.glasses.sample.kmp.sky.update
 import jp.jig.glasses.sample.kmp.sound.Bgm
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.support.AskHistory
@@ -115,6 +129,7 @@ import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
 import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
 import jp.jig.glasses.sample.kmp.ui.component.LogLine
 import jp.jig.glasses.sample.kmp.ui.component.NarrationPanel
@@ -331,6 +346,8 @@ fun StarMapScreen(
      * 溜まったぶんだけ何行も飛ぶと**どこを読んでいたか分からなくなる**。
      */
     val subtitleNudges = remember { Channel<HeadFlick>(Channel.CONFLATED) }
+    /** `HOLD`で開いたマイクを、次の`SINGLE_TAP`で確定する合図。古いタップは溜めない。 */
+    val voiceSubmits = remember { Channel<Unit>(Channel.CONFLATED) }
     val headFlick = remember { HeadFlickDetector() }
     var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
     var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
@@ -418,6 +435,12 @@ fun StarMapScreen(
     // **前のフレームの要素そのもの**を持つ。数だけだと、短い名前に変わったときに
     // 前の名前の末尾が消え残る（実機で「る」が右上に残った）
     var shownElements by remember { mutableStateOf(emptyList<CommandManager.CanvasElement>()) }
+
+    /** 音声で指定された1対象だけを追う。星図の描画状態とは混ぜない。 */
+    var guidanceSession by remember { mutableStateOf<GuidanceSession?>(null) }
+    var guidanceFrame by remember { mutableStateOf<GuidanceFrame?>(null) }
+    // 開始・到着・終了では、首が6°動かなくても星図のラベルと強調を入れ替える。
+    var guidanceRevision by remember { mutableStateOf(0) }
 
     // 6DoF のサンプルが着いた時刻。初回受信待ちとログに使う
     var lastImuAt by remember { mutableStateOf(0L) }
@@ -526,7 +549,9 @@ fun StarMapScreen(
      * 入るかどうかは**空の濃さと向き**で変わる。1 度でも溢れたらその設定では諦めて標準へ落とし、
      * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
      */
-    var useMaxSize by remember(density, showArt, showGuides, showSatellites) { mutableStateOf(true) }
+    var useMaxSize by remember(
+        density, showArt, showGuides, showSatellites, guidanceSession?.target?.id,
+    ) { mutableStateOf(guidanceSession == null) }
 
     /**
      * グラスに出しているページ。
@@ -557,6 +582,8 @@ fun StarMapScreen(
 
     /** 声で聞いている最中か。**重ねて始めない**（マイクは 1 本しかない） */
     var asking by remember { mutableStateOf(false) }
+    /** `SINGLE_TAP`を送信として扱うのは、マイクが実際に開いている間だけ。 */
+    var recordingVoice by remember { mutableStateOf(false) }
 
     /** マイクの音の大きさ（0..1）。スマホ側に出して「聞こえている」ことを見せる */
     var micLevel by remember { mutableStateOf(0f) }
@@ -695,6 +722,8 @@ fun StarMapScreen(
                 listOf(MeteorRadiantMark(it.nameJa, aa[0], aa[1]))
             }.orEmpty()
             suspend fun renderAt(w: Int, h: Int) = withContext(Dispatchers.Default) {
+                val guidance = guidanceSession
+                val frame = guidanceFrame
                 r.render(
                     site = site,
                     epochMillis = now,
@@ -706,7 +735,7 @@ fun StarMapScreen(
                     // 星座線と星座名は切れるようにしていない。**線が無いと星座に見えず、
                     // 名前が無いと解説の主役も決まらない**（主役はラベルの先頭・#37）
                     drawLines = true,
-                    maxLabels = CANVAS_TEXT_SLOTS,
+                    maxLabels = CANVAS_TEXT_SLOTS - if (guidance == null) 0 else 1,
                     tracks = tracks,
                     drawStars = true,
                     drawFigures = showFigures,
@@ -716,18 +745,32 @@ fun StarMapScreen(
                     bodies = bodies,
                     rollDeg = glassRoll,
                     radiants = radiants,
+                    guidanceHighlight = if (guidance != null) {
+                        GuidanceHighlight(
+                            nameJa = guidance.target.nameJa,
+                            kind = guidance.target.kind,
+                            azDeg = guidance.target.aim.azDeg,
+                            altDeg = guidance.target.aim.altDeg,
+                            arrived = frame?.arrived == true,
+                        )
+                    } else {
+                        null
+                    },
                 )
             }
             // **上限いっぱいで描く。** 入るかどうかは空の濃さと向きで変わるので、
             // 送る前に同じ式で数えて、溢れたときだけ標準サイズへ落とす
             var map = renderAt(
-                if (useMaxSize) STAR_MAP_MAX_WIDTH else STAR_MAP_WIDTH,
-                if (useMaxSize) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
+                if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_WIDTH else STAR_MAP_WIDTH,
+                if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
             )
             if (useMaxSize && map.canvasBufferUsageBytes() > CANVAS_IMAGE_BUFFER_BYTES) {
                 useMaxSize = false
                 log("${STAR_MAP_MAX_WIDTH}×${STAR_MAP_MAX_HEIGHT} では入らないので落とす")
                 map = renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
+            }
+            guidanceSession?.let { guidance ->
+                map = map.withGuidanceLabel(guidance.target.nameJa, guidanceFrame?.arrived == true)
             }
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
@@ -737,7 +780,17 @@ fun StarMapScreen(
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
             val compressed = map.compressedSizeBytes()
-            val used = map.canvasBufferUsageBytes()
+            val overlayUsage = if (guidanceSession == null) {
+                0
+            } else {
+                val overlay = guidanceOverlay(
+                    guidanceFrame ?: GuidanceFrame(
+                        guidanceSession!!.target.nameJa, 180.0, 0.0, near = false, arrived = false,
+                    ),
+                )
+                GUIDANCE_OVERLAY_SIZE * GUIDANCE_OVERLAY_SIZE * 2 + overlay.compressedBytes
+            }
+            val used = map.canvasBufferUsageBytes() + overlayUsage
             transferMs = ((compressed + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES) * packetMs.toLong()
             if (used > CANVAS_IMAGE_BUFFER_BYTES) {
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
@@ -855,7 +908,7 @@ fun StarMapScreen(
      */
     var settled by remember { mutableStateOf(true) }
     val headMotion = remember { HeadMotion() }
-    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density) {
+    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, guidanceRevision) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var previous = look()
@@ -1088,6 +1141,7 @@ fun StarMapScreen(
         sendGate.withLock {
             withContext(NonCancellable) {
                 runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
+                runCatching { commandManager.removeCanvasImage(GUIDANCE_OVERLAY_IMAGE_ID) }
             }
         }
         narrator.state.collectLatest { state ->
@@ -1246,7 +1300,7 @@ fun StarMapScreen(
      *
      * **声で聞いている間は数えない**（#38）。聞き取りと回答は喋らないので [speaking] は false のまま、
      * 途中経過はどれも `SPEAKING` なので鍵も変わらない。つまり「聞いています」から一度も
-     * 数え直さずに 25 秒が過ぎる。録音 12 秒＋文字起こし＋回答で超えると、
+     * 数え直さずに 25 秒が過ぎる。録音は最大30秒で、文字起こし＋回答まで含めると超えるため、
      * **答えが届く前に星図へ戻り、字幕の組版ごと畳まれて答えが声だけになる。**
      */
     LaunchedEffect(glassPage, speaking, narration.phase, explanationPaging, asking) {
@@ -1345,7 +1399,77 @@ fun StarMapScreen(
         }
     }
 
+    /** 「ふつう」の星図で名前を持つものだけを、現在地・現在時刻の案内候補にする。 */
+    suspend fun guidanceTargetsAt(epochMillis: Long): List<GuidanceTarget> = withContext(Dispatchers.Default) {
+        val observer = Observer(site.latDeg, site.lonDeg)
+        buildList {
+            renderer?.let { addAll(it.guidanceTargets(site, epochMillis, SkyDensity.STANDARD)) }
+            addAll(bodyGuidanceTargets(site, epochMillis))
+            if (showSatellites) {
+                satellites?.let { scene ->
+                    addAll(
+                        scene.guidanceTargets(observer, epochMillis) { name ->
+                            NOTABLE_SATELLITES.any { name.startsWith(it) }
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /** 案内の小画像と状態を片付ける。星図本体は追従ループが通常表示へ焼き直す。 */
+    fun stopGuidance(reason: String, speech: String? = null) {
+        val active = guidanceSession != null || guidanceFrame != null
+        guidanceSession = null
+        guidanceFrame = null
+        if (active) {
+            guidanceRevision++
+            drawnLook = null
+            voice.stop()
+            log(reason)
+        }
+        speech?.let(voice::say)
+        scope.launch {
+            sendGate.withLock {
+                withContext(NonCancellable) {
+                    runCatching { commandManager.removeCanvasImage(GUIDANCE_OVERLAY_IMAGE_ID) }
+                }
+            }
+        }
+    }
+
+    /** 確認を1秒だけ見せてから、星図と案内矢印へ戻す。 */
+    suspend fun beginGuidance(target: GuidanceTarget) {
+        if (target.aim.altDeg <= 0.0) {
+            narrator.cannotAnswer(target.nameJa, "${target.nameJa}は、いま地平線の下にあります。")
+            log("案内できない: ${target.nameJa}は地平線の下")
+            return
+        }
+        val warning = when {
+            target.aim.altDeg < GUIDANCE_LOW_ALTITUDE_DEG -> "地平線近くで見つけにくいですが、"
+            skyDarkness != SkyDarkness.NIGHT -> "空が明るく見つけにくいですが、"
+            else -> ""
+        }
+        val confirmation = "$warning${target.nameJa}を案内します。"
+        narrator.progress(target.nameJa, confirmation)
+        voice.say(confirmation)
+        delay(GUIDANCE_CONFIRMATION_MS)
+
+        val now = System.currentTimeMillis()
+        val initial = GuidanceSession(target, now).update(look(), target.aim, glassRoll, now)
+        guidanceSession = initial.session
+        guidanceFrame = initial.frame
+        guidanceRevision++
+        drawnLook = null
+        narrator.reset()
+        glassPage = GlassPage.STAR_MAP
+        log("案内開始: ${target.nameJa} 方位${target.aim.azDeg.roundToInt()}° 高度${target.aim.altDeg.roundToInt()}°")
+    }
+
     fun startNarration() {
+        if (guidanceSession != null) {
+            stopGuidance("解説を始めるため案内を終了")
+        }
         val r = renderer
         if (r == null) {
             log("星表がまだ読めていない", failed = true)
@@ -1417,15 +1541,17 @@ fun StarMapScreen(
     }
 
     /**
-     * 声で聞く（#38）。**ホールドで始めて、黙ったら終わり。**
+     * 声で聞く（#38）。**ホールドで始めて、シングルタップで送る。**
      *
-     * ジェスチャーは 1 回のイベントなので「離したら終わり」にはできない。
+     * ジェスチャーは 1 回のイベントなので「離したら終わり」にはできない。次のタップを終了合図にする。
      * 聞き取りと回答は数秒かかるため、**その間じゅう解説画面に途中経過を出す**。
      * ここだけは通信が要る（同梱の解説と違い、自由な質問はその場で作るしかない）。
      */
     fun askByVoice() {
         val r = renderer ?: return
         if (asking) return
+        val replacedGuidance = guidanceSession != null
+        if (replacedGuidance) stopGuidance("新しい音声入力のため案内を終了")
         val shown = lastMap?.takeIf { lastMapLook != null }
         val basis = lastMapLook ?: latchedLook()
         // **質問の間は星座名も方角も出さない。** 見出しに名前が出ていると、聞いたことと
@@ -1443,6 +1569,8 @@ fun StarMapScreen(
         glassPage = GlassPage.EXPLANATION
 
         asking = true
+        // 前回の時間切れ直後に届いたタップを、次の質問の送信として使わない。
+        while (voiceSubmits.tryReceive().isSuccess) Unit
         // **マイクと通信はいちばん落ちやすい経路。** startMicStreaming が投げただけで
         // アプリが終わっては、質問どころではなくなる（[launchNarration] が受け止める）
         narrationJob = launchNarration("質問", subject) {
@@ -1456,27 +1584,37 @@ fun StarMapScreen(
                 // からなので、喋っている最中に「届いているのか」を返せるのはこれだけ。
                 // 声が小さくて枠が伸びないなら、そのまま黙って待たれるより言い直せる
                 var meterAt = 0L
-                val recording = mic.record { level ->
-                    micLevel = level
-                    val at = System.currentTimeMillis()
-                    // マイクは毎秒 32,000 バイトを同じ BLE に流している。**枠の送り直しで
-                    // その帯域を食わない**ように、目で追える速さまで落とす
-                    if (at - meterAt >= MIC_METER_MS) {
-                        meterAt = at
-                        narrator.progress(subject, askPrompt(level))
+                recordingVoice = true
+                val recording = try {
+                    mic.record(voiceSubmits) { level ->
+                        micLevel = level
+                        val at = System.currentTimeMillis()
+                        // マイクは毎秒 32,000 バイトを同じ BLE に流している。**枠の送り直しで
+                        // その帯域を食わない**ように、目で追える速さまで落とす
+                        if (at - meterAt >= MIC_METER_MS) {
+                            meterAt = at
+                            narrator.progress(subject, askPrompt(level))
+                        }
                     }
+                } finally {
+                    recordingVoice = false
                 }
                 micLevel = 0f
                 // **しきい値が屋外で合っているかはこの行でしか分からない。**
                 // 暗騒音が高い夜は「上限まで録り切ったのに声 0ms」として出る
                 log(
-                    "録音 %dバイト・声%dms・暗騒音%.0f→しきい値%.0f".format(
+                    "録音 %dバイト・声%dms・暗騒音%.0f→しきい値%.0f・%s".format(
                         recording.pcm.size,
                         recording.speechMs,
                         recording.noiseFloorRms,
                         recording.thresholdRms,
+                        if (recording.submitted) "タップ送信" else "時間切れ",
                     ),
                 )
+                if (!recording.submitted) {
+                    narrator.cannotAnswer(subject, "時間切れになりました。もう一度お願いします。")
+                    return@launchNarration
+                }
                 if (recording.speechMs == 0L) {
                     narrator.cannotAnswer(subject, "聞き取れませんでした。もう一度お願いします。")
                     return@launchNarration
@@ -1498,6 +1636,34 @@ fun StarMapScreen(
                 log("質問: $question")
                 narrator.progress(subject, "「$question」")
                 val observedAt = System.currentTimeMillis()
+                val guidanceRequest = GuidanceRequestParser.parse(
+                    question,
+                    guidanceTargetsAt(observedAt),
+                )
+                when (guidanceRequest) {
+                    is GuidanceRequest.Start -> {
+                        beginGuidance(guidanceRequest.target)
+                        return@launchNarration
+                    }
+                    GuidanceRequest.Stop -> {
+                        val message = if (replacedGuidance) {
+                            "案内を終了しました。"
+                        } else {
+                            "いま案内中の天体はありません。"
+                        }
+                        narrator.retell("案内", message, what = "案内終了")
+                        return@launchNarration
+                    }
+                    GuidanceRequest.UnknownTarget -> {
+                        narrator.cannotAnswer(subject, "その名前の天体は案内対象に見つかりませんでした。")
+                        return@launchNarration
+                    }
+                    GuidanceRequest.MultipleTargets -> {
+                        narrator.cannotAnswer(subject, "案内できるのは一度に一つです。天体を一つ選んでください。")
+                        return@launchNarration
+                    }
+                    GuidanceRequest.NotGuidance -> Unit
+                }
                 val names = shown?.constellationNames()?.take(NARRATION_CONSTELLATIONS).orEmpty()
                     .ifEmpty { withContext(Dispatchers.Default) { r.constellationsNear(site, observedAt, basis) } }
                 val facts = AskFacts(
@@ -1527,6 +1693,7 @@ fun StarMapScreen(
                 narrator.answer(subject, reply)
             } finally {
                 asking = false
+                recordingVoice = false
                 micLevel = 0f
             }
         }
@@ -1546,6 +1713,7 @@ fun StarMapScreen(
      * 圏外でも 1 回目に鳴ったものはそのまま鳴る。グラスにも字幕で出す（#40 と同じ道）。
      */
     fun replayRecord(entry: NightRecord.Seen) {
+        if (guidanceSession != null) stopGuidance("記録を読み直すため案内を終了")
         narrationJob?.cancel()
         narrationJob = null
         narrator.reset()
@@ -1596,6 +1764,7 @@ fun StarMapScreen(
      * 無反応と区別できない（**タップして無反応が一番よくない**・05_app-flow.md）。
      */
     fun showTip() {
+        if (guidanceSession != null) stopGuidance("一口メモを出すため案内を終了")
         narrationJob?.cancel()
         narrator.stop()
         narrator.reset()
@@ -1622,6 +1791,7 @@ fun StarMapScreen(
      * 見出しに出すのは**質問文**。何に対する答えかが分からないと、聞き直しても意味が取れない。
      */
     fun replayAsk(exchange: AskHistory.Exchange) {
+        if (guidanceSession != null) stopGuidance("やり取りを読み直すため案内を終了")
         narrationJob?.cancel()
         narrationJob = null
         narrator.reset()
@@ -1654,6 +1824,11 @@ fun StarMapScreen(
 
     /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
     fun toggleNarration() {
+        // 案内中のシングルタップは解説を始めず、その案内だけを止める。
+        if (guidanceSession != null) {
+            stopGuidance("タップで案内を終了")
+            return
+        }
         // **解説画面を出している間のタップは「もう終わり」**（#40）。止めて星図へ戻す。
         // ここで新しい解説を始めると、根拠にするのは前に焼いた古い絵になってしまう
         if (glassPage == GlassPage.EXPLANATION) {
@@ -1664,12 +1839,99 @@ fun StarMapScreen(
         if (narrator.busy || speaking) stopNarration() else startNarration()
     }
 
+    /** 録音中のタップは解説の停止ではなく、ここまでの音声を送る。 */
+    fun submitVoiceQuestion() {
+        if (!recordingVoice) return
+        if (voiceSubmits.trySend(Unit).isSuccess) {
+            narrator.progress("", "送信しています。")
+            log("タップで音声入力を送信")
+        }
+    }
+
+    /** 星図本体は止まったときだけ描き、64pxの矢印だけを短い電文で追従させる。 */
+    suspend fun sendGuidanceOverlay(frame: GuidanceFrame) {
+        if (glassPage != GlassPage.STAR_MAP || !sendGate.tryLock()) return
+        try {
+            val overlay = guidanceOverlay(frame)
+            commandManager.sendCanvasImage(
+                id = GUIDANCE_OVERLAY_IMAGE_ID,
+                x = (PANEL_WIDTH - overlay.width) / 2,
+                y = (PANEL_HEIGHT - overlay.height) / 2,
+                width = overlay.width,
+                height = overlay.height,
+                grayscale = overlay.gray,
+            )
+            val packets = (overlay.compressedBytes + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
+            delay(packets * packetMs.toLong())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            log("案内矢印の更新で失敗: ${e.message}", failed = true)
+        } finally {
+            sendGate.unlock()
+        }
+    }
+
+    // 6DoFと同じ約10Hzで角度を引き直す。衛星だけは軌道上の現在位置も毎回更新する。
+    LaunchedEffect(guidanceSession?.target?.id) {
+        if (guidanceSession == null) return@LaunchedEffect
+        while (true) {
+            val cycleStarted = System.currentTimeMillis()
+            val current = guidanceSession ?: break
+            val now = System.currentTimeMillis()
+            val target = if (current.target.kind == GuidanceTargetKind.SATELLITE) {
+                if (!showSatellites) null else satellites?.refreshGuidanceTarget(
+                    current.target,
+                    Observer(site.latDeg, site.lonDeg),
+                    now,
+                )
+            } else {
+                current.target
+            }
+            if (target == null || target.aim.altDeg <= 0.0) {
+                stopGuidance(
+                    "案内終了: ${current.target.nameJa}を追跡できない",
+                    "${current.target.nameJa}は、いま案内できません。",
+                )
+                break
+            }
+
+            val refreshed = if (target == current.target) current else current.copy(target = target)
+            val update = refreshed.update(look(), target.aim, glassRoll, now)
+            val wasArrived = guidanceFrame?.arrived == true
+            guidanceSession = update.session
+            guidanceFrame = update.frame
+            if (wasArrived != update.frame.arrived) {
+                guidanceRevision++
+                drawnLook = null
+            }
+            when (update.event) {
+                GuidanceEvent.ARRIVED -> {
+                    voice.say("${target.nameJa}はこのあたりです。")
+                    log("案内到着: ${target.nameJa} 誤差${"%.1f".format(update.frame.distanceDeg)}°")
+                }
+                GuidanceEvent.COMPLETED -> {
+                    stopGuidance("案内完了: ${target.nameJa}")
+                    break
+                }
+                GuidanceEvent.TIMED_OUT -> {
+                    stopGuidance("案内終了: ${target.nameJa}を60秒で見つけられない", "案内を終了します。")
+                    break
+                }
+                GuidanceEvent.NONE -> Unit
+            }
+            if (guidanceSession != null) sendGuidanceOverlay(update.frame)
+            val elapsed = System.currentTimeMillis() - cycleStarted
+            delay((GUIDANCE_REFRESH_MS - elapsed).coerceAtLeast(GUIDANCE_REFRESH_MIN_DELAY_MS))
+        }
+    }
+
     // gestureEvents は SharedFlow。購読前のジェスチャーは受け取れないので、画面に入った時点で購読する
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
             commandManager.gestureEvents.collect { gesture ->
                 when (gesture) {
-                    GestureType.SINGLE_TAP -> toggleNarration()
+                    GestureType.SINGLE_TAP -> if (recordingVoice) submitVoiceQuestion() else toggleNarration()
 
                     // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した
                     GestureType.DOUBLE_TAP -> showTip()
@@ -1718,9 +1980,18 @@ fun StarMapScreen(
                             // **止める手段はどの画面でも消さない。** 解説と設定は同じ画面の
                             // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
                             // （戻るキーを知らないと止められない）
-                            if (narrator.busy || speaking || asking) {
-                                TextButton(onClick = { toggleNarration() }) {
-                                    Text("解説を止める", color = Color.White)
+                            if (guidanceSession != null || narrator.busy || speaking || asking) {
+                                TextButton(
+                                    onClick = { if (recordingVoice) submitVoiceQuestion() else toggleNarration() },
+                                ) {
+                                    Text(
+                                        when {
+                                            recordingVoice -> "質問を送信"
+                                            guidanceSession != null -> "案内を終了"
+                                            else -> "解説を止める"
+                                        },
+                                        color = Color.White,
+                                    )
                                 }
                             }
                             // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
@@ -1748,11 +2019,19 @@ fun StarMapScreen(
 
                         Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(4.dp))
-                        ObservationPreview(preview, sending, transferMs)
+                        ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
                         Text(
                             "グラスの向きを止めると、その方角の星図に更新します",
                             style = MaterialTheme.typography.bodySmall,
                         )
+
+                        guidanceFrame?.let { frame ->
+                            Spacer(Modifier.height(12.dp))
+                            GuidanceCard(
+                                frame = frame,
+                                onStop = { stopGuidance("スマホから案内を終了") },
+                            )
+                        }
 
                         Spacer(Modifier.height(16.dp))
                         Text("星座解説", style = MaterialTheme.typography.titleMedium)
@@ -1761,8 +2040,9 @@ fun StarMapScreen(
                             status = when {
                                 // 声で聞いている間は、同伴者にも「いま録っている」ことが見えるようにする。
                                 // 枠はグラスに出しているものと同じ（どちらを見ても同じ強さが見える）
-                                asking ->
-                                    "グラスのマイクで質問を聞いています ${micMeter(micLevel)}"
+                                recordingVoice ->
+                                    "グラスのマイクで質問を聞いています。1回タップで送信 ${micMeter(micLevel)}"
+                                asking -> "質問を処理しています"
                                 speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
                                 // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
                                 BuildConfig.OPENAI_API_KEY.isEmpty() ->
@@ -1774,8 +2054,13 @@ fun StarMapScreen(
                             failed = narration.phase == NarrationPhase.FAILED,
                         )
                         ObservationActions(
-                            primaryLabel = if (narrator.busy || speaking) "解説を止める" else "この星空を解説する",
-                            onPrimary = { toggleNarration() },
+                            primaryLabel = when {
+                                recordingVoice -> "質問を送信"
+                                guidanceSession != null -> "案内を終了"
+                                narrator.busy || speaking -> "解説を止める"
+                                else -> "この星空を解説する"
+                            },
+                            onPrimary = { if (recordingVoice) submitVoiceQuestion() else toggleNarration() },
                             onRecalibrate = onRecalibrate,
                         )
                     } else {
@@ -1786,6 +2071,7 @@ fun StarMapScreen(
                             sending,
                             transferMs,
                             modifier = Modifier.fillMaxWidth(0.62f),
+                            guidance = guidanceFrame,
                         )
 
                         // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
@@ -1917,16 +2203,28 @@ fun StarMapScreen(
  */
 private const val PACKET_MS_DEFAULT = 9f
 
+/** 6DoFの到着間隔と揃え、矢印だけを滑らかに追従させる。 */
+private const val GUIDANCE_REFRESH_MS = 100L
+
+/** 転送見積りが1周期を超えても、連続送信で他の表示を塞がないための隙間。 */
+private const val GUIDANCE_REFRESH_MIN_DELAY_MS = 10L
+
+/** 音声で対象を復唱し、見間違いならタップで止められる時間。 */
+private const val GUIDANCE_CONFIRMATION_MS = 1_000L
+
+/** 地平線すれすれは遮蔽物や大気で見つけにくいため、案内前に断りを入れる。 */
+private const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0
+
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
 
 /**
- * 質問を待っている間の画面（#38）。**1 行目は言葉、2 行目は拾っている音。**
+ * 質問を待っている間の画面（#38）。**1 行目は案内、2 行目は音量、3 行目は送信操作。**
  *
  * 「聞いています」だけだと、**声が届いているのか黙って待たれているのか分からない**。
  * 文字起こしは録り終わってから 1 回なので、喋っている最中に返せるのは音の大きさだけ。
  */
-private fun askPrompt(level: Float): String = "質問をどうぞ。\n" + micMeter(level)
+internal fun askPrompt(level: Float): String = "質問をどうぞ。\n" + micMeter(level) + "\nタップで送信"
 
 /**
  * 拾っている音の大きさを枠で描く。
@@ -2206,4 +2504,3 @@ internal fun explanationDwellMs(revealed: Int, step: Int): Long {
     val slowdown = min(1.0 + step * EXPLANATION_SCROLL_SLOWDOWN, EXPLANATION_SCROLL_SLOWDOWN_MAX)
     return (read * slowdown).toLong()
 }
-

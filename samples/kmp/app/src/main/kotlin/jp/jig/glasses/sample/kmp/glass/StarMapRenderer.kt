@@ -5,10 +5,13 @@ import jp.jig.glasses.sample.kmp.catalog.StarCatalog
 import jp.jig.glasses.sample.kmp.satellite.SkyTrack
 import jp.jig.glasses.sample.kmp.sky.Basis
 import jp.jig.glasses.sample.kmp.sky.DEG
+import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
+import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.RAD
 import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.Vec3
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
@@ -28,6 +31,8 @@ import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.toRaDec
 import kotlin.math.PI
 import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.floor
@@ -62,25 +67,32 @@ class StarMapRenderer(private val catalog: StarCatalog) {
      * J2000 の座標だけで決まる（時刻に依存しない）ので 1 回で済む。
      */
     @Volatile
-    private var brightestCache: DoubleArray? = null
+    private var constellationAnchorCache: IntArray? = null
 
-    private fun brightestPerConstellation(): DoubleArray = brightestCache ?: DoubleArray(
+    /** 星座線の頂点に最も近い星のうち、いちばん明るいものを案内の入口にも使う。 */
+    private fun constellationAnchors(): IntArray = constellationAnchorCache ?: IntArray(
         catalog.constellations.size,
     ) { i ->
-        var best = 99.0
+        var bestIndex = -1
+        var bestMagnitude = 99.0
         for (seg in catalog.constellations[i].lines) {
             for (point in seg) {
-                for (star in catalog.stars) {
-                    if (star.magnitude >= best) continue
+                for ((index, star) in catalog.stars.withIndex()) {
+                    if (star.magnitude >= bestMagnitude) continue
                     if (kotlin.math.abs(star.decDeg - point[1]) > VERTEX_MATCH_DEG) continue
                     val dRa = normalizeDeg(star.raDeg - point[0]) * kotlin.math.cos(point[1] * RAD)
                     if (kotlin.math.abs(dRa) > VERTEX_MATCH_DEG) continue
-                    best = star.magnitude
+                    bestIndex = index
+                    bestMagnitude = star.magnitude
                 }
             }
         }
-        best
-    }.also { brightestCache = it }
+        bestIndex
+    }.also { constellationAnchorCache = it }
+
+    private fun brightestPerConstellation(): DoubleArray = constellationAnchors().map { index ->
+        if (index < 0) 99.0 else catalog.stars[index].magnitude
+    }.toDoubleArray()
 
     /** HIP → 星表の添字。結びは HIP で星を指すので、引くたびに探さないよう 1 回だけ作る */
     @Volatile
@@ -132,6 +144,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawGuides: Boolean = true,
         // 流星群の放射点。**その日に活動している群があるときだけ渡ってくる**
         radiants: List<MeteorRadiantMark> = emptyList(),
+        // 案内中は周囲を薄くし、到着時は対象の線または点へリングも重ねる
+        guidanceHighlight: GuidanceHighlight? = null,
     ): StarMap {
         val brightest = brightestPerConstellation()
         val d = daysFromJ2000(epochMillis)
@@ -164,7 +178,12 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             for (i in catalog.constellations.indices) {
                 if (brightest[i] > constellationMagnitude) continue
                 val figure = catalog.figures[catalog.constellations[i].abbr] ?: continue
-                drawConstellationArt(gray, width, height, figure, precessed.lines[i], lst, site, basis, k)
+                val focused = guidanceHighlight?.kind == GuidanceTargetKind.CONSTELLATION &&
+                    guidanceHighlight.nameJa == catalog.constellations[i].nameJa
+                drawConstellationArt(
+                    gray, width, height, figure, precessed.lines[i], lst, site, basis, k,
+                    value = if (guidanceHighlight != null && !focused) GUIDANCE_DIM_ART_VALUE else ART_VALUE,
+                )
             }
         }
 
@@ -172,9 +191,21 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             for ((index, lines) in precessed.lines.withIndex()) {
                 // **見えない星をつないだ線は描かない。** 街では線だけが浮いて見える
                 if (brightest[index] > constellationMagnitude) continue
+                val highlighted = guidanceHighlight?.kind == GuidanceTargetKind.CONSTELLATION &&
+                    guidanceHighlight.nameJa == catalog.constellations[index].nameJa
+                val value = when {
+                    highlighted && guidanceHighlight.arrived -> GUIDANCE_HIGHLIGHT_VALUE
+                    highlighted -> GUIDANCE_FOCUS_VALUE
+                    guidanceHighlight != null -> GUIDANCE_DIM_LINE_VALUE
+                    else -> LINE_VALUE
+                }
                 for (seg in lines) {
                     for (i in 0 until seg.size - 1) {
-                        drawGreatCircle(gray, width, height, seg[i], seg[i + 1], lst, site, basis, k)
+                        drawGreatCircle(
+                            gray, width, height, seg[i], seg[i + 1], lst, site, basis, k,
+                            value = value,
+                            radius = lineRadius(width) + if (highlighted) 1 else 0,
+                        )
                     }
                 }
             }
@@ -192,9 +223,21 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 }
                 if (points.size < asterism.hips.size) continue
                 val closed = if (asterism.closed) points + points.first() else points
+                val highlighted = guidanceHighlight?.kind == GuidanceTargetKind.ASTERISM &&
+                    guidanceHighlight.nameJa == asterism.nameJa
+                val value = when {
+                    highlighted -> GUIDANCE_HIGHLIGHT_VALUE
+                    guidanceHighlight != null -> GUIDANCE_DIM_ASTERISM_VALUE
+                    else -> ASTERISM_VALUE
+                }
                 var inside = false
                 for (i in 0 until closed.size - 1) {
-                    line(gray, width, height, closed[i], closed[i + 1], ASTERISM_VALUE, 0, dash = ASTERISM_DASH)
+                    line(
+                        gray, width, height, closed[i], closed[i + 1],
+                        value,
+                        if (highlighted) 1 else 0,
+                        dash = if (highlighted) 0 else ASTERISM_DASH,
+                    )
                     if (closed[i][0] in 0.0..width.toDouble() && closed[i][1] in 0.0..height.toDouble()) {
                         inside = true
                     }
@@ -312,6 +355,22 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 null
             }
             if (next != null) arrow(gray, width, height, q, next, namedRadius + width * RING_GAP)
+        }
+
+        guidanceHighlight?.takeIf { it.arrived }?.let { highlight ->
+            val q = project(enu(highlight.azDeg, highlight.altDeg), basis, k, width, height)
+            if (q != null && q[0] in 0.0..width.toDouble() && q[1] in 0.0..height.toDouble()) {
+                val radius = width * if (
+                    highlight.kind == GuidanceTargetKind.CONSTELLATION ||
+                    highlight.kind == GuidanceTargetKind.ASTERISM
+                ) {
+                    GUIDANCE_AREA_RADIUS
+                } else {
+                    GUIDANCE_POINT_RADIUS
+                }
+                ring(gray, width, height, q, radius, GUIDANCE_HIGHLIGHT_VALUE)
+                ring(gray, width, height, q, radius + 3.0, GUIDANCE_HIGHLIGHT_VALUE)
+            }
         }
         // 点 → 引き出し線 → 枠つきアイコン。名前はキャンバスのテキストで枠の上に重なる
         val callouts = if (drawFigures) callouts(basis, k, width, height, tracks) else emptyList()
@@ -464,6 +523,76 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     fun knownBrightStarNames(): Set<String> = catalog.brightNames.values.toSet()
+
+    /**
+     * 「ふつう」の星図が描く対象から、声で名前を指定できるものだけを返す。
+     *
+     * 星座は幾何中心ではなく最輝星へ案内する。中心が暗い大きな星座でも、最初に探す点が
+     * 肉眼で見えるため。北極星は1.97等で固有名表示の1.5等から外れるが、案内で最もよく
+     * 呼ばれるため、同じ星表の点へ名前だけ補う。
+     */
+    fun guidanceTargets(
+        site: Site,
+        epochMillis: Long,
+        density: SkyDensity = SkyDensity.STANDARD,
+    ): List<GuidanceTarget> {
+        val d = daysFromJ2000(epochMillis)
+        val lst = localSiderealDeg(d, site.lonDeg)
+        val precessed = precessed(d)
+        val targets = ArrayList<GuidanceTarget>()
+        val anchors = constellationAnchors()
+
+        for (i in catalog.constellations.indices) {
+            val anchor = anchors[i]
+            if (anchor < 0 || catalog.stars[anchor].magnitude > density.constellationMagnitude) continue
+            val aa = precessed.stars[anchor].toGuidanceAltAz(lst, site)
+            val constellation = catalog.constellations[i]
+            targets += GuidanceTarget(
+                id = "constellation:${constellation.abbr}",
+                nameJa = constellation.nameJa,
+                kind = GuidanceTargetKind.CONSTELLATION,
+                aim = Look(aa[0], aa[1]),
+            )
+        }
+
+        val namedStars = catalog.brightNames + GUIDANCE_EXTRA_STAR_NAMES
+        for ((hip, name) in namedStars) {
+            val index = hipIndex()[hip] ?: continue
+            if (catalog.stars[index].magnitude > density.limitMagnitude) continue
+            val aa = precessed.stars[index].toGuidanceAltAz(lst, site)
+            targets += GuidanceTarget(
+                id = "star:$hip",
+                nameJa = name,
+                kind = GuidanceTargetKind.STAR,
+                aim = Look(aa[0], aa[1]),
+            )
+        }
+
+        for (asterism in catalog.asterisms) {
+            val vectors = asterism.hips.mapNotNull { hip ->
+                val index = hipIndex()[hip] ?: return@mapNotNull null
+                val aa = precessed.stars[index].toGuidanceAltAz(lst, site)
+                enu(aa[0], aa[1])
+            }
+            if (vectors.size != asterism.hips.size) continue
+            val center = vectors.reduce { sum, vector -> sum + vector }.normalized()
+            val aim = Look(
+                azDeg = ((atan2(center.x, center.y) * DEG) % 360.0 + 360.0) % 360.0,
+                altDeg = asin(center.z.coerceIn(-1.0, 1.0)) * DEG,
+            )
+            targets += GuidanceTarget(
+                id = "asterism:${asterism.nameJa}",
+                nameJa = asterism.nameJa,
+                kind = GuidanceTargetKind.ASTERISM,
+                aim = aim,
+                aliases = setOf(asterism.nameJa + "形"),
+            )
+        }
+        return targets
+    }
+
+    private fun DoubleArray.toGuidanceAltAz(lst: Double, site: Site): DoubleArray =
+        toApparentAltAz(this[0], this[1], lst, site.latDeg)
 
     /**
      * いま空に出ている星座を、高度の高い順に返す。
@@ -660,6 +789,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         site: Site,
         basis: Basis,
         k: Double,
+        value: Int = ART_VALUE,
     ) {
         var minX = Double.MAX_VALUE
         var minY = Double.MAX_VALUE
@@ -692,7 +822,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             var previous: DoubleArray? = null
             for (point in stroke) {
                 val q = doubleArrayOf(minX + point[0] * boxWidth, minY + point[1] * boxHeight)
-                previous?.let { line(gray, width, height, it, q, ART_VALUE, radius) }
+                previous?.let { line(gray, width, height, it, q, value, radius) }
                 previous = q
             }
         }
@@ -1052,6 +1182,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         site: Site,
         basis: Basis,
         k: Double,
+        value: Int = LINE_VALUE,
+        radius: Int = lineRadius(width),
     ) {
         val a = toApparentAltAz(from[0], from[1], lst, site.latDeg)
         val b = toApparentAltAz(to[0], to[1], lst, site.latDeg)
@@ -1075,7 +1207,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 prev = null
                 continue
             }
-            prev?.let { line(gray, width, height, it, q, LINE_VALUE, lineRadius(width)) }
+            prev?.let { line(gray, width, height, it, q, value, radius) }
             prev = q
         }
     }
@@ -1201,6 +1333,17 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     private companion object {
+        /** 「ふつう」で点は出るが固有名ラベルの1.5等から外れる、案内に欠かせない星。 */
+        val GUIDANCE_EXTRA_STAR_NAMES = mapOf(11767 to "北極星")
+
+        const val GUIDANCE_HIGHLIGHT_VALUE = 255
+        const val GUIDANCE_FOCUS_VALUE = 210
+        const val GUIDANCE_DIM_LINE_VALUE = 72
+        const val GUIDANCE_DIM_ASTERISM_VALUE = 72
+        const val GUIDANCE_DIM_ART_VALUE = 36
+        const val GUIDANCE_AREA_RADIUS = 0.10
+        const val GUIDANCE_POINT_RADIUS = 0.045
+
         /**
          * 星座線の明るさ。**3bit に落ちるので「少し暗く」は効かない。**
          *

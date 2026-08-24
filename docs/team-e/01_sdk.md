@@ -152,6 +152,11 @@ val micStreaming: StateFlow<Boolean>
 `gestureEvents` で `SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`。**3 枠すべて埋まっている**
 （[画面遷移とジェスチャー](05_app-flow.md)）。
 
+- SDK 0.6.0 の `GestureType` はこの3値だけで、**押下開始・押下中・指を離したイベントが無い**
+- `HOLD` は確定後に1回届くだけなので、アプリは**実際に触れている時間を測れない**
+- したがって「ホールド中だけ録音し、離したら終了」は公開 API では実装できない。
+  現在は **`HOLD` で開始し、`SINGLE_TAP` で送信**する。押し忘れは30秒で安全終了する
+
 **リモコンのイベントリスナーは 0.5.0 で撤去された。** `RemoteControlListener`
 （`onPrev` / `onNext` / `onEsc`）ごと 0.6.0 の AAR から消えているので、
 **リモコン操作をアプリで拾う手段は無い**。

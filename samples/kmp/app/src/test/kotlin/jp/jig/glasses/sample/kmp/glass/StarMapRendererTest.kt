@@ -7,6 +7,7 @@ import jp.jig.glasses.sample.kmp.catalog.Star
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
 import jp.jig.glasses.sample.kmp.satellite.SkyMotion
 import jp.jig.glasses.sample.kmp.satellite.SkyTrack
+import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
@@ -66,6 +67,8 @@ class StarMapRendererTest {
             milkyWay = milkyWay(),
         )
     }
+
+    private fun fullCatalog(): StarCatalog = StarCatalog.parse { name -> File(dataDir, name).readText() }
 
     private fun skyGuides(): JSONObject = JSONObject(File(dataDir, "asterisms.json").readText())
 
@@ -599,6 +602,97 @@ class StarMapRendererTest {
         val levels = withArt.gray.map { (it.toInt() and 0xFF) ushr 5 }.toSet()
         assertTrue("星座絵の段が見当たらない", 2 in levels)
         assertTrue("線より明るい段に描いている", levels.max() >= 4)
+    }
+
+    @Test
+    fun `ふつうの星図から星座と固有名星と結びを案内候補にする`() {
+        val targets = StarMapRenderer(fullCatalog()).guidanceTargets(site, epoch, SkyDensity.STANDARD)
+
+        assertTrue("星座が案内候補に無い", targets.any { it.kind == GuidanceTargetKind.CONSTELLATION })
+        assertTrue("固有名星が案内候補に無い", targets.any { it.nameJa == "シリウス" })
+        assertTrue("北極星が案内候補に無い", targets.any { it.nameJa == "北極星" })
+        assertTrue("星の結びが案内候補に無い", targets.any { it.nameJa == "冬の大三角" })
+        assertTrue("天の川を案内候補にしている", targets.none { it.nameJa == "天の川" })
+    }
+
+    @Test
+    fun `星座の案内先は幾何中心ではなく線上の最輝星に一致する`() {
+        val bright = Star(1, 10.0, 20.0, 0.5)
+        val dim = Star(2, 18.0, 24.0, 2.0)
+        val constellation = Constellation(
+            "Tst",
+            "テスト座",
+            listOf(listOf(doubleArrayOf(bright.raDeg, bright.decDeg), doubleArrayOf(dim.raDeg, dim.decDeg))),
+        )
+        val renderer = StarMapRenderer(
+            StarCatalog(listOf(bright, dim), listOf(constellation), mapOf(bright.hip to "目印星")),
+        )
+        val targets = renderer.guidanceTargets(site, epoch, SkyDensity.STANDARD)
+        val constellationAim = targets.first { it.kind == GuidanceTargetKind.CONSTELLATION }.aim
+        val starAim = targets.first { it.nameJa == "目印星" }.aim
+
+        assertEquals(starAim.azDeg, constellationAim.azDeg, 0.001)
+        assertEquals(starAim.altDeg, constellationAim.altDeg, 0.001)
+    }
+
+    @Test
+    fun `到着時の対象リングは通常の星図へ焼き込まれる`() {
+        val renderer = StarMapRenderer(fullCatalog())
+        val target = renderer.guidanceTargets(site, epoch, SkyDensity.STANDARD)
+            .filter { it.kind == GuidanceTargetKind.STAR && it.aim.altDeg > 20.0 }
+            .maxBy { it.aim.altDeg }
+        fun render(highlight: GuidanceHighlight?) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = target.aim,
+            fovDeg = 35.0,
+            limitMagnitude = SkyDensity.STANDARD.limitMagnitude,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawGuides = false,
+            guidanceHighlight = highlight,
+        )
+
+        val normal = render(null)
+        val arrived = render(
+            GuidanceHighlight(target.nameJa, target.kind, target.aim.azDeg, target.aim.altDeg, arrived = true),
+        )
+        assertTrue("到着リングで画像が変わっていない", !normal.gray.contentEquals(arrived.gray))
+        assertTrue(
+            "到着リングの画素が増えていない",
+            arrived.gray.count { it != 0.toByte() } > normal.gray.count { it != 0.toByte() },
+        )
+    }
+
+    @Test
+    fun `案内中は対象の星座線を強くし周囲の星座線を薄くする`() {
+        val lst = localSiderealDeg(daysFromJ2000(epoch), site.lonDeg)
+        fun at(azDeg: Double, altDeg: Double): DoubleArray = toRaDec(azDeg, altDeg, lst, site.latDeg)
+        val target = Constellation("Aim", "目標座", listOf(listOf(at(172.0, 45.0), at(179.0, 45.0))))
+        val neighbor = Constellation("Near", "周囲座", listOf(listOf(at(181.0, 45.0), at(188.0, 45.0))))
+        val renderer = StarMapRenderer(StarCatalog(emptyList(), listOf(target, neighbor), emptyMap()))
+        fun render(focus: GuidanceHighlight?) = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = Look(180.0, 45.0),
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            drawStars = false,
+            drawFigureArt = false,
+            drawAsterisms = false,
+            drawMilkyWay = false,
+            drawGuides = false,
+            guidanceHighlight = focus,
+        )
+
+        val normalLevels = render(null).gray.map { it.toInt() and 0xff }.filter { it > 0 }
+        val focusedLevels = render(
+            GuidanceHighlight("目標座", GuidanceTargetKind.CONSTELLATION, 176.0, 45.0, arrived = false),
+        ).gray.map { it.toInt() and 0xff }.filter { it > 0 }
+        assertTrue("周囲の星座線が薄くなっていない", focusedLevels.min() < normalLevels.min())
+        assertTrue("対象の星座線が強くなっていない", focusedLevels.max() > normalLevels.max())
     }
 
     /**

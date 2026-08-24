@@ -20,7 +20,7 @@
 
 | パッケージ | 責務 |
 |---|---|
-| `sky/` | **空の計算。Android に触らない**（JVM テストで数字を固定できる）。座標変換・太陽・月惑星・IAU 境界・観測の既定値 |
+| `sky/` | **空の計算。Android に触らない**（JVM テストで数字を固定できる）。座標変換・太陽・月惑星・IAU 境界・観測の既定値・天体案内の状態 |
 | `catalog/` | 同梱データ（`data/`）を読む。星表・88 星座の解説文・流星群 |
 | `satellite/` | 軌道計算（SGP4/SDP4）と、いつどこに見えるか |
 | `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
@@ -47,9 +47,11 @@
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
+| `glass/GuidanceOverlay.kt` | 天体案内の64px矢印と到着リング。**全画面を送らず、この小画像だけ約10Hzで替える**（#46） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
+| `sky/CelestialGuidance.kt` | 案内要求の固定ルール、5°/8°の到着ヒステリシス、60秒の状態遷移（#46） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
