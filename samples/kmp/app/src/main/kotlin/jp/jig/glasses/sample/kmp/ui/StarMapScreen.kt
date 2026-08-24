@@ -1478,6 +1478,12 @@ fun StarMapScreen(
     /** 転送キューが混んでいても、確認文が実際に届いてから1.5秒置いて適用する。 */
     suspend fun showCommandConfirmation(text: String) {
         narrator.progress("", text)
+        // Composeの画面切り替えより先にこのコルーチンが走っても、星図へ文字を重ねない。
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
+            }
+        }
         sendTextPage(GlassTextPage.explanation("", text))
         delay(COMMAND_CONFIRM_MS)
     }
