@@ -138,7 +138,8 @@ import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
-import jp.jig.glasses.sample.kmp.ui.component.GuidePanel
+import jp.jig.glasses.sample.kmp.ui.component.GuidePickerDialog
+import jp.jig.glasses.sample.kmp.ui.component.GuideProgressCard
 import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
 import jp.jig.glasses.sample.kmp.ui.component.LogLine
 import jp.jig.glasses.sample.kmp.ui.component.NarrationPanel
@@ -467,6 +468,9 @@ fun StarMapScreen(
     /** 台本の置き場。**アプリを閉じても残る**ので、家で作って外で使える */
     val guideStore = remember(context) { GuideStore.of(context) }
     var guides by remember { mutableStateOf<List<StarGuide>>(emptyList()) }
+
+    /** 台本を選ぶダイアログを開いているか。**メイン画面を太らせずに選ばせる** */
+    var showGuidePicker by remember { mutableStateOf(false) }
 
     /** ガイドを流している間だけ中身が入る。**null がふだんの観測** */
     var guideProgress by remember { mutableStateOf<GuideProgress?>(null) }
@@ -2324,6 +2328,15 @@ fun StarMapScreen(
                             )
                         }
 
+                        guideProgress?.let { progress ->
+                            Spacer(Modifier.height(12.dp))
+                            GuideProgressCard(
+                                progress = progress,
+                                onNext = { guideNext() },
+                                onRepeat = { guideRepeat() },
+                            )
+                        }
+
                         Spacer(Modifier.height(16.dp))
                         Text("星座解説", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
@@ -2363,6 +2376,12 @@ fun StarMapScreen(
                                 }
                             },
                             onRecalibrate = onRecalibrate,
+                            // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
+                            // 作るのはホーム画面の「ガイドを作る」から。
+                            // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
+                            secondaryLabel = "ガイドを始める"
+                                .takeIf { guides.isNotEmpty() && guideProgress == null },
+                            onSecondary = { showGuidePicker = true },
                         )
                     } else {
                         // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
@@ -2373,16 +2392,6 @@ fun StarMapScreen(
                             transferMs,
                             modifier = Modifier.fillMaxWidth(0.62f),
                             guidance = guidanceFrame,
-                        )
-
-                        // **始める操作は、眺めるだけの情報より上に置く**（05_app-flow.md）
-                        GuidePanel(
-                            guides = guides,
-                            progress = guideProgress,
-                            onStart = { startGuide(it) },
-                            onStop = { stopGuide("スマホからガイドを終了", "ガイドを終わります。") },
-                            onNext = { guideNext() },
-                            onRepeat = { guideRepeat() },
                         )
 
                         // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
@@ -2501,6 +2510,18 @@ fun StarMapScreen(
                     }
                     Spacer(Modifier.height(24.dp))
                 }
+            }
+
+            // **設定を開かずに始められるようにする。** 台本が増えてもメイン画面は太らない
+            if (showGuidePicker) {
+                GuidePickerDialog(
+                    guides = guides,
+                    onStart = {
+                        showGuidePicker = false
+                        startGuide(it)
+                    },
+                    onDismiss = { showGuidePicker = false },
+                )
             }
         }
     }

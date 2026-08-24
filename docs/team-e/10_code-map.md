@@ -44,6 +44,7 @@
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
 | `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
 | `ui/GuideScreen.kt` | 台本を作る画面。**グラスをつなぐ前に通る**ので、接続の外側に置く |
+| `ui/component/GuideControls.kt` | ガイドを選ぶダイアログと進み具合。**始める口は観測画面の畳んだ側 1 つだけ** |
 | `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` | 採用ロゴの実装用素材。横組みはホームとグラス、マーク単体はランチャーで使う |
 | `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
