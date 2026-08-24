@@ -85,8 +85,15 @@ fun StarMap.constellationNames(): List<String> =
     labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
 
 /** 案内名は重なりで落とさないよう、テキスト枠の先頭へ置く。 */
-fun StarMap.withGuidanceLabel(name: String, arrived: Boolean): StarMap {
-    val text = if (arrived) "$name このあたり" else "$name 案内中"
+fun StarMap.withGuidanceLabel(name: String, arrived: Boolean, where: String? = null): StarMap {
+    // **どちらを向くかを文字でも残す**（ガイドだけ [where] を渡す）。
+    // 騒がしい場所では文字が主役なので、声を聞き逃すと方角が分からなくなっていた。
+    // 到着したら方角はもう要らないので「このあたり」へ戻す。
+    val text = when {
+        arrived -> "$name このあたり"
+        where != null -> "$name $where"
+        else -> "$name 案内中"
+    }
     val label = Label(text, width / 2, GUIDANCE_LABEL_Y_PX, LabelKind.GUIDANCE)
     // 周囲の名前が並ぶと、どれへ向かっているかを読み違える。星と天体名は残し、
     // 星座と大三角などの結びの名前だけを案内中は引く。

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 fun HomeScreen(
     constellation: ConstellationBackground,
     onStart: () -> Unit,
+    onGuides: () -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         SeasonalConstellationBackground(
@@ -71,6 +73,16 @@ fun HomeScreen(
                 ),
             ) {
                 Text("スタート")
+            }
+
+            // **ガイドを作るのはここ。** グラスが要らないので、出かける前に用意できる
+            // （現地が圏外でも、作った台本は端末に残る）
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onGuides,
+                modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+            ) {
+                Text("ガイドを作る", color = Color.White)
             }
         }
     }
