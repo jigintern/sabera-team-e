@@ -113,6 +113,7 @@ import jp.jig.glasses.sample.kmp.sky.bodyGuidanceTargets
 import jp.jig.glasses.sample.kmp.sky.bodyAltAz
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
+import jp.jig.glasses.sample.kmp.sky.guidanceUnavailableMessage
 import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
 import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
@@ -1440,9 +1441,10 @@ fun StarMapScreen(
 
     /** 確認を1秒だけ見せてから、星図と案内矢印へ戻す。 */
     suspend fun beginGuidance(target: GuidanceTarget) {
-        if (target.aim.altDeg <= 0.0) {
-            narrator.cannotAnswer(target.nameJa, "${target.nameJa}は、いま地平線の下にあります。")
-            log("案内できない: ${target.nameJa}は地平線の下")
+        val unavailable = guidanceUnavailableMessage(target)
+        if (unavailable != null) {
+            narrator.cannotAnswer(target.nameJa, unavailable)
+            log("案内できない: $unavailable")
             return
         }
         val warning = when {
@@ -1660,6 +1662,16 @@ fun StarMapScreen(
                     }
                     GuidanceRequest.MultipleTargets -> {
                         narrator.cannotAnswer(subject, "案内できるのは一度に一つです。天体を一つ選んでください。")
+                        return@launchNarration
+                    }
+                    is GuidanceRequest.ClarifyIntent -> {
+                        val targetName = guidanceRequest.targets.singleOrNull()?.nameJa
+                        val message = if (targetName == null) {
+                            "解説を聞くのか、天体まで案内するのか、どちらか一つを言ってください。"
+                        } else {
+                            "${targetName}の解説を聞くのか、${targetName}まで案内するのか、どちらかを言ってください。"
+                        }
+                        narrator.cannotAnswer(targetName.orEmpty(), message)
                         return@launchNarration
                     }
                     GuidanceRequest.NotGuidance -> Unit

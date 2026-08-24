@@ -145,7 +145,7 @@
 | 消灯と戻るキー | 観測中は**消灯させない**。戻るキーは 1 つ前へ、観測中だけ確認を挟む | [app-flow](05_app-flow.md) |
 | API キー | リポジトリ直下の `.env`（`.gitignore` 済み）。**無くてもビルドは通す** | [CONTRIBUTING](../../CONTRIBUTING.md) |
 | 人工衛星 | **星座と同じ星図に重ねる**（#36）。名前つきだけ・星より小さい点＋輪・名前は枠 2 つまで | [satellites](08_satellites.md) |
-| 天体の案内 | `HOLD` の音声で1対象を指定。通常表示の名前付き対象だけを、固定中央の矢印で案内する（#46） | [app-flow](05_app-flow.md) / [narration](06_narration.md) |
+| 天体の案内 | `HOLD` の音声で1対象を指定。**場所・方角・案内を明示したときだけ**、通常表示の名前付き対象へ案内する（#46） | [app-flow](05_app-flow.md) / [narration](06_narration.md) |
 
 ## 未決定事項
 

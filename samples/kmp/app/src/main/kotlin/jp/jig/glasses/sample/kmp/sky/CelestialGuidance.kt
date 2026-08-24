@@ -24,25 +24,39 @@ sealed interface GuidanceRequest {
     data object Stop : GuidanceRequest
     data object UnknownTarget : GuidanceRequest
     data object MultipleTargets : GuidanceRequest
+    data class ClarifyIntent(val targets: List<GuidanceTarget>) : GuidanceRequest
     data class Start(val target: GuidanceTarget) : GuidanceRequest
 }
 
 /** AIへ操作可否を渡さず、端末が持つ名前と許可した言い方だけから案内要求を取り出す。 */
 object GuidanceRequestParser {
-    private val requestWords = listOf(
-        "どこ", "何処", "どっち", "方向", "向き", "案内", "見せて", "みせて", "探して", "さがして",
+    /** これが無い質問を、勝手に案内へ変えない。 */
+    private val guidanceWords = listOf(
+        "どこ", "何処", "どっち", "場所", "方角", "方向", "位置", "向き",
+        "案内", "ナビ", "導いて", "みちびいて", "連れて", "つれて",
+        "見せて", "みせて", "見たい", "みたい", "探して", "さがして", "見つけたい", "みつけたい",
     ).map(::normalize)
+
+    /** 案内語と同時に来たら、一度に二つの操作をせず聞き返す。 */
+    private val explanationWords = listOf(
+        "解説", "説明", "特徴", "神話", "由来", "とは", "どんな",
+    ).map(::normalize)
+
+    /** 「場所を教えて」は案内。「土星について教えて」は通常の解説へ流す。 */
+    private val tellWords = listOf("教えて", "おしえて").map(::normalize)
+
+    /** 対象だけ、または「お願い」だけでは、案内か解説かを決めない。 */
+    private val vagueWords = listOf("お願い", "おねがい", "頼む", "たのむ").map(::normalize)
     private val stopWords = listOf("案内をやめて", "案内を止めて", "案内終了", "もういい")
         .map(::normalize)
 
     fun parse(text: String, targets: Collection<GuidanceTarget>): GuidanceRequest {
         val normalized = normalize(text)
         if (stopWords.any { it in normalized }) return GuidanceRequest.Stop
-        if (requestWords.none { it in normalized }) return GuidanceRequest.NotGuidance
 
         data class Match(val target: GuidanceTarget, val start: Int, val end: Int)
         val matches = targets.flatMap { target ->
-            (target.aliases + target.nameJa + defaultAliases(target)).flatMap { alias ->
+            aliasesOf(target).flatMap { alias ->
                 val key = normalize(alias)
                 if (key.isEmpty()) return@flatMap emptyList()
                 buildList {
@@ -63,12 +77,36 @@ object GuidanceRequestParser {
                     other.end - other.start > match.end - match.start
             }
         }.map { it.target }.distinctBy { it.id }
-        return when (found.size) {
-            0 -> GuidanceRequest.UnknownTarget
-            1 -> GuidanceRequest.Start(found.single())
-            else -> GuidanceRequest.MultipleTargets
+
+        val asksGuidance = guidanceWords.any { it in normalized }
+        val asksExplanation = explanationWords.any { it in normalized }
+        val asksToTell = tellWords.any { it in normalized }
+
+        // 「土星を案内して、特徴も解説して」は一度に実行せず、利用者に一つ選んでもらう。
+        if (asksGuidance && asksExplanation) return GuidanceRequest.ClarifyIntent(found)
+
+        // 「場所を教えて」の「教えて」は説明要求ではなく、場所を求める言い方。
+        if (asksGuidance) {
+            return when (found.size) {
+                0 -> GuidanceRequest.UnknownTarget
+                1 -> GuidanceRequest.Start(found.single())
+                else -> GuidanceRequest.MultipleTargets
+            }
         }
+
+        // 明示された解説と、案内語の無い普通の質問は従来の質問回答へ渡す。
+        if (asksExplanation || asksToTell) return GuidanceRequest.NotGuidance
+
+        val aliasOnly = found.size == 1 && normalized in aliasesOf(found.single()).map(::normalize)
+        if (found.isNotEmpty() && (aliasOnly || vagueWords.any { it in normalized })) {
+            return GuidanceRequest.ClarifyIntent(found)
+        }
+
+        return GuidanceRequest.NotGuidance
     }
+
+    private fun aliasesOf(target: GuidanceTarget): Set<String> =
+        target.aliases + target.nameJa + defaultAliases(target)
 
     private fun defaultAliases(target: GuidanceTarget): Set<String> = when (target.kind) {
         GuidanceTargetKind.CONSTELLATION -> setOf(target.nameJa.removeSuffix("座"))
@@ -183,6 +221,14 @@ const val GUIDANCE_ARRIVAL_DWELL_MS = 500L
 const val GUIDANCE_ARRIVAL_HOLD_MS = 3_000L
 const val GUIDANCE_TIMEOUT_MS = 60_000L
 
+/** 案内を始められない理由。矢印を作る前に、表示と読み上げへ同じ文を渡す。 */
+fun guidanceUnavailableMessage(target: GuidanceTarget): String? = when {
+    !target.aim.azDeg.isFinite() || !target.aim.altDeg.isFinite() ->
+        "${target.nameJa}の位置を計算できませんでした。"
+    target.aim.altDeg <= 0.0 -> "${target.nameJa}は、いま地平線の下にあります。"
+    else -> null
+}
+
 /** 星図が名前付きで描く月・惑星。地平線の下も「今は見えない」と答えるため残す。 */
 fun bodyGuidanceTargets(site: Site, epochMillis: Long): List<GuidanceTarget> =
     SolarSystemBody.entries.map { body ->
@@ -193,8 +239,17 @@ fun bodyGuidanceTargets(site: Site, epochMillis: Long): List<GuidanceTarget> =
             kind = GuidanceTargetKind.BODY,
             aim = Look(aa[0], aa[1]),
             aliases = when (body) {
-                SolarSystemBody.MOON -> setOf("お月様", "おつきさま")
-                else -> emptySet()
+                SolarSystemBody.MOON -> setOf("つき", "お月様", "おつきさま")
+                SolarSystemBody.VENUS -> setOf(
+                    "きんせい", "明けの明星", "あけのみょうじょう", "宵の明星", "よいのみょうじょう",
+                )
+                SolarSystemBody.MARS -> setOf("かせい")
+                SolarSystemBody.JUPITER -> setOf("もくせい")
+                SolarSystemBody.SATURN -> setOf("どせい", "サターン")
+                SolarSystemBody.MERCURY -> setOf("すいせい")
+                SolarSystemBody.URANUS -> setOf("てんのうせい")
+                SolarSystemBody.NEPTUNE -> setOf("かいおうせい")
+                SolarSystemBody.PLUTO -> setOf("めいおうせい")
             },
         )
     }

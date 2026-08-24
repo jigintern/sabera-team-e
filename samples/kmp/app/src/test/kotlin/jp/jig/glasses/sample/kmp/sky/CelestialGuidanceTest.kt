@@ -37,6 +37,58 @@ class CelestialGuidanceTest {
     }
 
     @Test
+    fun `土星の漢字と読み仮名と別名を同じ案内対象として扱う`() {
+        val site = Site(35.9432, 136.1846)
+        val targets = bodyGuidanceTargets(site, 0L)
+
+        for (question in listOf("土星を案内して", "どせいはどこ", "サターンを見せて")) {
+            val result = GuidanceRequestParser.parse(question, targets)
+            assertEquals("土星", (result as GuidanceRequest.Start).target.nameJa)
+        }
+
+        // 同じ候補生成・表記ゆれ・案内判定を通し、沈んでいるときの理由まで一続きで確認する。
+        val belowTargets = (0..3).map { sixHours ->
+            bodyGuidanceTargets(site, sixHours * 6L * 60L * 60L * 1_000L)
+        }.minBy { candidates ->
+            candidates.single { it.nameJa == "土星" }.aim.altDeg
+        }
+        val saturn = (GuidanceRequestParser.parse("どせいはどこ", belowTargets) as GuidanceRequest.Start).target
+        assertTrue(saturn.aim.altDeg < 0.0)
+        assertEquals("土星は、いま地平線の下にあります。", guidanceUnavailableMessage(saturn))
+    }
+
+    @Test
+    fun `場所を聞けば案内し特徴を聞けば解説へ渡す`() {
+        assertTrue(
+            GuidanceRequestParser.parse("オリオン座の場所を教えて", listOf(orion)) is
+                GuidanceRequest.Start,
+        )
+        assertEquals(
+            GuidanceRequest.NotGuidance,
+            GuidanceRequestParser.parse("オリオン座について教えて", listOf(orion)),
+        )
+        assertEquals(
+            GuidanceRequest.NotGuidance,
+            GuidanceRequestParser.parse("オリオン座の神話を解説して", listOf(orion)),
+        )
+    }
+
+    @Test
+    fun `対象だけか案内と解説を同時に頼まれたら聞き返す`() {
+        val targetOnly = GuidanceRequestParser.parse("オリオン座", listOf(orion))
+        assertEquals(listOf(orion), (targetOnly as GuidanceRequest.ClarifyIntent).targets)
+
+        val both = GuidanceRequestParser.parse("オリオン座を案内して特徴も解説して", listOf(orion))
+        assertEquals(listOf(orion), (both as GuidanceRequest.ClarifyIntent).targets)
+
+        // 案内を明示しない普通の質問まで、聞き返しや案内へ変えない。
+        assertEquals(
+            GuidanceRequest.NotGuidance,
+            GuidanceRequestParser.parse("オリオン座は冬に見える？", listOf(orion)),
+        )
+    }
+
+    @Test
     fun `複数対象と不明な対象を勝手に一つへ決めない`() {
         assertEquals(
             GuidanceRequest.MultipleTargets,
@@ -106,5 +158,18 @@ class CelestialGuidanceTest {
         val timedOut = GuidanceSession(orion, 0L).update(Look(0.0, 0.0), orion.aim, 0.0, 60_000L)
         assertEquals(GuidanceEvent.TIMED_OUT, timedOut.event)
         assertNull(timedOut.session)
+    }
+
+    @Test
+    fun `地平線の下の土星は理由を返し矢印を始めない`() {
+        val saturn = GuidanceTarget(
+            id = "body:SATURN",
+            nameJa = "土星",
+            kind = GuidanceTargetKind.BODY,
+            aim = Look(240.0, -12.0),
+        )
+
+        assertEquals("土星は、いま地平線の下にあります。", guidanceUnavailableMessage(saturn))
+        assertNull(guidanceUnavailableMessage(saturn.copy(aim = Look(240.0, 12.0))))
     }
 }
