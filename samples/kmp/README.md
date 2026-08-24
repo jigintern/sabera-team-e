@@ -22,7 +22,7 @@ cd samples/kmp
 ./gradlew :app:assembleDebug              # デバッグAPKを作る
 ```
 
-仕様は [docs/team-e/index.md](../../docs/team-e/index.md)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
+仕様は [docs/team-e/00_index.md](../../docs/team-e/00_index.md)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
 
 ## ライセンス
 

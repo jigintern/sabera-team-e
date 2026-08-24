@@ -8,7 +8,7 @@ import kotlin.math.abs
 
 /**
  * 座標変換の検算。符号を 1 つ間違えるだけで星図が裏返るので、実機に載せる前にここで潰す。
- * 期待値は docs/team-e/coordinate-system.md に載せたものと同じ。
+ * 期待値は docs/team-e/03_coordinate-system.md に載せたものと同じ。
  */
 class CoordinatesTest {
 

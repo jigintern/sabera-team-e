@@ -1,9 +1,9 @@
 # SDK とハードの制約
 
 **team-e の仕様を左右する土台。** SDK（`jp.jig.sabera.app.sdk:sabera-app-core`）で何ができて
-何ができないか、実機のハードに何が無いか。数値の詳細は [グラス出力の制約](glass-output.md)。
+何ができないか、実機のハードに何が無いか。数値の詳細は [グラス出力の制約](02_glass-output.md)。
 
-エージェント向けの禁止事項は [AGENTS.md](../../AGENTS.md)、アプリの作りは [index.md](index.md)。
+エージェント向けの禁止事項は [AGENTS.md](../../AGENTS.md)、アプリの作りは [00_index.md](00_index.md)。
 
 ## 上流 SDK との同期
 
@@ -79,7 +79,7 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 ## グラスに何を出せるか
 
 **team-e の仕様を左右する最重要事項。** 数値と制約の詳細は
-**[グラス出力の制約](glass-output.md)** に集約してある。ここでは要点だけ。
+**[グラス出力の制約](02_glass-output.md)** に集約してある。ここでは要点だけ。
 
 | 出し先 | API | 上限 | ファーム要件 |
 |---|---|---|---|
@@ -150,7 +150,7 @@ val micStreaming: StateFlow<Boolean>
 ### ジェスチャー
 
 `gestureEvents` で `SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`。**3 枠すべて埋まっている**
-（[画面遷移とジェスチャー](app-flow.md)）。
+（[画面遷移とジェスチャー](05_app-flow.md)）。
 
 **リモコンのイベントリスナーは 0.5.0 で撤去された。** `RemoteControlListener`
 （`onPrev` / `onNext` / `onEsc`）ごと 0.6.0 の AAR から消えているので、
@@ -212,7 +212,7 @@ val micStreaming: StateFlow<Boolean>
   **ここで止める**。星図をぴったり重ねる（±2〜3°）ための天体アライメントは
   **UX を優先して撤去した**（下の「精度と UX」）
 
-詳細は [座標変換パイプライン ④](coordinate-system.md)。
+詳細は [座標変換パイプライン ④](03_coordinate-system.md)。
 
 ## グラスの設定を書き換える（`sendSetting`）
 
@@ -227,7 +227,7 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
 から拾った 17 個で、**0.6.0 の AAR でも変わっていない**（値は定数名と同じ。
 `NOTIFICATION_CONTENT_MASK` だけ実値が `NOTIF_CONTENT_MASK`）。
 
-観測に効くものは [グラス出力の制約](glass-output.md) にまとめた。残りは未調査：
+観測に効くものは [グラス出力の制約](02_glass-output.md) にまとめた。残りは未調査：
 `AR_SYSTEM_MODE` / `AR_NAME` / `AR_TYPE` / `AR_VERSION` / `INSCRIPTION_MODE` / `RCP_MAC` / `RST`。
 
 - `BRIGHTNESS_LEVEL` は **0..4、大きいほど明るい**。
@@ -244,11 +244,11 @@ fun sendWakeupTiltThreshold(degrees: Int)       // 見上げで起きる傾き�
 - 星座の特定 = **スマホのセンサー（方位・傾き・位置・時刻）から計算**
 - **ピッチとロールはグラスから絶対値で取れる**（加速度計が重力を測る）。
   **方位（ヨー）だけは絶対基準が無い**ので、そこを方位合わせで埋める
-  → [座標変換パイプライン](coordinate-system.md)
+  → [座標変換パイプライン](03_coordinate-system.md)
 - **スマホのコンパスでは代替できない。** スマホの磁気が示すのはスマホの方位で、
   頭とスマホの相対姿勢は未知
 - グラスへの出力 = **キャンバスに星図画像＋星座名ラベル**
-  → [グラス出力の制約](glass-output.md)
+  → [グラス出力の制約](02_glass-output.md)
 - 「AI にお願いする」の音声入力は**グラスのマイクで成立する**（PCM16 / 16kHz を WAV に包むだけ）
 - **画像送信が使えない事態に備え、テキストだけでも成立する経路を設計に残す（アプリ未実装）**
 - → **星座特定・解説生成とグラス出力を分離する。** 出力層だけ差し替えられる形にしておく
