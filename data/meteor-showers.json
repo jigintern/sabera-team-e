@@ -1,0 +1,138 @@
+{
+ "note": "主な流星群。放射点は J2000 の赤経・赤緯で、極大日の値に固定してある（活動期間中に数度動くが、放射点の広がりと視野 35° に対して無視できる）。zhr は理想条件の 1 時間あたりの出現数",
+ "peakWindowDays": 2,
+ "showers": [
+  {
+   "nameJa": "しぶんぎ座流星群",
+   "peakMonth": 1,
+   "peakDay": 4,
+   "startMonth": 12,
+   "startDay": 28,
+   "endMonth": 1,
+   "endDay": 12,
+   "zhr": 110,
+   "raDeg": 230.0,
+   "decDeg": 49.0
+  },
+  {
+   "nameJa": "こと座流星群",
+   "peakMonth": 4,
+   "peakDay": 22,
+   "startMonth": 4,
+   "startDay": 16,
+   "endMonth": 4,
+   "endDay": 25,
+   "zhr": 18,
+   "raDeg": 271.0,
+   "decDeg": 34.0
+  },
+  {
+   "nameJa": "みずがめ座エータ流星群",
+   "peakMonth": 5,
+   "peakDay": 6,
+   "startMonth": 4,
+   "startDay": 19,
+   "endMonth": 5,
+   "endDay": 28,
+   "zhr": 50,
+   "raDeg": 338.0,
+   "decDeg": -1.0
+  },
+  {
+   "nameJa": "みずがめ座デルタ南流星群",
+   "peakMonth": 7,
+   "peakDay": 30,
+   "startMonth": 7,
+   "startDay": 12,
+   "endMonth": 8,
+   "endDay": 23,
+   "zhr": 25,
+   "raDeg": 340.0,
+   "decDeg": -16.0
+  },
+  {
+   "nameJa": "ペルセウス座流星群",
+   "peakMonth": 8,
+   "peakDay": 12,
+   "startMonth": 7,
+   "startDay": 17,
+   "endMonth": 8,
+   "endDay": 24,
+   "zhr": 100,
+   "raDeg": 48.0,
+   "decDeg": 58.0
+  },
+  {
+   "nameJa": "りゅう座流星群",
+   "peakMonth": 10,
+   "peakDay": 8,
+   "startMonth": 10,
+   "startDay": 6,
+   "endMonth": 10,
+   "endDay": 10,
+   "zhr": 10,
+   "raDeg": 262.0,
+   "decDeg": 54.0
+  },
+  {
+   "nameJa": "オリオン座流星群",
+   "peakMonth": 10,
+   "peakDay": 21,
+   "startMonth": 10,
+   "startDay": 2,
+   "endMonth": 11,
+   "endDay": 7,
+   "zhr": 20,
+   "raDeg": 95.0,
+   "decDeg": 16.0
+  },
+  {
+   "nameJa": "おうし座南流星群",
+   "peakMonth": 11,
+   "peakDay": 5,
+   "startMonth": 9,
+   "startDay": 10,
+   "endMonth": 11,
+   "endDay": 20,
+   "zhr": 5,
+   "raDeg": 52.0,
+   "decDeg": 15.0
+  },
+  {
+   "nameJa": "しし座流星群",
+   "peakMonth": 11,
+   "peakDay": 17,
+   "startMonth": 11,
+   "startDay": 6,
+   "endMonth": 11,
+   "endDay": 30,
+   "zhr": 15,
+   "raDeg": 152.0,
+   "decDeg": 22.0
+  },
+  {
+   "nameJa": "ふたご座流星群",
+   "peakMonth": 12,
+   "peakDay": 14,
+   "startMonth": 12,
+   "startDay": 4,
+   "endMonth": 12,
+   "endDay": 17,
+   "zhr": 150,
+   "raDeg": 112.0,
+   "decDeg": 33.0
+  },
+  {
+   "nameJa": "こぐま座流星群",
+   "peakMonth": 12,
+   "peakDay": 22,
+   "startMonth": 12,
+   "startDay": 17,
+   "endMonth": 12,
+   "endDay": 26,
+   "zhr": 10,
+   "raDeg": 217.0,
+   "decDeg": 76.0
+  }
+ ]
+}

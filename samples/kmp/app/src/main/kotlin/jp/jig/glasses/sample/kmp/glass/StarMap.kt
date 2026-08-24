@@ -51,6 +51,15 @@ data class SkyBodyMark(
     val moon: Boolean = false,
 )
 
+/**
+ * 流星群の放射点。
+ *
+ * **名前は焼かない**（テキスト枠は星座名と月惑星で埋まっている）。
+ * 中心から外へ短い線が伸びる印にして、**「ここから放射する」を形で読ませる**。
+ * 群の名前は一口メモ（`SkyTips`）が喋る。
+ */
+data class MeteorRadiantMark(val nameJa: String, val azDeg: Double, val altDeg: Double)
+
 class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: List<Label>)
 
 /**

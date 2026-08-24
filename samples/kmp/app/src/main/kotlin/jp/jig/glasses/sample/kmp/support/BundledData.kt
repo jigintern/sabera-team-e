@@ -2,6 +2,7 @@ package jp.jig.glasses.sample.kmp.support
 
 import android.content.Context
 import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
+import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
 import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
@@ -30,6 +31,7 @@ object BundledData {
     private val starLock = Mutex()
     private val loreLock = Mutex()
     private val satelliteLock = Mutex()
+    private val showerLock = Mutex()
 
     @Volatile
     private var stars: StarCatalog? = null
@@ -42,6 +44,9 @@ object BundledData {
 
     @Volatile
     private var satellites: SatelliteScene? = null
+
+    @Volatile
+    private var showers: MeteorShowers? = null
 
     /**
      * 星図を描くもの。**星表を読むのと同じ手間で作れるので組で持つ。**
@@ -63,6 +68,14 @@ object BundledData {
         lore?.let { return it }
         return loreLock.withLock {
             lore ?: withContext(Dispatchers.IO) { ConstellationLore.load(context) }.also { lore = it }
+        }
+    }
+
+    /** 流星群。日付で引くだけなので小さいが、読むのはやはり 1 回でよい */
+    suspend fun showers(context: Context): MeteorShowers {
+        showers?.let { return it }
+        return showerLock.withLock {
+            showers ?: withContext(Dispatchers.IO) { MeteorShowers.load(context) }.also { showers = it }
         }
     }
 

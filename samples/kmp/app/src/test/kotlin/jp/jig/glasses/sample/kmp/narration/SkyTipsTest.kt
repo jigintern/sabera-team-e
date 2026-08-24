@@ -19,6 +19,8 @@ class SkyTipsTest {
         moonAltDeg: Double = 40.0,
         illuminated: Double = 0.5,
         bodiesUp: List<ObservedStarFact> = emptyList(),
+        risingPass: SkyTips.RisingPass? = null,
+        shower: SkyTips.ActiveShower? = null,
     ) = SkyTips.Sky(
         site = Site(latDeg, 139.0),
         hourOfDay = hourOfDay,
@@ -27,6 +29,31 @@ class SkyTipsTest {
         moon = MoonPhase(ageDays = 7.4, illuminated = illuminated, nameJa = "上弦の月"),
         moonAltDeg = moonAltDeg,
         bodiesUp = bodiesUp,
+        risingPass = risingPass,
+        shower = shower,
+    )
+
+    private fun pass(sunlit: Boolean = true) = SkyTips.RisingPass(
+        nameJa = "ISS",
+        inMinutes = 11.4,
+        riseDirection = "西",
+        setDirection = "南東",
+        peakAltDeg = 62,
+        peakDirection = "南南西",
+        sunlit = sunlit,
+    )
+
+    private fun shower(
+        nearPeak: Boolean = true,
+        radiantAltDeg: Double = 58.0,
+        daysToPeak: Int = if (nearPeak) 0 else 5,
+    ) = SkyTips.ActiveShower(
+        nameJa = "ペルセウス座流星群",
+        zhr = 100,
+        nearPeak = nearPeak,
+        daysToPeak = daysToPeak,
+        radiantAzDeg = 45.0,
+        radiantAltDeg = radiantAltDeg,
     )
 
     /** **押すたびに別のことを言う。** 同じものしか出ないと、2 回目が無反応と区別できない */
@@ -44,7 +71,7 @@ class SkyTipsTest {
     /** グラスの解説画面に入る長さ（[GlassTextPage]）。入らなければ末尾が捨てられる */
     @Test
     fun `どのメモもグラスに入る長さ`() {
-        for (tip in SkyTips.candidates(sky())) {
+        for (tip in SkyTips.candidates(sky(risingPass = pass(), shower = shower()))) {
             assertTrue(
                 "本文が長すぎる ${tip.text.length}文字「${tip.text}」",
                 tip.text.length <= GlassTextPage.pagedChars,
@@ -59,10 +86,108 @@ class SkyTipsTest {
     /** **読み上げる文なので記号がそのまま読まれる**（[AskGuard] の出口検査と同じ理由） */
     @Test
     fun `読み上げて邪魔になる記号を使わない`() {
-        for (tip in SkyTips.candidates(sky())) {
-            for (ch in "*#`~|<>[]{}※・()（）") {
+        for (tip in SkyTips.candidates(sky(risingPass = pass(), shower = shower()))) {
+            for (ch in "*#`~|<>[]{}※・()（）→←") {
                 assertFalse("記号が入っている $ch「${tip.text}」", ch in tip.text)
             }
+        }
+    }
+
+    /**
+     * **時間が決まっているものが先。**
+     *
+     * 「あと 11 分で ISS」は待つと決められるうちに言わないと意味がない。
+     * 空の暗さや星の動きは、いつ押しても同じことが言える。
+     */
+    @Test
+    fun `まもなく上がる衛星が先頭に来る`() {
+        val tips = SkyTips.candidates(sky(risingPass = pass(), shower = shower()))
+
+        assertEquals("まもなく人工衛星", tips.first().header)
+        assertEquals("今夜の流れ星", tips[1].header)
+    }
+
+    /** 端数は切り上げる。**「あと 0 分」と言われても待てない** */
+    @Test
+    fun `残り時間は切り上げて言う`() {
+        val tips = SkyTips.candidates(sky(risingPass = pass()))
+
+        val text = tips.first().text
+        assertTrue("残り時間が切り上がっていない「$text」", "あと12分" in text)
+        assertTrue("出る方角が無い", "西から南東へ" in text)
+        assertTrue("見えると言っていない", "肉眼でも見えます" in text)
+    }
+
+    /** 影に入る機体は「見えない」と言う。**出てきた空に何も無いのがいちばん悪い** */
+    @Test
+    fun `影に入る機体は見えないと断る`() {
+        val tips = SkyTips.candidates(sky(risingPass = pass(sunlit = false)))
+
+        assertTrue("影のことを言っていない", "肉眼では見えません" in tips.first().text)
+    }
+
+    /** 出現数を言うのは極大のころだけ。**外れた日の ZHR は当てにならない** */
+    @Test
+    fun `流星群の数は極大のころだけ言う`() {
+        val peak = SkyTips.candidates(sky(shower = shower())).first { it.header == "今夜の流れ星" }
+        val before = SkyTips.candidates(sky(shower = shower(nearPeak = false)))
+            .first { it.header == "今夜の流れ星" }
+
+        assertTrue("いちばん多い日なのに数を言わない", "1時間に100個" in peak.text)
+        assertTrue("いちばん多い日と言っていない", "いちばんよく流れる日" in peak.text)
+        assertFalse("そうでない日に数を言った", "1時間に" in before.text)
+        assertTrue("いちばん多い日までの日数が無い", "あと5日" in before.text)
+    }
+
+    /**
+     * **過ぎた日を「あと -11 日」と言わない。**
+     *
+     * 活動期間は極大よりずっと長い（ペルセウス座は極大 8/12 で 8/24 まで）ので、
+     * **極大のあとに開く日のほうがむしろ多い**。実機のログで踏んだ。
+     */
+    @Test
+    fun `いちばん多い日を過ぎたらマイナスの日数を言わない`() {
+        val tip = SkyTips.candidates(sky(shower = shower(nearPeak = false, daysToPeak = -11)))
+            .first { it.header == "今夜の流れ星" }
+
+        assertFalse("マイナスの日数を言った「${tip.text}」", "-11" in tip.text)
+        assertTrue("過ぎたことを言っていない「${tip.text}」", "過ぎました" in tip.text)
+    }
+
+    /**
+     * **一点を見つめさせない。** 流れ星は空全体に出るし、
+     * もとのすぐそばに出るものは短くて目立たない。
+     */
+    @Test
+    fun `一点を見つめろとは言わない`() {
+        val tip = SkyTips.candidates(sky(shower = shower())).first { it.header == "今夜の流れ星" }
+
+        assertTrue("広く眺める話が無い「${tip.text}」", "広く眺める" in tip.text)
+    }
+
+    /** もとが沈んでいるのに「高度マイナス 12 度」と言わない */
+    @Test
+    fun `流れ星のもとが地平線の下なら待てと言う`() {
+        val tip = SkyTips.candidates(sky(shower = shower(radiantAltDeg = -12.0)))
+            .first { it.header == "今夜の流れ星" }
+
+        assertTrue("沈んでいるのに高度を言った「${tip.text}」", "地平線の下" in tip.text)
+        assertFalse("高度を言っている", "高度" in tip.text)
+    }
+
+    /**
+     * **天文の言葉をそのまま出さない。** 使う人は天文の初心者で、
+     * 「極大」「放射点」と言われても何をすればよいか分からない。
+     */
+    @Test
+    fun `専門用語をそのまま出さない`() {
+        val tips = SkyTips.candidates(sky(risingPass = pass(), shower = shower()))
+
+        for (word in listOf("極大", "放射点", "薄明", "天の極", "月齢", "ZHR", "等級")) {
+            assertTrue(
+                "専門用語が出ている「$word」",
+                tips.none { word in it.text },
+            )
         }
     }
 
@@ -103,6 +228,6 @@ class SkyTipsTest {
         val south = SkyTips.candidates(sky(latDeg = -33.0))
 
         assertTrue("南半球で北半球の空を案内した", south.none { it.header.endsWith("の空の目印") })
-        assertTrue("場所のメモが出ていない", south.any { "南緯" in it.text })
+        assertTrue("場所のメモが出ていない", south.any { "北極星が見えません" in it.text })
     }
 }

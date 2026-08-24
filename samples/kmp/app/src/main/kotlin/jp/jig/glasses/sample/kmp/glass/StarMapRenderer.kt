@@ -26,6 +26,7 @@ import jp.jig.glasses.sample.kmp.sky.sunPosition
 import jp.jig.glasses.sample.kmp.sky.toAltAz
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.toRaDec
+import kotlin.math.PI
 import kotlin.math.acos
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -129,6 +130,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         constellationMagnitude: Double = 99.0,
         // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
         drawGuides: Boolean = true,
+        // 流星群の放射点。**その日に活動している群があるときだけ渡ってくる**
+        radiants: List<MeteorRadiantMark> = emptyList(),
     ): StarMap {
         val brightest = brightestPerConstellation()
         val d = daysFromJ2000(epochMillis)
@@ -273,6 +276,14 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                     drawPlanet(gray, width, height, q, body.nameJa, width / 528.0)
                 }
             }
+        }
+
+        // **放射点は星の上に重ねる。** 星より暗い段で、形（放射する線）だけで読ませる。
+        // 点で描くと星と区別が付かず、輪で描くと衛星の印と紛れる
+        for (radiant in radiants) {
+            val q = project(enu(radiant.azDeg, radiant.altDeg), basis, k, width, height) ?: continue
+            if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
+            drawRadiant(gray, width, height, q, width / 528.0)
         }
 
         // **衛星は「大体どの辺にいるか」の点だけ。軌跡の線は描かない**（決定。satellite-drawing.md）。
@@ -886,6 +897,28 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
     }
 
+    /**
+     * 放射点の印。**中心を空けて、外向きの短い線を放射状に置く。**
+     *
+     * 中心を塗らないのは、そこに星があっても隠さないため。
+     * 線の内側を空けてあるので、**「1 点から広がる」形がそのまま意味になる**。
+     */
+    private fun drawRadiant(gray: ByteArray, width: Int, height: Int, at: DoubleArray, scale: Double) {
+        val inner = RADIANT_INNER_PX * scale
+        val outer = RADIANT_OUTER_PX * scale
+        for (i in 0 until RADIANT_RAYS) {
+            val angle = i * 2.0 * PI / RADIANT_RAYS
+            val dx = cos(angle)
+            val dy = sin(angle)
+            line(
+                gray, width, height,
+                doubleArrayOf(at[0] + dx * inner, at[1] + dy * inner),
+                doubleArrayOf(at[0] + dx * outer, at[1] + dy * outer),
+                RADIANT_VALUE, 0,
+            )
+        }
+    }
+
     private fun ring(gray: ByteArray, width: Int, height: Int, at: DoubleArray, r: Double, value: Int) {
         var prev: DoubleArray? = null
         for (i in 0..RING_STEPS) {
@@ -1357,5 +1390,18 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** 欠けている側の輪。消すと月の大きさが分からなくなるので、いちばん暗い段で残す */
         const val MOON_LIMB_VALUE = 60
+
+        /**
+         * 放射点の印。**星（最大 255）より暗く、星座線（144）と同じくらいの段**にする。
+         * 流星群は「そこに何かある」と分かればよく、星を押しのける情報ではない。
+         */
+        const val RADIANT_VALUE = 150
+
+        /** 中心を空ける半径[px]。528 幅のときの値で、他の幅では比例させる */
+        const val RADIANT_INNER_PX = 5.0
+        const val RADIANT_OUTER_PX = 13.0
+
+        /** 放射する線の本数。少ないと十字に、多いと円に見える */
+        const val RADIANT_RAYS = 8
     }
 }
