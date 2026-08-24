@@ -1,0 +1,120 @@
+# コードとデータの地図
+
+**どこに何があり、同梱データがどう作られるか。** 仕様は [00_index.md](00_index.md)、
+禁止事項は [AGENTS.md](../../AGENTS.md)。
+
+## リポジトリ
+
+| パス | 中身 |
+|---|---|
+| `samples/kmp/app/` | **team-e のアプリ本体**（Kotlin + Compose）。ここを書き換えて育てる |
+| `docs/team-e/` | **team-e の仕様書** |
+| `docs/github-pat.md` | private SDK を取得するための GitHub PAT 設定 |
+| `data/` | 同梱データ（星表・星座線・解説文・流星群・TLE）。**すべて生成物** |
+| `tools/` | 同梱データの生成スクリプトと、実機ログの取り出し |
+
+## パッケージ
+
+**「何に答える場所か」で切っている。** 迷ったら、そのコードが壊れたときに何が起きるかで決める
+（星が違う位置に出る → `sky`、グラスに出ない → `glass`）。
+
+| パッケージ | 責務 |
+|---|---|
+| `sky/` | **空の計算。Android に触らない**（JVM テストで数字を固定できる）。座標変換・太陽・月惑星・IAU 境界・観測の既定値 |
+| `catalog/` | 同梱データ（`data/`）を読む。星表・88 星座の解説文・流星群 |
+| `satellite/` | 軌道計算（SGP4/SDP4）と、いつどこに見えるか |
+| `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
+| `alignment/` | **星図を空に合わせるために端末が測るもの。** 方位・傾き・磁気の歪み・観測地 |
+| `narration/` | **何を喋るか。** 解説の組み立て、一口メモ、声の質問の入口・出口の検査 |
+| `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
+| `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
+| `sound/` | BGM |
+| `support/` | どこにも属さない道具（観測ログ・声のやり取りの履歴・音量の持ち上げ・重複送信の抑止） |
+| `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）。`ui/component/` は部品と色 |
+
+## 外せない置き場所
+
+**同じ処理を 2 か所に増やさない。**
+
+| ファイル | 責務 |
+|---|---|
+| `ui/GlassesApp.kt` | 4 画面の遷移と戻るキー。画面は `AppScreen` で表し、整数を増やさない |
+| `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
+| `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
+| `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
+| `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
+| `glass/GlassTextArt.kt` | **文字を画像に焼く。** テキスト枠では字の大きさを変えられないので、見出しと本文を組み分けたいときはここ。**動かないものにだけ使う** |
+| `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
+| `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
+| `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
+| `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
+| `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
+| `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
+| `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
+| `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
+| `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
+| `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
+| `narration/SkyTips.kt` | ダブルタップの一口メモ。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `support/AskHistory.kt` | 声のやり取りの履歴。設定パネルから読み直す |
+| `support/LoudnessBoost.kt` | つまみの上限（1.0）から先の音量。**読み上げと BGM に同じ量をかける** |
+
+## 同梱データ（`data/` は生成物）
+
+**直接編集しない。** 対応するスクリプトを直して作り直す。
+
+```bash
+python3 tools/build-star-catalog.py            # 星表
+python3 tools/build-constellation-figures.py   # 星座絵
+python3 tools/build-constellation-lore.py      # 88 星座の解説（長さと記号を検査する）
+python3 tools/build-asterisms.py               # 大三角・天の川
+python3 tools/build-meteor-showers.py          # 流星群
+python3 tools/build-satellites.py              # TLE を取り直す
+```
+
+- **アプリの生きている間 1 回だけ読む**（`support/BundledData.kt`）
+- CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を
+  作り直して `data/` に差分が出ないか検査する。**星表と TLE は外部取得が要るので回さない**
+- **GitHub Pages は公開しない。** SDK ドキュメントは上流が公開している
+
+## ドキュメント用の画像
+
+**グラスに出ている絵は、実機なしで作り直せる。** 中身はアプリと同じコードで計算し、
+色を付けて文字を焼くところだけ JDK 単体実行に分けてある（AWT は Android のユニットテストから触れない）。
+
+```bash
+cd samples/kmp && ./gradlew :app:testDebugUnitTest --tests '*DocumentImagesTest*'   # 中身
+cd ../.. && java tools/compose-glass-images.java                                    # 絵（docs/images/）
+```
+
+- 見本は **2026-01-01 18:00 JST の鯖江から東の空**（`DocumentImagesTest` が
+  オリオン座の高度が 15° に近い時刻を選ぶ）
+- **パネルは視野全体ではない。** 広い視界（仮に 92°）の中に、パネルの画角（**仮の 35°**）を
+  正面より 11° 上へ置く。四隅の向きを視界へ投影して矩形を出しているので、
+  **画角の値を変えれば枠の大きさもそのまま変わる**
+- 背景の星は**星図と同じ投影**で置く（`project` / `projectionScale`）。
+  **星座線の頂点と空の星が重なる**のが要点で、グラスの絵は塗りつぶさず**光として足す**
+  （黒は光らないので下の景色が残る）
+- **点の大きさは等級から決め直す。** 星図の点は読ませるために大きく描いてあるので、
+  そのまま空の星に使うと実際よりずっと大きく見える
+- **街のシルエットと 5 等より暗い星は飾り**（`tools/compose-glass-images.java`・種は固定）。
+  位置に意味は無い。**これは写真ではない**ので、パネルのにじみ・明るさ・実機のフォントも出ない
+- **スマホの画面は撮れない。** BLE がつながらないと星図の画面まで進まないので、実機のスクリーンショットを使う
+- 図（`docs/team-e/diagrams/*.drawio.svg`）は draw.io でそのまま開いて編集し、上書き保存する。
+  CLI から出し直すなら：
+
+```bash
+/Applications/draw.io.app/Contents/MacOS/draw.io --no-sandbox -x -f svg \
+  --embed-diagram --embed-svg-fonts false --theme light -o 図.drawio.svg 図.drawio
+```
+
+## ビルドの前提
+
+- JDK 17 / Gradle 8.10.2（wrapper 同梱）/ Kotlin 2.3.10 / AGP 8.7.0
+- Android `minSdk 31` / `compileSdk 36` / `targetSdk 36`
+- **BLE 実機が必須。エミュレータでは動作確認できない**
+- SDK は private な GitHub Packages 配布。**`read:packages` の PAT が無いとビルドが落ちる**
+  （[手順](../github-pat.md)）。CI では取れないので、**JVM テストと APK ビルドは手元で回す**
+- `.editorconfig`（4 スペース / 120 桁 / intellij_idea）は全 Kotlin に効く
+- **`:app:lintDebug` はツール側でクラッシュする。** AGP 8.7.0 と Kotlin 2.3.10 の解析 API が合わず、
+  `RememberInComposition` / `NullSafeMutableLiveData` detector が `IncompatibleClassChangeError` になる。
+  **detector を無効化して通したことにせず**、ツールチェーン更新時に戻す

@@ -164,7 +164,7 @@ import kotlin.math.roundToInt
  * - 送信のログを見る
  *
  * 方位合わせは [CalibrationScreen] だけが担当する。星図の向きはグラスの 6DoF に追従する。
- * 仕様は docs/team-e/coordinate-system.md。
+ * 仕様は docs/team-e/03_coordinate-system.md。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,7 +197,7 @@ fun StarMapScreen(
     val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
 
     // 画面のログは 40 行で、画面を出ると消える。ドリフト率のような長い計測が取れないので
-    // 同じ行をファイルにも残す（docs/team-e/coordinate-system.md の「実測しないと決められないこと」）
+    // 同じ行をファイルにも残す（docs/team-e/03_coordinate-system.md の「実測しないと決められないこと」）
     val sessionLog = remember { SessionLog(context, scope) }
 
     // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
@@ -1330,7 +1330,7 @@ fun StarMapScreen(
      * マイク・通信という**外の事情で落ちる**ものばかりで、`drawAndSend` は同じ理由で
      * `Throwable` を拾っている。
      *
-     * **落ちるより、断って喋るほうが上**（app-flow.md「タップして無反応が一番よくない」）。
+     * **落ちるより、断って喋るほうが上**（05_app-flow.md「タップして無反応が一番よくない」）。
      */
     fun launchNarration(what: String, subject: String, block: suspend () -> Unit): Job = scope.launch {
         try {
@@ -1593,7 +1593,7 @@ fun StarMapScreen(
      * 星を見に行く場所ほど電波が届かない。
      *
      * **押すたびに次のメモへ進む。** 1 つしか言わないと、2 回目のダブルタップが
-     * 無反応と区別できない（**タップして無反応が一番よくない**・app-flow.md）。
+     * 無反応と区別できない（**タップして無反応が一番よくない**・05_app-flow.md）。
      */
     fun showTip() {
         narrationJob?.cancel()
@@ -2013,7 +2013,7 @@ private const val POLL_MS = 100L
  * どれだけ過去の視線で星座を決めるか。
  *
  * **ツルをタップすると頭が動く。** タップ時点の視線で判定すると、押した反動で
- * 隣の星座に化けることがある（app-flow.md）。
+ * 隣の星座に化けることがある（05_app-flow.md）。
  */
 private const val LATCH_MS = 500L
 

@@ -11,10 +11,30 @@
 - ツルを 1 回タップすると、その星座の解説が返ってきて読み上げられる
 - **人工衛星モード**に切り替えると、いま空を通っている衛星を同じ座標で出す
 
+## 見え方
+
+**かけている人にはこう見える**というイメージ図。**パネルは視野全体ではなく、正面より少し上に
+小さく浮かんでいる。** 黒い画素は光らないので、枠の中も外も肉眼の空がそのまま透けている。
+
+| 星図 ＋ 星座名 | 解説画面（#40） |
+|---|---|
+| ![グラスの星図](docs/images/glass-star-map.png) | ![グラスの解説画面](docs/images/glass-caption.png) |
+| 星座線・星座絵・一等星の名前。**線の頂点と空の星が重なる** | 星図を消して文字だけにする（**うしろの空はそのまま見えている**）。1 枚 3 行を 1 行ずつ上へ流す |
+
+- 枠の中は**アプリが実際に送っている絵**（`StarMapRenderer` の出力をそのまま焼いたもの）
+- 空は **2026-01-01 18:00 の鯖江から東の空**。星の位置と明るさは**星図と同じ計算**なので、
+  枠の中の星座線と、枠の外に見えている星がつながる
+- **実機の写真ではない。** 街のシルエットと 5 等より暗い星は雰囲気のための飾り。
+  **画角は未実測**（仮の 35°）なので枠の大きさも仮で、パネルのにじみ・明るさ・
+  実機のフォント・薄く描いた枠線も実物とは違う
+
+作り直しは [コードとデータの地図](docs/team-e/10_code-map.md#ドキュメント用の画像)。
+**スマホ側の画面は実機のスクリーンショットが要る**（BLE がつながらないと星図の画面まで進まない）。
+
 ## 進捗状況
 
 - 実装は `samples/kmp/app`
-- 仕様は [docs/team-e/index.md](docs/team-e/index.md)
+- 仕様は [docs/team-e/00_index.md](docs/team-e/00_index.md)
 
 | | 状態 |
 |---|---|
@@ -45,12 +65,14 @@ cd samples/kmp
 
 | パス | 中身 |
 |---|---|
-| [AGENTS.md](AGENTS.md) | 技術的な前提・SDK の制約・未決定事項。AI エージェント向けだが人間が読んでもよい |
+| [docs/team-e/00_index.md](docs/team-e/00_index.md) | **team-e の仕様書の入口。** 決まったこと・実装状況・各ドキュメントへの地図 |
+| [AGENTS.md](AGENTS.md) | AI エージェント向けの**禁止事項と規約**（人間が読んでもよい） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 環境構築・進め方・コミット規約・困ったとき |
-| [docs/team-e/index.md](docs/team-e/index.md) | **team-e の仕様書。** 座標変換・グラス出力の制約・画面遷移・人工衛星モード |
+| [docs/team-e/10_code-map.md](docs/team-e/10_code-map.md) | **どこに何のコードがあるか**・同梱データの作り方・ビルドの前提 |
+| [docs/team-e/11_pitfalls.md](docs/team-e/11_pitfalls.md) | 実機と実装で**踏んだ落とし穴** |
+| [docs/team-e/12_measurements.md](docs/team-e/12_measurements.md) | **実機で測った数字**の台帳 |
 | `samples/kmp/app/` | **アプリ本体**（Kotlin + Compose） |
-| `data/` | 同梱データ（星表・星座線・TLE）。すべて生成物 |
-| `tools/` | 同梱データの生成スクリプト |
+| `data/` / `tools/` | 同梱データ（すべて生成物）と生成スクリプト |
 | [docs/github-pat.md](docs/github-pat.md) | privateなSDKを取得するためのPAT設定 |
 
 ## SDK について
@@ -63,7 +85,7 @@ cd samples/kmp
 - team-e が使っている主な API — `sendCanvasImage`（星図）/ `sendCanvasElements`（星座名）/
   `imuData`（6DoF）/ `gestureEvents`（ツルの操作）
 - **グラスから音は鳴らせない**（スピーカーが無い）。読み上げはスマホから
-- 制約の詳細 → [グラス出力の制約](docs/team-e/glass-output.md)
+- 制約の詳細 → [グラス出力の制約](docs/team-e/02_glass-output.md)
 
 SDKの使い方・APIリファレンス・追加履歴は
 [上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を正とする。
