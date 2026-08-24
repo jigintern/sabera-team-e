@@ -15,6 +15,7 @@ import app.jigglass.ble.BleDeviceSelector
 import app.jigglass.glass.SdkActivityHost
 import app.jigglass.glass.getGlassManager
 import jp.jig.glasses.sample.kmp.ui.GlassesApp
+import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -39,7 +40,7 @@ class MainActivity : ComponentActivity() {
         val manager = getGlassManager(applicationContext)
 
         setContent {
-            MaterialTheme {
+            MaterialTheme(typography = SaberaTypography) {
                 GlassesApp(manager = manager)
             }
         }

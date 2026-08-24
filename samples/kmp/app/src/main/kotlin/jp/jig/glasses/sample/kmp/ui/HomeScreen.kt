@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import jp.jig.glasses.sample.kmp.ui.component.AppNameTextStyle
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
@@ -44,7 +45,7 @@ fun HomeScreen(
 
             Text(
                 text = "星しるべ",
-                style = MaterialTheme.typography.displaySmall,
+                style = AppNameTextStyle,
                 color = Color.White,
                 textAlign = TextAlign.Center,
             )

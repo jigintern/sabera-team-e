@@ -115,6 +115,7 @@ import jp.jig.glasses.sample.kmp.ui.component.ObservationActions
 import jp.jig.glasses.sample.kmp.ui.component.ObservationPreview
 import jp.jig.glasses.sample.kmp.ui.component.ObservationStatusCard
 import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
+import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
@@ -1469,7 +1470,10 @@ fun StarMapScreen(
     // 空を見ている人には見えない。ここを取っておかないと、観測画面ごと畳まれる
     BackHandler(enabled = showDetails) { showDetails = false }
 
-    MaterialTheme(colorScheme = SaberaDarkColorScheme) {
+    MaterialTheme(
+        colorScheme = SaberaDarkColorScheme,
+        typography = SaberaTypography,
+    ) {
         Box(Modifier.fillMaxSize()) {
             SeasonalConstellationBackground(
                 constellation = constellation,
