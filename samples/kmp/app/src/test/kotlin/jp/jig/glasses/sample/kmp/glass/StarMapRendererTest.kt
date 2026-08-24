@@ -8,10 +8,15 @@ import jp.jig.glasses.sample.kmp.catalog.StarCatalog
 import jp.jig.glasses.sample.kmp.satellite.SkyMotion
 import jp.jig.glasses.sample.kmp.satellite.SkyTrack
 import jp.jig.glasses.sample.kmp.sky.Look
+import jp.jig.glasses.sample.kmp.sky.ObservationMode
 import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.SkyCommand
+import jp.jig.glasses.sample.kmp.sky.SkyCommandParser
+import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
 import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
+import jp.jig.glasses.sample.kmp.sky.snapshot
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.toRaDec
 import org.json.JSONObject
@@ -107,6 +112,32 @@ class StarMapRendererTest {
     /** 2026-01-01 21:00 JST の鯖江 */
     private val site = Site(35.9432, 136.1846)
     private val epoch = 1767268800000L
+
+    @Test
+    fun `シドニーの音声指定から同じ場所と時刻の星図を作れる`() {
+        val parsed = SkyCommandParser.parse(
+            "シドニーの2026年8月24日20時30分の夜空を見せて",
+            0L,
+        ) as SkyCommandResult.Accepted
+        val command = parsed.command as SkyCommand.ShowSky
+        val observation = ObservationMode.Simulation(command.city, command.epochMillis).snapshot(site, 0L)
+        val renderer = StarMapRenderer(catalog())
+        val target = renderer.visibleConstellations(observation.site, observation.epochMillis).first()
+
+        val map = renderer.render(
+            site = observation.site,
+            epochMillis = observation.epochMillis,
+            look = Look(target.azDeg, target.altDeg),
+            fovDeg = 35.0,
+            limitMagnitude = 5.0,
+            maxLabels = CANVAS_TEXT_SLOTS - 1,
+        ).withStatusLabel(observation.shortLabel())
+
+        assertTrue("シドニーの星図が真っ黒", map.gray.any { (it.toInt() and 0xFF) > 0 })
+        assertTrue("星座名が無い", map.constellationNames().isNotEmpty())
+        assertEquals(LabelKind.STATUS, map.labels.first().kind)
+        assertEquals("シミュレーション シドニー 8/24 20:30", map.labels.first().text)
+    }
 
     @Test
     fun `選んだ星座を向くと画素が光る`() {
