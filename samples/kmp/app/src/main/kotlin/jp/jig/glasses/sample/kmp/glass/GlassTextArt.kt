@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.RectF
 import android.graphics.Typeface
 
 /**
@@ -20,18 +23,13 @@ import android.graphics.Typeface
  * 回るもの（読み込み中のクルクル）はテキスト枠でやる。
  *
  * 出てくるのは 1 画素 1 バイトのグレースケール（[StarMap]）。**黒は透明**なので、
- * 黒地に白で描けばそのまま緑の文字になる。量子化（3bit）と圧縮は SDK がやる。
+ * 透過ロゴと白い本文を黒地に描く。量子化（3bit）と圧縮は SDK がやる。
  */
 object GlassTextArt {
 
-    /**
-     * 見出しと本文を中央に組んだ 1 枚。
-     *
-     * 本文は**入る大きさまで自動で落とす**（[BODY_SIZES]）。ひとことの長さは
-     * メモによって倍近く変わるので、固定にすると溢れるか、短い文が間延びする。
-     */
+    /** 採用ロゴと本文を中央に組んだ 1 枚。本文は入る大きさまで自動で落とす。 */
     fun splash(
-        title: String,
+        logo: Bitmap,
         body: String,
         width: Int = STAR_MAP_WIDTH,
         height: Int = STAR_MAP_HEIGHT,
@@ -42,15 +40,25 @@ object GlassTextArt {
         canvas.drawColor(Color.BLACK)
 
         val usable = width - 2 * MARGIN_X
-        val titlePaint = paint(TITLE_SIZE).apply {
-            // 長い名前でも切らない。**縮めてでも全部出す**
-            if (measureText(title) > usable) textSize = TITLE_SIZE * usable / measureText(title)
+        val logoWidth = minOf(LOGO_WIDTH, usable.toFloat())
+        val logoHeight = logo.height * logoWidth / logo.width
+        val logoLeft = (width - logoWidth) / 2f
+        val logoBottom = LOGO_TOP + logoHeight
+        // スマホ用のミントは赤成分が 117 しかなく、そのままグレースケールへ落とすと
+        // 白いロゴ文字（244）より暗くなる。グラスでは色を使えないので、透過だけ残して白へ揃える
+        val logoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
         }
-        val titleBaseline = height * TITLE_BASELINE
-        canvas.drawText(title, width / 2f, titleBaseline, titlePaint)
+        canvas.drawBitmap(
+            logo,
+            null,
+            RectF(logoLeft, LOGO_TOP, logoLeft + logoWidth, logoBottom),
+            logoPaint,
+        )
 
-        // 本文が入る高さ。見出しの下から、下の余白まで
-        val room = height - MARGIN_Y - (titleBaseline + TITLE_GAP)
+        // ロゴの下から、下の余白まで。採用ロゴは横長なので本文の場所を圧迫しない
+        val bodyTop = logoBottom + LOGO_GAP
+        val room = height - MARGIN_Y - bodyTop
         val bodyPaint = paint(BODY_SIZES.first())
         var lines = wrap(body, bodyPaint, usable.toFloat())
         for (size in BODY_SIZES) {
@@ -59,7 +67,7 @@ object GlassTextArt {
             if (lines.size * size * LINE_SPACING <= room) break
         }
 
-        var baseline = titleBaseline + TITLE_GAP + bodyPaint.textSize
+        var baseline = bodyTop + bodyPaint.textSize
         for (line in lines) {
             if (baseline > height - MARGIN_Y) break
             canvas.drawText(line, width / 2f, baseline, bodyPaint)
@@ -148,26 +156,19 @@ object GlassTextArt {
     /** 上下の余白 */
     private const val MARGIN_Y = 20
 
-    /**
-     * 見出しの字の大きさ[画素]。本文の 2 倍で、題として読める。
-     *
-     * **これ以上大きくすると本文が縮む。** 64px にしていたときは 106 文字のひとことが
-     * 20px まで落ちた。実機で分かっているのは「**13.3px/文字では読めなかった**」ことだけなので、
-     * 20px は危ない側にある（[GlassTextPage] の `LABEL_CHAR_WIDTH` も参照）。
-     */
-    private const val TITLE_SIZE = 52f
+    /** 横長ロゴ。288px なら高さは約81pxで、長いひとことも24pxを保てる */
+    private const val LOGO_WIDTH = 288f
 
-    /** 見出しのベースライン（高さに対する割合）。上に寄せて本文の場所を空ける */
-    private const val TITLE_BASELINE = 0.22f
+    private const val LOGO_TOP = 5f
 
-    /** 見出しと本文のあいだ[画素] */
-    private const val TITLE_GAP = 24f
+    /** ロゴと本文のあいだ[画素] */
+    private const val LOGO_GAP = 10f
 
     /**
      * 本文の字の大きさ[画素]。**入る大きさが見つかるまで上から順に試す。**
      *
      * ひとことの長さはメモによって倍近く変わる（60〜120 文字）。この並びなら
-     * **短いものは 30px で 4 行、長いものでも 24px で 6 行**に収まる。
+     * **短いものは 30px で 4 行、長いものでも 24px で 7 行**に収まる。
      * いちばん小さい 20px は最後の逃げ道で、そこまで落ちるなら**ひとことを短くするほうがよい**。
      */
     private val BODY_SIZES = floatArrayOf(30f, 27f, 24f, 22f, 20f)

@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +18,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import jp.jig.glasses.sample.kmp.ui.component.AppNameTextStyle
+import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
@@ -43,11 +46,11 @@ fun HomeScreen(
         ) {
             Spacer(Modifier.weight(1f))
 
-            Text(
-                text = "星しるべ",
-                style = AppNameTextStyle,
-                color = Color.White,
-                textAlign = TextAlign.Center,
+            Image(
+                painter = painterResource(R.drawable.hoshishirube_logo),
+                contentDescription = "星しるべ",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(96.dp),
             )
             Spacer(Modifier.height(16.dp))
             Text(

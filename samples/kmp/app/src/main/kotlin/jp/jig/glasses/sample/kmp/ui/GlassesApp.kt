@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -35,6 +37,7 @@ import androidx.compose.ui.window.DialogProperties
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GlassClient
 import app.jigglass.glass.GlassManager
+import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.glass.GlassTextArt
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
@@ -49,7 +52,6 @@ import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
 import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
 import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
 import jp.jig.glasses.sample.kmp.ui.component.rememberSeasonalConstellation
-import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
@@ -76,6 +78,9 @@ fun GlassesApp(manager: GlassManager) {
     var connectionLost by rememberSaveable { mutableStateOf(false) }
     val constellation = rememberSeasonalConstellation()
     val context = LocalContext.current
+    val splashLogo = remember(context) {
+        requireNotNull(BitmapFactory.decodeResource(context.resources, R.drawable.hoshishirube_logo))
+    }
 
     /**
      * 起動直後にグラスへ出すひとことの番号。**起動ごとに変える。**
@@ -143,9 +148,8 @@ fun GlassesApp(manager: GlassManager) {
      * グラスへ一度も送っていなかったので、かけている人には**動いているのかどうかも
      * 分からない**（「タップして無反応が一番よくない」と同じ話）。
      *
-     * **画像は使わない**（テキスト枠だけ）。星図と違って転送が 1 電文で終わるので、
-     * 接続直後の不安定なところで重い転送を始めずに済むし、
-     * **キャンバス画像が動かないファームでも出る**。
+     * 採用ロゴとひとことを 1 枚の画像に焼く。ロゴの専用字形と本文の大きさを両立するには、
+     * フォントを指定できないテキスト枠では組めない。
      *
      * ひとことは**起動ごとに違うものから始める**（[splashTip]）。毎回同じ文が出ると、
      * 出ていること自体に気づかなくなる。
@@ -161,9 +165,9 @@ fun GlassesApp(manager: GlassManager) {
         val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
         val tip = SkyTips.of(sky, splashTip)
         // **画像に焼く。** テキスト枠では字の大きさを変えられないので、
-        // 見出しを大きく・本文を小さく・中央に揃える組み方ができない
+        // 専用ロゴと本文を中央に揃える組み方ができない
         val art = withContext(Dispatchers.Default) {
-            GlassTextArt.splash(title = APP_TITLE, body = tip.text)
+            GlassTextArt.splash(logo = splashLogo, body = tip.text)
         }
         try {
             // **先にテキスト枠を掃除する。** ファームは消すまで文字を持ち続けるので、
@@ -385,9 +389,6 @@ private enum class AppScreen {
     CALIBRATION,
     STAR_MAP,
 }
-
-/** グラスに出すアプリ名。`android:label` と同じ */
-private const val APP_TITLE = "星しるべ"
 
 /** 起動ごとのひとことを散らす幅。件数より十分大きければよい */
 private const val SPLASH_TIP_SPREAD = 1_000

@@ -42,8 +42,9 @@
 | `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
 | `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
+| `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` | 採用ロゴの実装用素材。横組みはホームとグラス、マーク単体はランチャーで使う |
 | `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
-| `glass/GlassTextArt.kt` | **文字を画像に焼く。** テキスト枠では字の大きさを変えられないので、見出しと本文を組み分けたいときはここ。**動かないものにだけ使う** |
+| `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
@@ -84,6 +85,7 @@ python3 tools/build-satellites.py              # TLE を取り直す
 ```bash
 cd samples/kmp && ./gradlew :app:testDebugUnitTest --tests '*DocumentImagesTest*'   # 中身
 cd ../.. && java tools/compose-glass-images.java                                    # 絵（docs/images/）
+java -Djava.awt.headless=true tools/compose-phone-preview.java                      # スマホのホーム
 ```
 
 - 見本は **2026-01-01 18:00 JST の鯖江から東の空**（`DocumentImagesTest` が
@@ -98,7 +100,8 @@ cd ../.. && java tools/compose-glass-images.java                                
   そのまま空の星に使うと実際よりずっと大きく見える
 - **街のシルエットと 5 等より暗い星は飾り**（`tools/compose-glass-images.java`・種は固定）。
   位置に意味は無い。**これは写真ではない**ので、パネルのにじみ・明るさ・実機のフォントも出ない
-- **スマホの画面は撮れない。** BLE がつながらないと星図の画面まで進まないので、実機のスクリーンショットを使う
+- スマホのホームは `compose-phone-preview.java` が実装と同じロゴ・色・配置から作る。
+  **星図画面はBLEがつながらないと進めない**ので、必要なら実機のスクリーンショットを使う
 - 図（`docs/team-e/diagrams/*.drawio.svg`）は draw.io でそのまま開いて編集し、上書き保存する。
   CLI から出し直すなら：
 
