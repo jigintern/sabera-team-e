@@ -49,6 +49,15 @@ class GlassCanvasTest {
         assertTrue(batches.flatten().all { it.text.isEmpty() })
     }
 
+    @Test
+    fun `画面切り替えの掃除は全スロットを一電文で消す`() {
+        val cleared = clearedCanvasText()
+
+        assertEquals((0 until CANVAS_TEXT_SLOTS).toList(), cleared.map { it.id })
+        assertTrue(cleared.all { it.text.isEmpty() && it.width == 0 && it.height == 0 })
+        assertTrue(cleared.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
+    }
+
     /**
      * **短い名前へ変わったスロットは、置く前に消す。**
      *
@@ -67,6 +76,29 @@ class GlassCanvasTest {
         assertEquals(listOf(0), batches[0].map { it.id })
         assertTrue("先に消していない", batches[0].single().text.isEmpty())
         assertEquals(listOf("おとめ座"), batches[1].map { it.text })
+    }
+
+    /**
+     * **190 バイトは画面に置ける合計でもある**（#40）。
+     *
+     * 8 枠まで数だけで詰めていたときは、日本語の名前 8 個で 200 バイトを超え、
+     * [batched] が 2 電文へ割ったところで**先に置いた枠が押し出されて消えた**。
+     * 先頭は案内のラベルなので、いちばん消えてはいけない文字が消える。
+     */
+    @Test
+    fun `テキスト枠は数だけでなくバイト数でも打ち切る`() {
+        val labels = (0 until CANVAS_TEXT_SLOTS).map { index ->
+            Label("みなみのかんむり座", 60 + index, 20 + index * CANVAS_LABEL_HEIGHT, LabelKind.CONSTELLATION)
+        }
+        val elements = StarMap(528, 330, ByteArray(528 * 330), labels).toCanvasElements()
+
+        assertTrue("枠が多すぎる", elements.size <= CANVAS_TEXT_SLOTS)
+        assertTrue(
+            "合計 ${elements.sumOf { it.byteSize() }} バイトは画面に置ける量を超える",
+            elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES,
+        )
+        // 優先順位の先頭（案内・衛星）から詰めるので、残るのは先頭側であること
+        assertEquals(0, elements.first().id)
     }
 
     /** 前の矩形を覆うなら消さない。毎フレーム消すと衛星の印が 1.5 秒ごとにちらつく */
