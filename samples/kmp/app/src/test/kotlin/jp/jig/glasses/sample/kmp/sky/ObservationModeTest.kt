@@ -13,7 +13,7 @@ class ObservationModeTest {
 
     @Test
     fun `シミュレーションはGPSの観測地と端末時刻を使わない`() {
-        val mode = ObservationMode.Simulation(sydney, epoch)
+        val mode = ObservationMode.Simulation.fromCity(sydney, epoch)
         val snapshot = mode.snapshot(
             liveSite = Site(35.9432, 136.1846),
             nowMillis = 1L,
@@ -38,38 +38,51 @@ class ObservationModeTest {
 
     @Test
     fun `二秒ごとに十分進む`() {
-        var simulation = ObservationMode.Simulation(sydney, epoch).startPlayback(1_000L)
-        assertFalse(simulation.tick(2_999L, settled = true).redraw)
+        var playback = TimePlaybackState().startPlayback(1_000L)
+        assertEquals(0L, playback.tick(2_999L, settled = true).advanceMillis)
 
-        val tick = simulation.tick(3_000L, settled = true)
-        simulation = tick.simulation
-        assertTrue(tick.redraw)
-        assertEquals(epoch + 10 * 60_000L, simulation.epochMillis)
+        val tick = playback.tick(3_000L, settled = true)
+        playback = tick.playback
+        assertTrue(playback.playing)
+        assertEquals(10 * 60_000L, tick.advanceMillis)
     }
 
     @Test
     fun `首が動いている時間を後からまとめて進めない`() {
-        var simulation = ObservationMode.Simulation(sydney, epoch).startPlayback(0L)
-        simulation = simulation.tick(6_000L, settled = false).simulation
-        assertEquals(epoch, simulation.epochMillis)
+        var playback = TimePlaybackState().startPlayback(0L)
+        playback = playback.tick(6_000L, settled = false).playback
 
-        val settled = simulation.tick(6_100L, settled = true)
-        assertFalse(settled.redraw)
-        assertEquals(epoch, settled.simulation.epochMillis)
+        val settled = playback.tick(6_100L, settled = true)
+        assertEquals(0L, settled.advanceMillis)
     }
 
     @Test
     fun `開始から三十秒で自動停止する`() {
-        val simulation = ObservationMode.Simulation(sydney, epoch).startPlayback(100L)
-        val result = simulation.tick(30_100L, settled = true)
+        val playback = TimePlaybackState().startPlayback(100L)
+        val result = playback.tick(30_100L, settled = true)
 
-        assertFalse(result.simulation.playing)
-        assertFalse(result.redraw)
+        assertFalse(result.playback.playing)
+        assertEquals(0L, result.advanceMillis)
+    }
+
+    @Test
+    fun `時間再生は都市指定なしでも現在の観測条件を固定できる`() {
+        val site = Site(35.9432, 136.1846)
+        val simulation = ObservationMode.Live.freezeForPlayback(
+            liveSite = site,
+            nowMillis = epoch,
+            liveZoneId = ZoneId.of("Asia/Tokyo"),
+            livePlaceLabel = "鯖江",
+        )
+
+        assertEquals(site, simulation.site)
+        assertEquals(epoch, simulation.epochMillis)
+        assertEquals("鯖江", simulation.placeLabel)
     }
 
     @Test
     fun `シミュレーションでは元期から七日を超えた衛星を隠す`() {
-        val simulation = ObservationMode.Simulation(sydney, epoch).snapshot(Site(0.0, 0.0), 0L)
+        val simulation = ObservationMode.Simulation.fromCity(sydney, epoch).snapshot(Site(0.0, 0.0), 0L)
         assertTrue(simulation.allowsSatellites(7.0))
         assertFalse(simulation.allowsSatellites(7.01))
         assertFalse(simulation.allowsSatellites(-7.01))

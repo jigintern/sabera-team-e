@@ -93,6 +93,7 @@ import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservationMode
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
+import jp.jig.glasses.sample.kmp.sky.TimePlaybackState
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.SkyCommand
@@ -103,6 +104,7 @@ import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.sky.allowsSatellites
+import jp.jig.glasses.sample.kmp.sky.advanceBy
 import jp.jig.glasses.sample.kmp.sky.bodiesInView
 import jp.jig.glasses.sample.kmp.sky.bodiesUp
 import jp.jig.glasses.sample.kmp.sky.bodyAltAz
@@ -115,6 +117,7 @@ import jp.jig.glasses.sample.kmp.sky.rollFromAccel
 import jp.jig.glasses.sample.kmp.sky.snapshot
 import jp.jig.glasses.sample.kmp.sky.startPlayback
 import jp.jig.glasses.sample.kmp.sky.stopPlayback
+import jp.jig.glasses.sample.kmp.sky.freezeForPlayback
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.tick
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
@@ -138,9 +141,10 @@ import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
 import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
-import jp.jig.glasses.sample.kmp.ui.component.SimulationControls
+import jp.jig.glasses.sample.kmp.ui.component.SkyConditionSettings
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
 import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
+import jp.jig.glasses.sample.kmp.ui.component.TimePlaybackControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
@@ -262,6 +266,7 @@ fun StarMapScreen(
 
     // 現在地の更新先と、表示に使う場所・時刻を分ける。GPSが届いてもシミュレーションを解除しない。
     var observationMode by remember { mutableStateOf<ObservationMode>(ObservationMode.Live) }
+    var timePlayback by remember { mutableStateOf(TimePlaybackState()) }
     var observationRevision by remember { mutableStateOf(0) }
     var simulationCityText by remember { mutableStateOf("シドニー") }
     var simulationDateText by remember { mutableStateOf("") }
@@ -958,15 +963,17 @@ fun StarMapScreen(
     LaunchedEffect(Unit) {
         while (true) {
             delay(PLAYBACK_POLL_MS)
-            val simulation = observationMode as? ObservationMode.Simulation ?: continue
-            if (!simulation.playing) continue
-            val tick = simulation.tick(SystemClock.elapsedRealtime(), settled)
-            if (tick.simulation == simulation) continue
-            observationMode = tick.simulation
-            if (tick.redraw) {
+            if (!timePlayback.playing) continue
+            val tick = timePlayback.tick(SystemClock.elapsedRealtime(), settled)
+            if (tick.playback == timePlayback && tick.advanceMillis == 0L) continue
+            val wasPlaying = timePlayback.playing
+            timePlayback = tick.playback
+            if (tick.advanceMillis > 0L) {
+                val simulation = observationMode as? ObservationMode.Simulation ?: continue
+                observationMode = simulation.advanceBy(tick.advanceMillis)
                 observationRevision++
                 simulationMessage = "時間再生中：${observationSnapshot().shortLabel()}"
-            } else if (!tick.simulation.playing) {
+            } else if (wasPlaying && !tick.playback.playing) {
                 simulationMessage = "30秒経過したため時間再生を停止しました"
                 log("時間再生を30秒で自動停止")
             }
@@ -1438,7 +1445,8 @@ fun StarMapScreen(
 
         when (command) {
             is SkyCommand.ShowSky -> {
-                observationMode = ObservationMode.Simulation(command.city, command.epochMillis)
+                observationMode = ObservationMode.Simulation.fromCity(command.city, command.epochMillis)
+                timePlayback = timePlayback.stopPlayback()
                 val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.city.zoneId)
                 simulationCityText = command.city.nameJa
                 simulationDateText = "%04d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
@@ -1449,23 +1457,29 @@ fun StarMapScreen(
             }
 
             SkyCommand.StartPlayback -> {
-                val simulation = observationMode as? ObservationMode.Simulation
-                    ?: return "先に都市と時刻を指定してください。"
-                observationMode = simulation.startPlayback(SystemClock.elapsedRealtime())
+                val wasLive = observationMode is ObservationMode.Live
+                observationMode = observationMode.freezeForPlayback(
+                    liveSite = site,
+                    nowMillis = System.currentTimeMillis(),
+                    liveZoneId = ZoneId.systemDefault(),
+                    livePlaceLabel = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
+                )
+                timePlayback = timePlayback.startPlayback(SystemClock.elapsedRealtime())
+                if (wasLive) invalidateSky()
                 simulationMessage = "時間再生中。30秒で自動停止します"
                 log("時間再生を開始（2秒ごとに10分、30秒上限）")
             }
 
             SkyCommand.StopPlayback -> {
-                val simulation = observationMode as? ObservationMode.Simulation
-                    ?: return "現在の空では時間再生していません。"
-                observationMode = simulation.stopPlayback()
+                if (!timePlayback.playing) return "時間再生していません。"
+                timePlayback = timePlayback.stopPlayback()
                 simulationMessage = "時間再生を停止しました"
                 log("時間再生を停止")
             }
 
             SkyCommand.ReturnToLive -> {
                 observationMode = ObservationMode.Live
+                timePlayback = timePlayback.stopPlayback()
                 simulationMessage = "現在地・現在時刻へ戻りました"
                 satellitesSuppressedForSimulation = false
                 invalidateSky()
@@ -1697,20 +1711,6 @@ fun StarMapScreen(
                     }
 
                     is SkyCommandResult.Accepted -> {
-                        val unavailable = when (parsed.command) {
-                            SkyCommand.StartPlayback,
-                            SkyCommand.StopPlayback -> if (observationMode !is ObservationMode.Simulation) {
-                                "先に都市と時刻を指定してください。"
-                            } else {
-                                null
-                            }
-
-                            else -> null
-                        }
-                        if (unavailable != null) {
-                            narrator.cannotAnswer(subject, unavailable)
-                            return@launchNarration
-                        }
                         // 解釈を見せてから適用する。聞き間違いのまま星図だけ変わる状態を作らない。
                         showCommandConfirmation(parsed.confirmation)
                         val error = applySkyCommand(parsed.command)
@@ -1951,12 +1951,10 @@ fun StarMapScreen(
                 topBar = {
                     TopAppBar(
                         title = {
-                            val simulation = observationMode as? ObservationMode.Simulation
                             Text(
                                 when {
                                     showDetails -> "星図の設定"
-                                    simulation != null -> "${simulation.city.nameJa}の星空"
-                                    else -> "現在の星空"
+                                    else -> "星空"
                                 },
                             )
                         },
@@ -2012,32 +2010,14 @@ fun StarMapScreen(
                         )
 
                         Spacer(Modifier.height(16.dp))
-                        val simulation = observationMode as? ObservationMode.Simulation
-                        val status = observationSnapshot().shortLabel()
-                        SimulationControls(
-                            status = status,
-                            simulation = simulation != null,
-                            playing = simulation?.playing == true,
-                            cityText = simulationCityText,
-                            dateText = simulationDateText,
-                            timeText = simulationTimeText,
-                            message = if (satellitesSuppressedForSimulation) {
-                                "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
-                            } else {
-                                simulationMessage
-                            },
-                            onCityChange = { simulationCityText = it },
-                            onDateChange = { simulationDateText = it },
-                            onTimeChange = { simulationTimeText = it },
-                            onApply = { submitSimulationForm() },
+                        TimePlaybackControls(
+                            playing = timePlayback.playing,
+                            status = if (timePlayback.playing) "再生中" else "停止中",
                             onPlay = {
                                 runPhoneCommand(SkyCommand.StartPlayback, "時間を進めます")
                             },
                             onStop = {
                                 runPhoneCommand(SkyCommand.StopPlayback, "時間再生を止めます")
-                            },
-                            onReturnLive = {
-                                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
                             },
                         )
 
@@ -2073,6 +2053,28 @@ fun StarMapScreen(
                             sending,
                             transferMs,
                             modifier = Modifier.fillMaxWidth(0.62f),
+                        )
+
+                        Spacer(Modifier.height(16.dp))
+                        val simulation = observationMode as? ObservationMode.Simulation
+                        SkyConditionSettings(
+                            status = observationSnapshot().shortLabel(),
+                            simulation = simulation != null,
+                            cityText = simulationCityText,
+                            dateText = simulationDateText,
+                            timeText = simulationTimeText,
+                            message = if (satellitesSuppressedForSimulation) {
+                                "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
+                            } else {
+                                simulationMessage
+                            },
+                            onCityChange = { simulationCityText = it },
+                            onDateChange = { simulationDateText = it },
+                            onTimeChange = { simulationTimeText = it },
+                            onApply = { submitSimulationForm() },
+                            onReturnLive = {
+                                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+                            },
                         )
 
                         // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。

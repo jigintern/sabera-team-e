@@ -20,12 +20,49 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.CityCatalog
 
-/** 圏外でも場所と日時を指定できる、スマホ側のシミュレーション操作。 */
+/** 観測条件から独立して、いま表示中の星空の時間だけを進める。 */
 @Composable
-internal fun SimulationControls(
+internal fun TimePlaybackControls(
+    playing: Boolean,
+    status: String,
+    onPlay: () -> Unit,
+    onStop: () -> Unit,
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SaberaSurface),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Text("時間を進める", style = MaterialTheme.typography.titleMedium)
+            Text(
+                status,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            if (playing) {
+                OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
+                    Text("停止")
+                }
+            } else {
+                Button(onClick = onPlay, modifier = Modifier.fillMaxWidth()) {
+                    Text("再生（2秒ごとに10分）")
+                }
+            }
+            Text(
+                "30秒で自動停止します",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 圏外でも場所と日時を指定できる、設定画面だけの観測条件。 */
+@Composable
+internal fun SkyConditionSettings(
     status: String,
     simulation: Boolean,
-    playing: Boolean,
     cityText: String,
     dateText: String,
     timeText: String,
@@ -34,8 +71,6 @@ internal fun SimulationControls(
     onDateChange: (String) -> Unit,
     onTimeChange: (String) -> Unit,
     onApply: () -> Unit,
-    onPlay: () -> Unit,
-    onStop: () -> Unit,
     onReturnLive: () -> Unit,
 ) {
     Card(
@@ -43,7 +78,7 @@ internal fun SimulationControls(
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text("時間を指定した星空", style = MaterialTheme.typography.titleMedium)
+            Text("星空の条件", style = MaterialTheme.typography.titleMedium)
             Text(
                 status,
                 color = if (simulation) MaterialTheme.colorScheme.primary else Color.White,
@@ -88,15 +123,6 @@ internal fun SimulationControls(
                 Spacer(Modifier.height(4.dp))
             }
             if (simulation) {
-                if (playing) {
-                    OutlinedButton(onClick = onStop, modifier = Modifier.fillMaxWidth()) {
-                        Text("時間再生を停止")
-                    }
-                } else {
-                    OutlinedButton(onClick = onPlay, modifier = Modifier.fillMaxWidth()) {
-                        Text("時間を進める（2秒ごとに10分）")
-                    }
-                }
                 OutlinedButton(onClick = onReturnLive, modifier = Modifier.fillMaxWidth()) {
                     Text("現在の空に戻る")
                 }

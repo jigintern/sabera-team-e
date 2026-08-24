@@ -73,7 +73,7 @@ class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: 
 fun StarMap.constellationNames(): List<String> =
     labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
 
-/** シミュレーション条件を最優先のテキスト枠として下端へ置く。 */
+/** シミュレーション条件を最優先のテキスト枠として、表示が欠けない下側の位置へ置く。 */
 fun StarMap.withStatusLabel(text: String): StarMap {
     val status = Label(
         text = text,
@@ -84,4 +84,4 @@ fun StarMap.withStatusLabel(text: String): StarMap {
     return StarMap(width, height, gray, listOf(status) + labels)
 }
 
-private const val STATUS_BOTTOM_PX = 20
+private const val STATUS_BOTTOM_PX = 60

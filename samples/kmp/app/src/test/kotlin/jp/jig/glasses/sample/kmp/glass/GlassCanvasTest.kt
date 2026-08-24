@@ -36,6 +36,7 @@ class GlassCanvasTest {
         val elements = map.toCanvasElements()
         assertEquals("シミュレーション シドニー 8/24 20:30", elements.first().text)
         assertEquals(0, elements.first().id)
+        assertEquals(270, map.labels.first().y)
         assertEquals(listOf("オリオン座"), map.constellationNames())
     }
 
