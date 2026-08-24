@@ -26,6 +26,7 @@
 | `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
 | `alignment/` | **星図を空に合わせるために端末が測るもの。** 方位・傾き・磁気の歪み・観測地 |
 | `narration/` | **何を喋るか。** 解説の組み立て、一口メモ、声の質問の入口・出口の検査 |
+| `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て。**Android に触るのは保存だけ** |
 | `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
 | `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
 | `sound/` | BGM |
@@ -42,6 +43,7 @@
 | `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
 | `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
+| `ui/GuideScreen.kt` | 台本を作る画面。**グラスをつなぐ前に通る**ので、接続の外側に置く |
 | `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` | 採用ロゴの実装用素材。横組みはホームとグラス、マーク単体はランチャーで使う |
 | `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
@@ -58,6 +60,12 @@
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
 | `narration/SkyTips.kt` | ダブルタップの一口メモ。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `guide/StarGuide.kt` | 台本の形と JSON。**方角は持たせない**（再生時に引き直す） |
+| `guide/GuidePlan.kt` | 台本をいまの空へ突き合わせる。**出ていない星座を飛ばす** |
+| `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |
+| `guide/GuideMaker.kt` | **AI と同梱の切り替えはここだけ。** 失敗すれば必ず同梱へ落ちる |
+| `guide/GuideStore.kt` | 台本を `filesDir/guides/` に残す。**`data/` には置かない** |
+| `openai/OpenAiGuide.kt` | ガイドの文を書かせる。**「解説文を AI に生成させない」の唯一の例外**（[guide](16_guide.md) の 4 条件） |
 | `support/AskHistory.kt` | 声のやり取りの履歴。設定パネルから読み直す |
 | `support/LoudnessBoost.kt` | つまみの上限（1.0）から先の音量。**読み上げと BGM に同じ量をかける** |
 

@@ -110,6 +110,7 @@ fun GlassesApp(manager: GlassManager) {
     BackHandler(enabled = screen != AppScreen.HOME) {
         when (screen) {
             AppScreen.HOME -> Unit
+            AppScreen.GUIDES -> screen = AppScreen.HOME
             AppScreen.CONNECTION -> screen = AppScreen.HOME
             AppScreen.CALIBRATION -> screen = AppScreen.CONNECTION
             AppScreen.STAR_MAP -> confirmLeaving = true
@@ -159,7 +160,10 @@ fun GlassesApp(manager: GlassManager) {
      */
     LaunchedEffect(screen, connectedClient) {
         val client = connectedClient
-        val greeting = screen == AppScreen.HOME || screen == AppScreen.CONNECTION
+        // ガイドを作っている間もグラスは挨拶のまま。**ここではグラスを使わない**ので、
+        // 真っ暗にしてしまうと、つながっているのか分からなくなる
+        val greeting = screen == AppScreen.HOME || screen == AppScreen.CONNECTION ||
+            screen == AppScreen.GUIDES
         val commands = splashCommands
         if (client == null || commands == null || !greeting) return@LaunchedEffect
         val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
@@ -196,6 +200,11 @@ fun GlassesApp(manager: GlassManager) {
         AppScreen.HOME -> HomeScreen(
             constellation = constellation,
             onStart = { screen = AppScreen.CONNECTION },
+            onGuides = { screen = AppScreen.GUIDES },
+        )
+        AppScreen.GUIDES -> GuideScreen(
+            constellation = constellation,
+            onBack = { screen = AppScreen.HOME },
         )
         AppScreen.CONNECTION -> ConnectionCheckScreen(
             manager = manager,
@@ -385,6 +394,10 @@ private fun ConnectionLostDialog(onConnectionCheck: () -> Unit) {
 
 private enum class AppScreen {
     HOME,
+
+    /** ガイドの台本を作る。**グラスをつなぐ前に通る**ので、接続の外側に置く */
+    GUIDES,
+
     CONNECTION,
     CALIBRATION,
     STAR_MAP,
