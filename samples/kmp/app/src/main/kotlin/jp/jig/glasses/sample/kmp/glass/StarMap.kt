@@ -12,6 +12,8 @@ package jp.jig.glasses.sample.kmp.glass
  * 種別を持たせずに先頭を取ると、月が視野にあるだけで主役が「月」になる。
  */
 enum class LabelKind {
+    /** 現在の空と取り違えないための、シミュレーション場所・時刻。 */
+    STATUS,
     CONSTELLATION,
     BODY,
     SATELLITE,
@@ -70,3 +72,16 @@ class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: 
  */
 fun StarMap.constellationNames(): List<String> =
     labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
+
+/** シミュレーション条件を最優先のテキスト枠として下端へ置く。 */
+fun StarMap.withStatusLabel(text: String): StarMap {
+    val status = Label(
+        text = text,
+        x = width / 2,
+        y = height - STATUS_BOTTOM_PX,
+        kind = LabelKind.STATUS,
+    )
+    return StarMap(width, height, gray, listOf(status) + labels)
+}
+
+private const val STATUS_BOTTOM_PX = 20

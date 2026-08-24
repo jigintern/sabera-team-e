@@ -50,6 +50,8 @@
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
+| `sky/ObservationMode.kt` | 現在の空とシミュレーションの場所・時刻、2秒/10分/30秒の時間再生 |
+| `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱18都市とIANAタイムゾーン、音声から許可済み4操作だけを取り出す |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |

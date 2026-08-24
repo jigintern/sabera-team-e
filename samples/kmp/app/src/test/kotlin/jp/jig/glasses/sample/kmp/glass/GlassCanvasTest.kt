@@ -25,6 +25,21 @@ class GlassCanvasTest {
     }
 
     @Test
+    fun `シミュレーション条件を先頭の枠へ常時置く`() {
+        val map = StarMap(
+            528,
+            330,
+            ByteArray(528 * 330),
+            listOf(Label("オリオン座", 264, 120)),
+        ).withStatusLabel("シミュレーション シドニー 8/24 20:30")
+
+        val elements = map.toCanvasElements()
+        assertEquals("シミュレーション シドニー 8/24 20:30", elements.first().text)
+        assertEquals(0, elements.first().id)
+        assertEquals(listOf("オリオン座"), map.constellationNames())
+    }
+
+    @Test
     fun `テキスト要素はSDKの上限内に分割し古いidを消す`() {
         val elements = (0 until 3).map { id ->
             CommandManager.CanvasElement(id, 0, id * 40, 100, 40, "あ".repeat(30))
