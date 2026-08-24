@@ -2,7 +2,7 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,26 +60,29 @@ fun ConnectionCheckScreen(
         if (client != null) error = null
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val landscape = maxWidth > maxHeight
+        val outerPadding = if (landscape) 12.dp else 24.dp
+        val sectionGap = if (landscape) 12.dp else 24.dp
         SeasonalConstellationBackground(
             constellation = constellation,
             modifier = Modifier.fillMaxSize(),
         )
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(outerPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             Text("接続確認", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(sectionGap))
 
             Card(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
                 colors = CardDefaults.cardColors(containerColor = SaberaSurface),
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(if (landscape) 16.dp else 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -127,7 +130,7 @@ fun ConnectionCheckScreen(
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(sectionGap))
             if (connected) {
                 Button(
                     onClick = onContinue,

@@ -6,6 +6,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.view.Surface
 import jp.jig.glasses.sample.kmp.sky.DEG
 import jp.jig.glasses.sample.kmp.sky.Site
 
@@ -33,6 +34,10 @@ class Compass(context: Context) : SensorEventListener {
     private val dipInclination = FloatArray(9)
     private var gravityReady = false
     private var magneticReady = false
+
+    /** 画面に対して右がどの端末軸か。横持ちでは仰角をロールとして読まないために必要。 */
+    @Volatile
+    var displayRotation: Int = Surface.ROTATION_0
 
     /** 背面カメラが向いている方角[度]。磁北基準・北 = 0° の東回り。まだ取れていなければ null */
     @Volatile
@@ -92,9 +97,10 @@ class Compass(context: Context) : SensorEventListener {
 
     private fun updateOrientation(event: SensorEvent) {
         SensorManager.getRotationMatrixFromVector(rotation, event.values)
-        // 端末を立てて顔の前にかざす姿勢を想定する。この差し替えを忘れると
-        // 画面が上を向いている前提の方位が返り、90° ずれる
-        SensorManager.remapCoordinateSystem(rotation, SensorManager.AXIS_X, SensorManager.AXIS_Z, remapped)
+        // 背面カメラの向き（+Z）を正面にし、画面の右方向を X にする。
+        // 縦固定だった頃の +X 固定では、横持ちの仰角を端末のロールから読んでしまう。
+        val axes = cameraAxesForRotation(displayRotation)
+        SensorManager.remapCoordinateSystem(rotation, axes.x, axes.y, remapped)
         SensorManager.getOrientation(remapped, orientation)
         magneticHeadingDeg = ((orientation[0] * DEG) % 360.0 + 360.0) % 360.0
         // getOrientation のピッチは端末の上端が下がる向きが正。見上げを正に揃える
@@ -158,4 +164,14 @@ class Compass(context: Context) : SensorEventListener {
         0f,
         epochMillis,
     )
+}
+
+internal data class CameraAxes(val x: Int, val y: Int)
+
+/** 背面を視線へ向けたときの画面右方向とカメラ方向。 */
+internal fun cameraAxesForRotation(displayRotation: Int): CameraAxes = when (displayRotation) {
+    Surface.ROTATION_90 -> CameraAxes(SensorManager.AXIS_Y, SensorManager.AXIS_Z)
+    Surface.ROTATION_180 -> CameraAxes(SensorManager.AXIS_MINUS_X, SensorManager.AXIS_Z)
+    Surface.ROTATION_270 -> CameraAxes(SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_Z)
+    else -> CameraAxes(SensorManager.AXIS_X, SensorManager.AXIS_Z)
 }

@@ -3,7 +3,6 @@ package jp.jig.glasses.sample.kmp.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,28 +36,22 @@ fun HomeScreen(
         )
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 48.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
-            Spacer(Modifier.weight(1f))
-
             Text(
                 text = "星しるべ",
                 style = AppNameTextStyle,
                 color = Color.White,
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.height(16.dp))
             Text(
                 text = "星空を、もっと身近に。",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.82f),
                 textAlign = TextAlign.Center,
             )
-
-            Spacer(Modifier.weight(1f))
-
             Button(
                 onClick = onStart,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),

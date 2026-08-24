@@ -34,16 +34,15 @@
         android:theme="@style/Theme.Sabera">
 
         <!--
-            縦固定。**回転で Activity が作り直されると観測がやり直しになる。**
-            星表の再読込だけでなく、グラスに置いたテキスト枠の記憶（shownElements）まで消えるので
-            前のラベルが画面に残り、解説画面を出している最中だと文字を消せなくなる。
-            方位合わせは「スマホを顔の前にかざす」操作なので、観測の入口がいちばん回転しやすい。
+            回転は Compose の再構成だけで受ける。Activity を作り直すと、グラスに置いた
+            テキスト枠の記憶（shownElements）が消え、実物のラベルだけが残るため。
         -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop"
-            android:screenOrientation="portrait">
+            android:screenOrientation="fullUser">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

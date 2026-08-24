@@ -1,6 +1,8 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.hardware.SensorManager
+import android.hardware.display.DisplayManager
+import android.view.Surface
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
@@ -12,7 +14,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +25,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +55,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +106,8 @@ fun CalibrationScreen(
     val commandManager = remember(client) { client.createCommandManager() }
     val imuStarted by commandManager.imuDataStarted.collectAsState()
     val compass = remember { Compass(context) }
+    val displayRotation = rememberDisplayRotation()
+    compass.displayRotation = displayRotation
     val locator = remember { Locator(context) }
     val estimator = remember { CalibrationEstimator() }
 
@@ -214,10 +223,11 @@ fun CalibrationScreen(
         }
     }
 
-    LaunchedEffect(site) {
+    LaunchedEffect(site, displayRotation) {
         estimator.reset()
         estimate = null
         lastEstimatedImuAt = 0L
+        holdProgress = 0f
         while (true) {
             now = System.currentTimeMillis()
             phoneHeading = compass.trueHeadingDeg(site, now)
@@ -360,13 +370,9 @@ fun CalibrationScreen(
             constellation = constellation,
             modifier = Modifier.fillMaxSize(),
         )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp)
-                .padding(horizontal = 20.dp, vertical = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        CalibrationResponsiveLayout(
+            displayRotation = displayRotation,
+            target = { landscape ->
             Text("方位合わせ", style = MaterialTheme.typography.headlineMedium, color = Color.White)
             Text(
                 "グラスの十字と、スマホの中央を重ねます",
@@ -387,7 +393,7 @@ fun CalibrationScreen(
                     AlignmentTarget(
                         ready = ready,
                         progress = holdProgress,
-                        modifier = Modifier.fillMaxWidth().height(230.dp),
+                        modifier = Modifier.fillMaxWidth().height(if (landscape) 180.dp else 230.dp),
                     )
                     // **揃ってからは何も書かない。** 外周のゲージが満ちるのが答えで、
                     // 腕の先のスマホの文章は読まれない。書くのは直すことがあるときだけ
@@ -465,7 +471,8 @@ fun CalibrationScreen(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            },
+            sensor = {
             Card(
                 modifier = Modifier.fillMaxWidth().widthIn(max = 380.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xED152028)),
@@ -541,6 +548,84 @@ fun CalibrationScreen(
                 colors = ButtonDefaults.textButtonColors(contentColor = SaberaGreen),
             ) {
                 Text("ホーム")
+            }
+            },
+        )
+    }
+}
+
+internal enum class CalibrationTargetSide { CENTER, LEFT, RIGHT }
+
+internal fun calibrationTargetSide(landscape: Boolean, displayRotation: Int): CalibrationTargetSide {
+    if (!landscape) return CalibrationTargetSide.CENTER
+    return if (displayRotation == Surface.ROTATION_270) CalibrationTargetSide.RIGHT else CalibrationTargetSide.LEFT
+}
+
+@Composable
+private fun rememberDisplayRotation(): Int {
+    val context = LocalContext.current
+    val view = LocalView.current
+    var rotation by remember(view) { mutableIntStateOf(view.display.rotation) }
+
+    DisposableEffect(context, view) {
+        val displayManager = context.getSystemService(DisplayManager::class.java)
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = Unit
+            override fun onDisplayRemoved(displayId: Int) = Unit
+
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId == view.display.displayId) rotation = view.display.rotation
+            }
+        }
+        displayManager.registerDisplayListener(listener, null)
+        onDispose { displayManager.unregisterDisplayListener(listener) }
+    }
+    return rotation
+}
+
+@Composable
+private fun CalibrationResponsiveLayout(
+    displayRotation: Int,
+    target: @Composable ColumnScope.(landscape: Boolean) -> Unit,
+    sensor: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val landscape = maxWidth > maxHeight
+        if (!landscape) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(top = 32.dp)
+                    .padding(horizontal = 20.dp, vertical = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                target(false)
+                Spacer(Modifier.height(12.dp))
+                sensor()
+            }
+            return@BoxWithConstraints
+        }
+
+        val targetSide = calibrationTargetSide(true, displayRotation)
+        Row(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp)) {
+            if (targetSide == CalibrationTargetSide.LEFT) {
+                Column(
+                    Modifier.weight(1f).fillMaxSize().padding(end = 10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { target(true) }
+                Column(
+                    Modifier.weight(1f).fillMaxSize().padding(start = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { sensor() }
+            } else {
+                Column(
+                    Modifier.weight(1f).fillMaxSize().padding(end = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { sensor() }
+                Column(
+                    Modifier.weight(1f).fillMaxSize().padding(start = 10.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) { target(true) }
             }
         }
     }

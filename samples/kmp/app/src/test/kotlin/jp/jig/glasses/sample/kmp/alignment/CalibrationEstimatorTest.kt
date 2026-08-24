@@ -49,4 +49,30 @@ class CalibrationEstimatorTest {
 
         assertFalse(checkNotNull(estimate).stable)
     }
+
+    @Test
+    fun `画面回転でリセットした後は回転前の標本を混ぜない`() {
+        val estimator = CalibrationEstimator()
+        repeat(11) { index ->
+            estimator.add(
+                atMs = index * 100L,
+                phoneHeadingDeg = 20.0,
+                phonePitchDeg = 10.0,
+                glassYawDeg = 5.0,
+                glassPitchDeg = 10.0,
+            )
+        }
+
+        estimator.reset()
+        val afterRotation = estimator.add(
+            atMs = 1_100L,
+            phoneHeadingDeg = 110.0,
+            phonePitchDeg = 10.0,
+            glassYawDeg = 5.0,
+            glassPitchDeg = 10.0,
+        )
+
+        assertEquals(1, afterRotation.sampleCount)
+        assertFalse(afterRotation.stable)
+    }
 }

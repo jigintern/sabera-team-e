@@ -7,8 +7,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1515,27 +1518,50 @@ fun StarMapScreen(
                     )
                 },
             ) { padding ->
-                Column(
-                    Modifier.fillMaxSize().padding(padding).padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+                    val landscape = maxWidth > maxHeight
+                    Row(Modifier.fillMaxSize()) {
+                        if (landscape) {
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)
+                                    .verticalScroll(rememberScrollState()),
+                            ) {
+                                if (renderer == null) {
+                                    Text("星表を読み込み中…")
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                                Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                                Spacer(Modifier.height(4.dp))
+                                ObservationPreview(preview, sending, transferMs, Modifier.fillMaxWidth())
+                                Text(
+                                    "グラスの向きを止めると、その方角の星図に更新します",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Spacer(Modifier.height(24.dp))
+                            }
+                        }
+                        Column(
+                            (if (landscape) Modifier.weight(1f).padding(start = 8.dp) else Modifier.fillMaxWidth())
+                                .fillMaxHeight().verticalScroll(rememberScrollState()),
+                        ) {
                     // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
                     // 数字と設定は「設定」を開いた側へ全部やる（空を見ている人はスマホを見ない）
                     if (!showDetails) {
-                        if (renderer == null) {
-                            Text("星表を読み込み中…")
-                            Spacer(Modifier.height(12.dp))
+                        if (!landscape) {
+                            if (renderer == null) {
+                                Text("星表を読み込み中…")
+                                Spacer(Modifier.height(12.dp))
+                            }
+
+                            Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                            Spacer(Modifier.height(4.dp))
+                            ObservationPreview(preview, sending, transferMs, Modifier.fillMaxWidth())
+                            Text(
+                                "グラスの向きを止めると、その方角の星図に更新します",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Spacer(Modifier.height(16.dp))
                         }
-
-                        Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(4.dp))
-                        ObservationPreview(preview, sending, transferMs)
-                        Text(
-                            "グラスの向きを止めると、その方角の星図に更新します",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-
-                        Spacer(Modifier.height(16.dp))
                         Text("星座解説", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         NarrationPanel(
@@ -1562,12 +1588,14 @@ fun StarMapScreen(
                     } else {
                         // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
                         // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
-                        ObservationPreview(
-                            preview,
-                            sending,
-                            transferMs,
-                            modifier = Modifier.fillMaxWidth(0.62f),
-                        )
+                        if (!landscape) {
+                            ObservationPreview(
+                                preview,
+                                sending,
+                                transferMs,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
 
                         // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
                         // 1 つも無いうちは出さない（使う機能だけを置く）
@@ -1679,6 +1707,8 @@ fun StarMapScreen(
                         )
                     }
                     Spacer(Modifier.height(24.dp))
+                        }
+                    }
                 }
             }
         }
@@ -1931,4 +1961,3 @@ internal fun explanationDwellMs(revealed: Int, step: Int): Long {
     val slowdown = min(1.0 + step * EXPLANATION_SCROLL_SLOWDOWN, EXPLANATION_SCROLL_SLOWDOWN_MAX)
     return (read * slowdown).toLong()
 }
-
