@@ -40,7 +40,7 @@ fun HomeScreen(
 
             Text(
                 text = "星しるべ",
-                style = MaterialTheme.typography.displaySmall,
+                style = AppNameTextStyle,
                 color = Color.White,
                 textAlign = TextAlign.Center,
             )

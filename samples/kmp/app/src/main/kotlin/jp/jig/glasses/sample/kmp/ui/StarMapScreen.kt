@@ -879,7 +879,10 @@ fun StarMapScreen(
         onDispose { job.cancel() }
     }
 
-    MaterialTheme(colorScheme = SaberaDarkColorScheme) {
+    MaterialTheme(
+        colorScheme = SaberaDarkColorScheme,
+        typography = SaberaTypography,
+    ) {
         Box(Modifier.fillMaxSize()) {
             SeasonalConstellationBackground(
                 constellation = constellation,

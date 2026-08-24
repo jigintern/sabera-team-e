@@ -109,3 +109,17 @@ samples/kmp/app/src/main/res/raw/bgm_night.ogg
 
   元の楽曲から 120 秒を切り出し、末尾を先頭にクロスフェードして繰り返せるようにし、
   音量を揃えたうえで Ogg Opus に変換しています（改変あり）。
+
+--------------------------------------------------------------------------------
+
+samples/kmp/app/src/main/res/font/m_plus_rounded_1c_*.ttf
+
+これらは Google Fonts で配布されている M PLUS Rounded 1c です。
+
+  M PLUS Rounded 1c
+  Copyright 2016 The Rounded M+ Project Authors.
+  https://fonts.google.com/specimen/M+PLUS+Rounded+1c
+  Licensed under the SIL Open Font License, Version 1.1
+
+ライセンス原文は次のファイルに同梱しています。
+samples/kmp/app/src/main/assets/licenses/m_plus_rounded_1c_ofl.txt
