@@ -115,14 +115,17 @@ import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
 import jp.jig.glasses.sample.kmp.sky.TimePlaybackState
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.PendingSkyRequest
 import jp.jig.glasses.sample.kmp.sky.SkyCommand
 import jp.jig.glasses.sample.kmp.sky.SkyCommandParser
 import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.SkyPlace
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.sky.allowsSatellites
+import jp.jig.glasses.sample.kmp.sky.allowsSolarSystemBodies
 import jp.jig.glasses.sample.kmp.sky.advanceBy
 import jp.jig.glasses.sample.kmp.sky.bodiesInView
 import jp.jig.glasses.sample.kmp.sky.bodiesUp
@@ -305,6 +308,22 @@ fun StarMapScreen(
             liveZoneId = ZoneId.systemDefault(),
             livePlaceLabel = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
         )
+
+    /** 都市を言わなかったときに使う、いまいる場所。**時代だけ変えたい人に都市を言わせない** */
+    fun livePlace(): SkyPlace = SkyPlace(
+        site = site,
+        zoneId = ZoneId.systemDefault(),
+        nameJa = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
+    )
+
+    /** 適用する前に「その条件で何を出せるか」を見るための仮の観測条件。 */
+    fun observationSnapshotFor(place: SkyPlace, epochMillis: Long): ObservationSnapshot =
+        ObservationMode.Simulation.fromPlace(place, epochMillis)
+            .snapshot(liveSite = site, nowMillis = epochMillis)
+
+    /** 聞き返して持ち越している条件。**次の `HOLD` の答えと合流させる**（#45） */
+    var pendingSkyRequest by remember { mutableStateOf<PendingSkyRequest?>(null) }
+    var pendingSkyRequestAt by remember { mutableStateOf(0L) }
 
     val locator = remember { Locator(context) }
     var locateNow by remember { mutableStateOf(0) }
@@ -1829,13 +1848,21 @@ fun StarMapScreen(
 
         when (command) {
             is SkyCommand.ShowSky -> {
-                observationMode = ObservationMode.Simulation.fromCity(command.city, command.epochMillis)
+                observationMode = ObservationMode.Simulation.fromPlace(command.place, command.epochMillis)
                 timePlayback = timePlayback.stopPlayback()
-                val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.city.zoneId)
-                simulationCityText = command.city.nameJa
-                simulationDateText = "%04d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
+                val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.place.zoneId)
+                simulationCityText = command.place.nameJa
+                simulationDateText = "%d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
                 simulationTimeText = "%02d:%02d".format(local.hour, local.minute)
-                simulationMessage = "${command.city.nameJa}の星空を表示中"
+                simulationMessage = buildString {
+                    append(command.place.nameJa).append("の星空を表示中")
+                    val snapshot = observationSnapshotFor(command.place, command.epochMillis)
+                    if (!snapshot.allowsSolarSystemBodies()) {
+                        // **黙って消さない。** 何が出ていないかを言わないと、
+                        // 「月が無い空」を再現の結果だと思い込む
+                        append("（月と惑星は数世紀より前の位置を出せないので描いていません）")
+                    }
+                }
                 invalidateSky()
                 log("シミュレーション開始 ${observationSnapshot().shortLabel()}")
             }
@@ -1916,7 +1943,7 @@ fun StarMapScreen(
             if (date.isNotEmpty()) append(date).append(' ')
             append(simulationTimeText).append("の空を表示して")
         }
-        when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis())) {
+        when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis(), livePlace())) {
             is SkyCommandResult.Accepted -> {
                 if (parsed.command is SkyCommand.ShowSky) {
                     runPhoneCommand(parsed.command, parsed.confirmation)
@@ -1925,6 +1952,8 @@ fun StarMapScreen(
                 }
             }
             is SkyCommandResult.Rejected -> simulationMessage = parsed.reason
+            // スマホは欄が見えているので、聞き返さずどこが足りないかを出す
+            is SkyCommandResult.NeedMore -> simulationMessage = parsed.question
             SkyCommandResult.NotACommand -> simulationMessage = "都市と時刻を確認してください。"
         }
     }
@@ -2108,9 +2137,31 @@ fun StarMapScreen(
                 // **空の再現の判定を、案内より先に走らせる。**
                 // 「シドニーの夜空を見せて」の「見せて」は [GuidanceRequestParser] の案内語なので、
                 // 順番を逆にすると「その名前の天体は案内対象に見つかりませんでした」で潰れる
-                when (val parsed = SkyCommandParser.parse(question, System.currentTimeMillis())) {
+                // **持ち越しは古くなったら捨てる。** 何分も前の「シドニー」に、
+                // まったく別の質問の中の数字が合流すると、頼んでいない空が出る
+                val carried = pendingSkyRequest?.takeIf {
+                    System.currentTimeMillis() - pendingSkyRequestAt < PENDING_SKY_REQUEST_MS
+                }
+                pendingSkyRequest = null
+                when (
+                    val parsed = SkyCommandParser.parse(
+                        question,
+                        System.currentTimeMillis(),
+                        livePlace(),
+                        carried,
+                    )
+                ) {
                     is SkyCommandResult.Rejected -> {
                         narrator.cannotAnswer(subject, parsed.reason)
+                        return@launchNarration
+                    }
+
+                    is SkyCommandResult.NeedMore -> {
+                        // **断らずに聞き返す**（#45）。次の `HOLD` の答えと合流させるため、
+                        // 聞き取れたところまでを持ち越す
+                        pendingSkyRequest = parsed.pending
+                        pendingSkyRequestAt = System.currentTimeMillis()
+                        narrator.retell("星空の再現", parsed.question, what = "条件の聞き返し")
                         return@launchNarration
                     }
 
@@ -2974,6 +3025,14 @@ private const val PLAYBACK_POLL_MS = 100L
  * **ツルをタップすると頭が動く。** タップ時点の視線で判定すると、押した反動で
  * 隣の星座に化けることがある（05_app-flow.md）。
  */
+/**
+ * 聞き返した条件を持ち越す時間。**2 分。**
+ *
+ * 「いつ頃の夜空でしょうか」に答えるまでの間だけ。長く持つと、**別の質問に混じった数字**が
+ * 前の都市と合流して、頼んでいない空が出る。
+ */
+private const val PENDING_SKY_REQUEST_MS = 120_000L
+
 private const val LATCH_MS = 500L
 
 /** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */

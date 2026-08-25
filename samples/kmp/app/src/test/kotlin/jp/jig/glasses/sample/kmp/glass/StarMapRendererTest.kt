@@ -123,7 +123,7 @@ class StarMapRendererTest {
             0L,
         ) as SkyCommandResult.Accepted
         val command = parsed.command as SkyCommand.ShowSky
-        val observation = ObservationMode.Simulation.fromCity(command.city, command.epochMillis).snapshot(site, 0L)
+        val observation = ObservationMode.Simulation.fromPlace(command.place, command.epochMillis).snapshot(site, 0L)
         val renderer = StarMapRenderer(catalog())
         val target = renderer.visibleConstellations(observation.site, observation.epochMillis).first()
 

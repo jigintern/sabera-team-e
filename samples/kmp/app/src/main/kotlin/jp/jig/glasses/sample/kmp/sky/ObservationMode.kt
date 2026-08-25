@@ -16,11 +16,11 @@ sealed interface ObservationMode {
         val placeLabel: String,
     ) : ObservationMode {
         companion object {
-            fun fromCity(city: City, epochMillis: Long): Simulation = Simulation(
-                site = city.site,
+            fun fromPlace(place: SkyPlace, epochMillis: Long): Simulation = Simulation(
+                site = place.site,
                 epochMillis = epochMillis,
-                zoneId = city.zoneId,
-                placeLabel = city.nameJa,
+                zoneId = place.zoneId,
+                placeLabel = place.nameJa,
             )
         }
     }
@@ -54,6 +54,19 @@ data class ObservationSnapshot(
         private val FULL_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm z")
     }
 }
+
+/**
+ * 月・惑星を出してよいか。**Ephemeris の近似は数世紀ぶんしか持たない。**
+ *
+ * 恒星は長期歳差（[longTermPrecess]）で 1 万年まで持つが、月と惑星の摂動の級数は
+ * そこまで作られていない。**衛星と同じで、もっともらしい嘘を描かずに理由を出す。**
+ */
+fun ObservationSnapshot.allowsSolarSystemBodies(): Boolean =
+    kotlin.math.abs(daysFromJ2000(epochMillis)) <= LONG_TERM_PRECESSION_DAYS
+
+/** 恒星の形が信じられる範囲を出たか。**固有運動を持たないので星座の形が崩れる** */
+fun ObservationSnapshot.beyondStarShapes(): Boolean =
+    kotlin.math.abs(daysFromJ2000(epochMillis)) > LONG_TERM_PRECESSION_DAYS
 
 /** シミュレーション日時がTLE元期から離れすぎたときは、衛星だけをもっともらしく出さない。 */
 fun ObservationSnapshot.allowsSatellites(

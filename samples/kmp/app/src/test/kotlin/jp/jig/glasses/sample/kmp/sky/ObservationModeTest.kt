@@ -13,7 +13,7 @@ class ObservationModeTest {
 
     @Test
     fun `シミュレーションはGPSの観測地と端末時刻を使わない`() {
-        val mode = ObservationMode.Simulation.fromCity(sydney, epoch)
+        val mode = ObservationMode.Simulation.fromPlace(SkyPlace.of(sydney), epoch)
         val snapshot = mode.snapshot(
             liveSite = Site(35.9432, 136.1846),
             nowMillis = 1L,
@@ -82,7 +82,7 @@ class ObservationModeTest {
 
     @Test
     fun `シミュレーションでは元期から七日を超えた衛星を隠す`() {
-        val simulation = ObservationMode.Simulation.fromCity(sydney, epoch).snapshot(Site(0.0, 0.0), 0L)
+        val simulation = ObservationMode.Simulation.fromPlace(SkyPlace.of(sydney), epoch).snapshot(Site(0.0, 0.0), 0L)
         assertTrue(simulation.allowsSatellites(7.0))
         assertFalse(simulation.allowsSatellites(7.01))
         assertFalse(simulation.allowsSatellites(-7.01))
