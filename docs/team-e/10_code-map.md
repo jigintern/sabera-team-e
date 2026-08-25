@@ -55,6 +55,8 @@
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `sky/CelestialGuidance.kt` | 案内要求の固定ルール、5°/8°の到着ヒステリシス、60秒の状態遷移（#46） |
+| `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時間再生は観測条件と別の状態**で持つ（#45） |
+| `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |

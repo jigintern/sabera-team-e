@@ -9,6 +9,15 @@ import org.junit.Test
 class GlassTextPageTest {
 
     @Test
+    fun `場所と日時の確認文が一枚に収まる`() {
+        val page = GlassTextPage.explanation("", "シドニー 2026年8月24日 20:30を表示します")
+
+        assertEquals(0, page.dropped)
+        assertTrue(page.elements.size <= CANVAS_TEXT_SLOTS)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
+    }
+
+    @Test
     fun `1枚がパネルに収まる`() {
         val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.headerBodyChars))
 

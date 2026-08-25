@@ -14,6 +14,14 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
  * 種別を持たせずに先頭を取ると、月が視野にあるだけで主役が「月」になる。
  */
 enum class LabelKind {
+    /**
+     * 現在の空と取り違えないための、再現中の場所・時刻。
+     *
+     * **いちばん先に置く。** 案内名より先なのは、これが消えると
+     * 「作った空を本物と信じたまま実際の空を探す」ことになるため。
+     */
+    STATUS,
+
     /** 案内中の対象名。8枠の先頭へ予約する。 */
     GUIDANCE,
     CONSTELLATION,
@@ -102,3 +110,16 @@ fun StarMap.withGuidanceLabel(name: String, arrived: Boolean, where: String? = n
 }
 
 private const val GUIDANCE_LABEL_Y_PX = 24
+
+/** シミュレーション条件を最優先のテキスト枠として、表示が欠けない下側の位置へ置く。 */
+fun StarMap.withStatusLabel(text: String): StarMap {
+    val status = Label(
+        text = text,
+        x = width / 2,
+        y = height - STATUS_BOTTOM_PX,
+        kind = LabelKind.STATUS,
+    )
+    return StarMap(width, height, gray, listOf(status) + labels)
+}
+
+private const val STATUS_BOTTOM_PX = 60
