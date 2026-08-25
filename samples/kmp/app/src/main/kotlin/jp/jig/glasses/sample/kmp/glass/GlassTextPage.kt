@@ -53,6 +53,9 @@ object GlassTextPage {
     /** 見出しの行。**本文は見出しが空でも繰り上げない**（名前が付いた瞬間に全部書き直しになる） */
     private const val HEADER_ROW = 0
 
+    /** 短い見出しには星の点を添え、本文と同じ文字だけの画面でも役割を見分けやすくする。 */
+    private const val HEADER_MARK = "● "
+
     /**
      * 1 枚に置ける行の数。**190 バイトに収まるのはここまで**で、見出しもこの中に数える。
      *
@@ -163,9 +166,9 @@ object GlassTextPage {
      * 前の枚の下の行が次の枚の上の行になり、**読みかけの行が残ったまま次が出る**。
      */
     fun pages(header: String, body: String): List<Page> {
-        val head = header.trim().take(lineChars)
+        val head = styledHeader(header)
         val all = wrap(body)
-        if (all.isEmpty()) return listOf(explanation(head, ""))
+        if (all.isEmpty()) return listOf(explanation(header, ""))
         val lines = all.take(MAX_LINES)
         val dropped = all.drop(MAX_LINES).sumOf { it.length }
 
@@ -209,8 +212,8 @@ object GlassTextPage {
      */
     fun explanation(header: String, body: String): Page {
         val elements = ArrayList<CommandManager.CanvasElement>(ROWS)
-        header.trim().takeIf { it.isNotEmpty() }?.let {
-            elements += row(HEADER_ROW, it.take(lineChars))
+        styledHeader(header).takeIf { it.isNotEmpty() }?.let {
+            elements += row(HEADER_ROW, it)
         }
         val lines = wrap(body)
         for ((index, line) in lines.take(HEADER_BODY_ROWS).withIndex()) {
@@ -222,6 +225,16 @@ object GlassTextPage {
             dropped = lines.drop(HEADER_BODY_ROWS).sumOf { it.length },
             revealed = lines.take(HEADER_BODY_ROWS).sumOf { it.length },
         )
+    }
+
+    /** 長い星座名は切らず、余白がある見出しだけを星付きにする。 */
+    private fun styledHeader(header: String): String {
+        val trimmed = header.trim().take(lineChars)
+        return if (trimmed.isNotEmpty() && trimmed.length + HEADER_MARK.length <= lineChars) {
+            HEADER_MARK + trimmed
+        } else {
+            trimmed
+        }
     }
 
     /** [lineChars] 文字ずつに折り返す。改行はそのまま行の区切りにする */
