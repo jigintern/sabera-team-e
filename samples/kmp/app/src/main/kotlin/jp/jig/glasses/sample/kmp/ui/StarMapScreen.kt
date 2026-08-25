@@ -78,6 +78,8 @@ import jp.jig.glasses.sample.kmp.glass.LabelKind
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.StarMapInk
+import jp.jig.glasses.sample.kmp.glass.StarMapLayer
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.TimelapseWindow
 import jp.jig.glasses.sample.kmp.glass.TimelapseSender
@@ -169,6 +171,7 @@ import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
+import jp.jig.glasses.sample.kmp.ui.component.CreditsCard
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
 import jp.jig.glasses.sample.kmp.ui.component.GuideMismatchDialog
@@ -433,6 +436,10 @@ fun StarMapScreen(
     // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
     var showGuides by remember { mutableStateOf(true) }
 
+    // 下敷きの濃さ（星座絵・星座線・結び・天の川）。
+    // **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる**ので、その場で動かせるようにする
+    var ink by remember { mutableStateOf(StarMapInk()) }
+
     /** 設定パネルを開いているか。開いている間は上のバーの見出しも変える */
     var showDetails by remember { mutableStateOf(false) }
 
@@ -691,6 +698,8 @@ fun StarMapScreen(
      * 入るかどうかは**空の濃さと向き**で変わる。1 度でも溢れたらその設定では諦めて標準へ落とし、
      * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
      */
+    // **濃さ（[ink]）はここに入れない。** 同じ値が続くので RLE の走長が変わらず、
+    // 段を動かしても転送バイトは動かない
     var useMaxSize by remember(
         density, showArt, showGuides, showSatellites, guidanceSession?.target?.id,
     ) { mutableStateOf(guidanceSession == null) }
@@ -913,6 +922,7 @@ fun StarMapScreen(
                     drawStars = true,
                     drawFigures = showFigures,
                     drawFigureArt = showArt,
+                    ink = ink,
                     constellationMagnitude = density.constellationMagnitude,
                     drawGuides = showGuides,
                     bodies = bodies,
@@ -1096,7 +1106,7 @@ fun StarMapScreen(
      */
     var settled by remember { mutableStateOf(true) }
     val headMotion = remember { HeadMotion() }
-    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, guidanceRevision) {
+    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, ink, guidanceRevision) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var renderedObservationRevision = -1
@@ -3124,6 +3134,14 @@ fun StarMapScreen(
                                                 drawnLook = null
                                                 log(if (it) "目印を出す" else "目印を消す")
                                             },
+                                            ink = ink,
+                                            onInkChange = { next ->
+                                                val changed = StarMapLayer.entries
+                                                    .firstOrNull { next.level(it) != ink.level(it) }
+                                                ink = next
+                                                drawnLook = null
+                                                changed?.let { log("${it.label}の濃さ: 段 ${next.level(it)}") }
+                                            },
                                         )
 
                                         BrightnessSettings(
@@ -3199,6 +3217,9 @@ fun StarMapScreen(
                                                 log("記録を消した。ここから計測しなおす")
                                             },
                                         )
+
+                                        // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
+                                        CreditsCard()
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
                                 }

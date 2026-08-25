@@ -7,7 +7,7 @@
 | `build-star-catalog.py` | `data/stars.json` / `constellations.json` / `bright-stars.json` | [d3-celestial](https://github.com/ofrohn/d3-celestial)（BSD-3-Clause） |
 | `build-satellites.py` | `data/satellites.tle` / `starlink.tle` / `satellites-fetched.txt` | [CelesTrak](https://celestrak.org/) |
 | `build-constellation-lore.py` | `data/constellation-lore.json` | **スクリプトの中の手書き**（88 星座の神話と豆知識） |
-| `build-constellation-figures.py` | `data/constellation-figures.json` | **スクリプトの中の手書き**（星座絵の輪郭） |
+| `build-constellation-figures.py` | `data/constellation-figures.json` | **`tools/lineart/`**（[NOIRLab の 88 星座線画](https://noirlab.edu/public/education/constellations/)・CC BY 4.0） |
 | `build-asterisms.py` | `data/asterisms.json` | **スクリプトの中の手書き**（大三角の HIP と天の川の帯） |
 
 ```bash
@@ -27,6 +27,7 @@ python3 tools/build-asterisms.py              # 大三角と天の川
 | ファイル | 中身 |
 |---|---|
 | `names-ja.json` | 88 星座の日本語名。**すべて埋まっていないと生成が止まる** |
+| `lineart/*.svg` | 星座絵の元データ。**取得したままで手を入れない**（[lineart/README.md](lineart/README.md)） |
 | `satellites-ja.json` | グラスに出す衛星の名前と NORAD 番号。**足すときはここに 1 行** |
 
 **衛星の `ja` は短くする。** グラスの文字は 1 文字 28px 見当で、長い名前は枠に入らず重なって消える

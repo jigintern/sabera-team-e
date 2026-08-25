@@ -25,6 +25,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * 実機で何も出ないときに「絵が空だったのか、送信より先の問題なのか」を分けるためのテスト。
@@ -595,14 +601,14 @@ class StarMapRendererTest {
     }
 
     /**
-     * **星座絵は星座線の外接矩形に敷く。**
+     * **星座絵は星と同じ赤道座標で持ち、星と同じ道筋で投影する。**
      *
      * 絵を持っている星座（`data/constellation-figures.json`）を視野に入れて、
-     * **切ったときより画素が増える**ことと、**星より暗い段に収まっている**ことを見る。
-     * 明るさが星と同じ段まで上がると、絵が主役になって星の位置が読めなくなる。
+     * **切ったときより画素が増える**ことと、**その増えぶんが星座絵の段に乗っている**ことを見る。
+     * **濃さは設定から動かせる**ので、段は [StarMapInk] に聞く（既定を変えても付いてくる）。
      */
     @Test
-    fun `星座絵は星より暗い段で敷かれ、切ると消える`() {
+    fun `星座絵は星座絵の段で敷かれ、切ると消える`() {
         val catalog = catalog()
         assertTrue("星座絵のデータが読めていない", catalog.figures.isNotEmpty())
         val renderer = StarMapRenderer(catalog)
@@ -623,16 +629,95 @@ class StarMapRendererTest {
             drawFigureArt = art,
         )
 
-        val without = render(false).gray.count { it != 0.toByte() }
+        fun countAt(map: StarMap, level: Int) =
+            map.gray.count { ((it.toInt() and 0xFF) ushr 5) == level }
+
+        val withoutArt = render(false)
         val withArt = render(true)
+        val without = withoutArt.gray.count { it != 0.toByte() }
         val lit = withArt.gray.count { it != 0.toByte() }
         println("${target.nameJa}: 星座絵なし $without → あり $lit 画素")
         assertTrue("星座絵で画素が増えていない", lit > without)
 
-        // 絵だけの段（3bit で 2）が、線や星の段を超えていないこと
-        val levels = withArt.gray.map { (it.toInt() and 0xFF) ushr 5 }.toSet()
-        assertTrue("星座絵の段が見当たらない", 2 in levels)
-        assertTrue("線より明るい段に描いている", levels.max() >= 4)
+        // **星が同じ段に来ることがある**ので、段が「ある」だけでは絵を見たことにならない。
+        // 切ったときとの差で見る
+        val artLevel = StarMapInk().level(StarMapLayer.ART)
+        assertTrue(
+            "星座絵の段（$artLevel）の画素が増えていない",
+            countAt(withArt, artLevel) > countAt(withoutArt, artLevel),
+        )
+        // 絵が star map でいちばん明るいものになっていないこと（絵が主役になると星が読めない）
+        val levels = withArt.gray.map { (it.toInt() and 0xFF) ushr 5 }
+        assertTrue("星座絵より明るいものが無い", levels.max() > artLevel)
+    }
+
+    /** 濃さのつまみは**段そのもの**。段を上げたら実機でも 1 段上がる（3bit に落ちても消えない） */
+    @Test
+    fun `濃さの段を上げると量子化しても段が上がる`() {
+        var ink = StarMapInk()
+        for (layer in StarMapLayer.entries) {
+            assertEquals(layer.defaultLevel, (ink.value(layer) ushr 5))
+            val raised = ink.with(layer, layer.defaultLevel + 1)
+            assertEquals(layer.defaultLevel + 1, (raised.value(layer) ushr 5))
+            // 上限・下限からはみ出さない
+            assertEquals(StarMapLayer.MAX_LEVEL, ink.with(layer, 99).level(layer))
+            assertEquals(StarMapLayer.MIN_LEVEL, ink.with(layer, 0).level(layer))
+            // 案内中に落とす段は、上げたぶんだけ主役より暗いまま
+            assertTrue("案内中の段が上がっている", raised.dimValue(layer) ushr 5 <= layer.dimLevel)
+            ink = raised
+        }
+    }
+
+    /**
+     * **星座絵は、その星座からはみ出さない。**
+     *
+     * 絵は J2000 の赤道座標で持っているので、書き出しの投影を間違えると
+     * **星座から離れた場所に絵だけ飛ぶ**。テストでは絵に見えないので、ここで数値として見る。
+     *
+     * **元の絵は星の並びより大きい**（ペガススの馬は四辺形の 5 倍）ので、
+     * 書き出しのときに**星座線の広がりの 1.3 倍・最小 12°・最大 30°**で切ってある
+     * （`tools/build-constellation-figures.py`）。ここでは同じ決まりで測り直す。
+     */
+    @Test
+    fun `星座絵はその星座の広がりの中に収まっている`() {
+        val catalog = fullCatalog()
+        assertTrue("星座絵のデータが読めていない", catalog.figures.isNotEmpty())
+        for (constellation in catalog.constellations) {
+            val figure = catalog.figures[constellation.abbr] ?: continue
+            val vertices = constellation.lines.flatten()
+            val center = mean(vertices)
+            val lineSpan = vertices.maxOf { separationDeg(center, it) }
+            val artSpan = figure.flatten().maxOf { separationDeg(center, it) }
+            val allowed = maxOf(lineSpan * 1.3, 12.0) * 1.15
+            assertTrue(
+                "${constellation.nameJa} の絵が星座から外れている: 線 $lineSpan° に対し絵 $artSpan°",
+                artSpan < minOf(allowed, 33.0),
+            )
+        }
+    }
+
+    /** 赤経は 0h をまたぐので、単位ベクトルの平均で中心を取る */
+    private fun mean(points: List<DoubleArray>): DoubleArray {
+        var x = 0.0
+        var y = 0.0
+        var z = 0.0
+        for (p in points) {
+            val ra = Math.toRadians(p[0])
+            val dec = Math.toRadians(p[1])
+            x += cos(dec) * cos(ra)
+            y += cos(dec) * sin(ra)
+            z += sin(dec)
+        }
+        val n = sqrt(x * x + y * y + z * z)
+        return doubleArrayOf(Math.toDegrees(atan2(y / n, x / n)), Math.toDegrees(asin(z / n)))
+    }
+
+    private fun separationDeg(a: DoubleArray, b: DoubleArray): Double {
+        val d1 = Math.toRadians(a[1])
+        val d2 = Math.toRadians(b[1])
+        val dRa = Math.toRadians(a[0] - b[0])
+        val c = sin(d1) * sin(d2) + cos(d1) * cos(d2) * cos(dRa)
+        return Math.toDegrees(acos(c.coerceIn(-1.0, 1.0)))
     }
 
     @Test

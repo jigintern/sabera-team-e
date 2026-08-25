@@ -10,7 +10,7 @@
 | `stars.json` | 1,627 | 49 KB | 5 等までの恒星。`[hip, 赤経°, 赤緯°, 等級]` | `python3 tools/build-star-catalog.py` |
 | `constellations.json` | 88 | 22 KB | 星座線と日本語名 | 同上 |
 | `bright-stars.json` | 25 | 3 KB | 1.6 等までの固有名つき恒星 | 同上 |
-| `constellation-figures.json` | 7 | 4 KB | **星座絵**（手描きの折れ線・正規化 [0,1]）。星座線の外接矩形へ写して薄く敷く | `python3 tools/build-constellation-figures.py` |
+| `constellation-figures.json` | 88 | 166 KB | **星座絵**（[NOIRLab](https://noirlab.edu/public/education/constellations/) の線画・CC BY 4.0）。**J2000 の赤経・赤緯**で持ち、星と同じ道筋で投影して薄く敷く | `python3 tools/build-constellation-figures.py` |
 | `constellation-lore.json` | 88 | 24 KB | **星座の解説文**（神話と豆知識・2〜3 文）。**圏外でも喋るために持つ** | `python3 tools/build-constellation-lore.py` |
 | `asterisms.json` | 4 ＋ 天の川 | 9 KB | **大三角などの結び**（HIP 番号）と**天の川の帯**（銀河座標 b=±10°） | `python3 tools/build-asterisms.py` |
 | `meteor-showers.json` | 11 | 2 KB | **主な流星群**（極大日・活動期間・放射点・ZHR）。**日付だけで決まるので通信が要らない** | `python3 tools/build-meteor-showers.py` |

@@ -118,6 +118,8 @@ python3 tools/pick-bgm-window.py <元曲.mp3>    # 切り出し位置を選び�
 - **アプリの生きている間 1 回だけ読む**（`support/BundledData.kt`）
 - CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を
   作り直して `data/` に差分が出ないか検査する。**星表と TLE は外部取得が要るので回さない**
+- 星座絵の元データ（NOIRLab の線画・CC BY 4.0）は**`tools/lineart/` に置いてある**。
+  **CI を外部取得なしで回すため**なので、取りに行く実装に変えない
 - **GitHub Pages は公開しない。** SDK ドキュメントは上流が公開している
 
 ## ドキュメント用の画像

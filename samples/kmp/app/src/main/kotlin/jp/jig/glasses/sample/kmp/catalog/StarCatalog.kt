@@ -36,10 +36,11 @@ class Star(
 class Constellation(val abbr: String, val nameJa: String, val lines: List<List<DoubleArray>>)
 
 /**
- * 星座絵。**正規化 [0,1]（x=右・y=下）の折れ線**で、星座線の外接矩形へ写して薄く重ねる。
+ * 星座絵。**星座線と同じ J2000 の赤道座標（度）の折れ線**で、星の上に薄く重ねる。
  *
- * 星の位置に厳密に貼るのではなく「なにに見立てたのか」を伝える絵なので、
- * 外接矩形に写すだけでよい。向きは南を向いた星図と同じ（`tools/build-constellation-figures.py`）。
+ * 正規化した絵を外接矩形へ写していた頃は、**矩形の縦横比が空の位置で変わって絵が伸び**、
+ * **首を傾けても絵だけ画面軸のまま立っていた**。絵は星に載せて作ってあるので、
+ * 星と同じ座標で持って同じ変換を通す（`tools/build-constellation-figures.py`）。
  */
 typealias ConstellationFigure = List<List<DoubleArray>>
 
