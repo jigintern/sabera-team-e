@@ -41,18 +41,18 @@ class RedrawDeciderTest {
     @Test
     fun `先出しは減速中だけ、1200msは連発しない`() {
         val d = RedrawDecider()
-        assertFalse(d.shouldPredict(1_000L, driftDeg = 10.0, slowing = false))
-        assertTrue(d.shouldPredict(1_000L, driftDeg = 10.0, slowing = true))
-        d.onPredicted(1_000L)
-        assertFalse(d.shouldPredict(2_100L, driftDeg = 10.0, slowing = true)) // 1100ms 後はまだ
-        assertTrue(d.shouldPredict(2_201L, driftDeg = 10.0, slowing = true)) // 1201ms 後なら出せる
+        assertFalse(d.shouldPredict(10_000L, driftDeg = 10.0, slowing = false))
+        assertTrue(d.shouldPredict(10_000L, driftDeg = 10.0, slowing = true))
+        d.onPredicted(10_000L)
+        assertFalse(d.shouldPredict(11_100L, driftDeg = 10.0, slowing = true)) // 1100ms 後はまだ
+        assertTrue(d.shouldPredict(11_201L, driftDeg = 10.0, slowing = true)) // 1201ms 後なら出せる
     }
 
     @Test
     fun `ふつうの描き直しが通ったら先出しの間隔は数えなおす`() {
         val d = RedrawDecider()
-        d.onPredicted(1_000L)
+        d.onPredicted(10_000L)
         d.onDrawn()
-        assertTrue(d.shouldPredict(1_100L, driftDeg = 10.0, slowing = true))
+        assertTrue(d.shouldPredict(10_100L, driftDeg = 10.0, slowing = true))
     }
 }
