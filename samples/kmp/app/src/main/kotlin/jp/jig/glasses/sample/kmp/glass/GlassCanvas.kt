@@ -183,3 +183,6 @@ internal fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArra
 
 private infix fun CommandManager.CanvasElement.overlaps(other: CommandManager.CanvasElement): Boolean =
     x < other.x + other.width && other.x < x + width && y < other.y + other.height && other.y < y + height
+
+/** 3bit 緑の最上段。**中間の階調は屋外で消える**ので、目立たせたいものはこの値で描く */
+const val INK_LIT = 255
