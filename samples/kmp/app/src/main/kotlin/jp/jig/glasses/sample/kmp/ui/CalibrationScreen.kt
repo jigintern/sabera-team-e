@@ -790,7 +790,15 @@ private fun PrecisionRow(
     }
 }
 
-private fun calibrationInstruction(
+/**
+ * 揃っていない条件を 1 つだけ文にする。**優先順は直す順**（上を直さないと下は直せない）。
+ *
+ * **判定していない動作を指示しない。** [headingReady] は「回転ベクトルが 1 件来たか」だけを
+ * 見ていて姿勢は見ていないのに、以前は「スマホを立ててください」と出していた。
+ * 背面の向きは**画面法線まわりの回転に不変**なので、横に寝かせても方位も仰角も変わらない。
+ * 立てても何も変わらないことを人に指示していた（#79）。
+ */
+internal fun calibrationInstruction(
     imuFresh: Boolean,
     headingReady: Boolean,
     compassReady: Boolean,
@@ -798,7 +806,7 @@ private fun calibrationInstruction(
     stabilityReady: Boolean,
 ): String = when {
     !imuFresh -> "グラスの6DoFを待っています"
-    !headingReady -> "スマホを立ててください"
+    !headingReady -> "スマホの向きを待っています"
     !compassReady -> "スマホを8の字に動かしてください"
     !facingReady -> "スマホを視線に正対させてください"
     !stabilityReady -> "そのまま1秒ほど止めてください"
