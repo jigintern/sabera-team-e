@@ -29,7 +29,7 @@
 | `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て・詳細ガイドの編集・配る形。**Android に触るのは保存だけ** |
 | `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
 | `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
-| `sound/` | BGM |
+| `sound/` | BGM。**場面（`BgmScene`）と曲（`BgmTrack`）を分けてある**。選曲は `BgmPlaylist` |
 | `support/` | どこにも属さない道具（観測ログ・声のやり取りの履歴・音量の持ち上げ・重複送信の抑止） |
 | `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）。`ui/component/` は部品と色 |
 
@@ -100,6 +100,19 @@ python3 tools/build-asterisms.py               # 大三角・天の川
 python3 tools/build-meteor-showers.py          # 流星群
 python3 tools/build-satellites.py              # TLE を取り直す
 ```
+
+BGM だけは `data/` ではなく `res/raw/` に置く（アプリの音源なので）。
+
+```bash
+tools/build-bgm.sh                             # 6 曲すべて（incompetech から落とす・要ネットワーク）
+tools/build-bgm.sh bgm_ambiment                # 1 曲だけ
+python3 tools/pick-bgm-window.py <元曲.mp3>    # 切り出し位置を選び直す
+```
+
+- **元曲は 40〜70MB ある。** 落としたものはキャッシュに残るので、2 回目からは切り出しだけ
+- 切り出し位置は**耳ではなく数字で選ぶ**。ループの継ぎ目になる 2 か所の音量差が
+  いちばん小さく、区間の揺れが少ないところを採る（`pick-bgm-window.py`）
+- 曲を足したら **`BgmTrack` と `NOTICE` の両方**に足す。設定パネルの帰属は `BgmTrack` から組み立てる
 
 - **アプリの生きている間 1 回だけ読む**（`support/BundledData.kt`）
 - CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を

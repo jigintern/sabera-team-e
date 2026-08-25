@@ -28,6 +28,16 @@ class SoundPrefs(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_BGM_ON, value).apply()
 
     /**
+     * 指名された曲。null なら場面まかせ（おまかせ）。
+     *
+     * **知らない名前は null 扱い**にする（[BgmTrack.byName]）。曲を差し替えたあとに
+     * 古い名前が残っていても、おまかせに戻るだけで落ちない。
+     */
+    var bgmTrack: BgmTrack?
+        get() = BgmTrack.byName(prefs.getString(KEY_BGM_TRACK, null))
+        set(value) = prefs.edit().putString(KEY_BGM_TRACK, value?.name).apply()
+
+    /**
      * AI 音声で喋るか。false なら端末の読み上げ。
      *
      * **ここを覚えないと、端末の読み上げを選んだ人が毎回選び直すことになる。**
@@ -42,6 +52,7 @@ class SoundPrefs(context: Context) {
         const val KEY_VOICE = "voice_volume"
         const val KEY_BGM = "bgm_volume"
         const val KEY_BGM_ON = "bgm_enabled"
+        const val KEY_BGM_TRACK = "bgm_track"
         const val KEY_AI_VOICE = "ai_voice"
     }
 }
