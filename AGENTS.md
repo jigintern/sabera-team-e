@@ -37,6 +37,7 @@
 | **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
 | **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
 | **星空の再現**（場所・日時の指定・時間再生） | [17_sky-simulation.md](docs/team-e/17_sky-simulation.md) |
+| 声かけ中の状態案内（**取り下げた実装の引き継ぎ**） | [18_voice-state-guidance.md](docs/team-e/18_voice-state-guidance.md) |
 | **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
 | **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
 | 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |
