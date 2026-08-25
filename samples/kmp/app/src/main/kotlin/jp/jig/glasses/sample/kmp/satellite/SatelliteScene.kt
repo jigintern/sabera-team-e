@@ -111,10 +111,14 @@ class SatelliteScene(
             return (v dot forward) > cosLimit
         }
 
-        val namedTracks = named.mapNotNull { track(it, observer, epochMillis, labelled = true) }
-            .filter { inView(it.nowAzDeg, it.nowAltDeg) }
-            .sortedByDescending { it.nowAltDeg }
+        // **視野で絞ってから動きを調べる。** 動きの計算は 1 機あたり 51 回の伝播で、
+        // 視野に入るのはたいてい 0〜3 機。先に motion まで作ると、そのほとんどを捨てることになる
+        // （視野の判定に使うのは「いま」の方位と高度だけなので、順番を変えても答えは同じ）
+        val namedTracks = named.mapNotNull { sgp4 -> track(sgp4, observer, epochMillis, labelled = true) }
+            .filter { inView(it.track.nowAzDeg, it.track.nowAltDeg) }
+            .sortedByDescending { it.track.nowAltDeg }
             .take(maxNamed)
+            .map { it.withMotion(observer, epochMillis) }
 
         // **近い順に選ぶ。** カタログの並び順で先着 8 機にすると、
         // 視野の隅にいる遠い機体が、真ん中を通る近い機体を押しのける。
@@ -130,7 +134,7 @@ class SatelliteScene(
         val starlinkTracks = starlinkCandidates
             .sortedBy { it.first }
             .take(maxStarlink)
-            .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false) }
+            .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false)?.track }
 
         return namedTracks + starlinkTracks
     }
@@ -341,19 +345,31 @@ class SatelliteScene(
      * **軌跡の線をやめたので、伝播するのは「いま」の 1 点だけ。**
      * 以前は前後 3 分ぶんを 10 秒刻みで 19 回伝播していた（線を引くため）。
      */
-    private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): SkyTrack? {
+    private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): Located? {
         val state = sgp4.at(epochMillis) ?: return null
         val now = observer.look(state, epochMillis)
         if (now.altDeg <= 0.0) return null
-        return SkyTrack(
-            name = sgp4.tle.name,
-            nowAzDeg = now.azDeg,
-            nowAltDeg = now.altDeg,
-            sunlit = isSunlit(state, epochMillis),
-            labelled = labelled,
-            // 名前を出さない機体では時間も出さないので、そのぶんの伝播を省く
-            motion = if (labelled) motion(sgp4, observer, epochMillis) else null,
+        return Located(
+            sgp4,
+            SkyTrack(
+                name = sgp4.tle.name,
+                nowAzDeg = now.azDeg,
+                nowAltDeg = now.altDeg,
+                sunlit = isSunlit(state, epochMillis),
+                labelled = labelled,
+            ),
         )
+    }
+
+    /**
+     * 「いま」の位置まで求めた 1 機。**動きはまだ調べていない。**
+     *
+     * 視野で絞ってから [withMotion] を呼ぶために、元の軌道要素を持ったまま渡す。
+     */
+    private inner class Located(private val sgp4: Sgp4, val track: SkyTrack) {
+        /** 名前を出さない機体では時間も出さないので、そのぶんの伝播を省く */
+        fun withMotion(observer: Observer, epochMillis: Long): SkyTrack =
+            if (track.labelled) track.copy(motion = motion(sgp4, observer, epochMillis)) else track
     }
 
     /**
