@@ -1572,7 +1572,15 @@ fun StarMapScreen(
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
     // **解説の主役と同じ選び方にする**（種別で絞らないと、月が視野にあるだけで
     // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
-    LaunchedEffect(lastMap, bodiesShown, lore.value) {
+    // **鍵は先読みする文の材料だけ。** lastMap をそのまま鍵にすると
+    // （StarMap は参照で比べるので）**絵を 1 枚焼くたびに作り直し**になり、
+    // そのつど文を組み直して先読みし直していた
+    LaunchedEffect(
+        lastMap?.constellationNames()?.firstOrNull(),
+        lastMapObservation?.fullTimeLabel(),
+        bodiesShown,
+        lore.value,
+    ) {
         val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
         val observation = lastMapObservation ?: return@LaunchedEffect
         // **名乗りだけでなく解説の全文を作っておく。** ここを名乗りだけにしていたとき、
