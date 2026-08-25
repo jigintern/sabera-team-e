@@ -9,6 +9,9 @@
     <!-- 観測地の測位。Android 12 以降は FINE だけだと「おおよその位置」を選ばれたときに落ちる -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE" />
+    <!-- 台本の QR を読む（toB のガイドを受け取るときだけ）。断ってもファイルから入れられる -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- AI 解説の生成。OpenAI を叩くのはここだけ -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 圏外かどうかを喋り分けるために回線の状態を見る -->

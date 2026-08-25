@@ -138,7 +138,9 @@ import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
+import jp.jig.glasses.sample.kmp.ui.component.GuideMismatchDialog
 import jp.jig.glasses.sample.kmp.ui.component.GuidePickerDialog
+import jp.jig.glasses.sample.kmp.ui.component.formatDateTime
 import jp.jig.glasses.sample.kmp.ui.component.GuideProgressCard
 import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
 import jp.jig.glasses.sample.kmp.ui.component.LogLine
@@ -471,6 +473,8 @@ fun StarMapScreen(
 
     /** 台本を選ぶダイアログを開いているか。**メイン画面を太らせずに選ばせる** */
     var showGuidePicker by remember { mutableStateOf(false) }
+    /** 想定した夜と違うときに出す確認。**客の前で気づくより先に言う** */
+    var guideMismatch by remember { mutableStateOf<Pair<StarGuide, String>?>(null) }
 
     /** ガイドを流している間だけ中身が入る。**null がふだんの観測** */
     var guideProgress by remember { mutableStateOf<GuideProgress?>(null) }
@@ -1723,6 +1727,32 @@ fun StarMapScreen(
         }
     }
 
+    /**
+     * 始める前に、いまの空で何段飛ぶかを見る。
+     *
+     * **計算は増えない。** `GuidePlan.resolveSteps` はすでに「なぜ飛ばすか」を返していて、
+     * 始めるときにどのみち呼ぶものを 1 回早く呼んでいるだけ。
+     */
+    fun checkThenStartGuide(guide: StarGuide) {
+        val plannedAt = guide.plannedAtMillis
+        if (plannedAt == null) {
+            startGuide(guide)
+            return
+        }
+        scope.launch {
+            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(System.currentTimeMillis()))
+            val skipped = resolved.count { !it.playable }
+            if (skipped == 0) {
+                startGuide(guide)
+                return@launch
+            }
+            guideMismatch = guide to
+                "この台本は ${formatDateTime(plannedAt)} ごろを想定しています。" +
+                "今夜は ${guide.size} 段のうち $skipped 段が空に出ていません。"
+        }
+    }
+
+
     fun startNarration() {
         if (guidanceSession != null) {
             stopGuidance("解説を始めるため案内を終了")
@@ -2518,9 +2548,22 @@ fun StarMapScreen(
                     guides = guides,
                     onStart = {
                         showGuidePicker = false
-                        startGuide(it)
+                        checkThenStartGuide(it)
                     },
                     onDismiss = { showGuidePicker = false },
+                )
+            }
+
+            // **想定した夜と違えば、始める前に言う。** これが無いと
+            // 「この台本の星座は、いまの空には出ていません」に至って初めて分かる
+            guideMismatch?.let { (guide, note) ->
+                GuideMismatchDialog(
+                    note = note,
+                    onStart = {
+                        guideMismatch = null
+                        startGuide(guide)
+                    },
+                    onDismiss = { guideMismatch = null },
                 )
             }
         }

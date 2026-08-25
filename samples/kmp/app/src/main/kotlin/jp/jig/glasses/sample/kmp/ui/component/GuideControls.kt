@@ -139,3 +139,38 @@ internal fun GuideProgressCard(
         }
     }
 }
+
+/**
+ * 想定した夜と違うときの確認。**客の前で気づくより先に言う。**
+ *
+ * 台本は星座名しか持たないので別の夜でも再生できるが、「沈む前に見ておく」ために決めた
+ * 順番はその夜には合っておらず、段がいくつか飛ぶ。**それでも半分見られるなら回すほうがよい**
+ * （止まらないことを優先する・16_guide.md）ので、止めずに選ばせる。
+ */
+@Composable
+internal fun GuideMismatchDialog(
+    note: String,
+    onStart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(colors = CardDefaults.cardColors(containerColor = SaberaSurface)) {
+            Column(Modifier.padding(16.dp).widthIn(max = 320.dp)) {
+                Text("今夜の空とはずれています", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(note, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "出ていない段は飛ばして進みます",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SaberaFinePrint,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("やめる") }
+                    OutlinedButton(onClick = onStart, modifier = Modifier.weight(1f)) { Text("それでも始める") }
+                }
+            }
+        }
+    }
+}
