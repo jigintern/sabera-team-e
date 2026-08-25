@@ -147,13 +147,9 @@ java -Djava.awt.headless=true tools/compose-phone-preview.java                  
   位置に意味は無い。**これは写真ではない**ので、パネルのにじみ・明るさ・実機のフォントも出ない
 - スマホのホームは `compose-phone-preview.java` が実装と同じロゴ・色・配置から作る。
   **星図画面はBLEがつながらないと進めない**ので、必要なら実機のスクリーンショットを使う
-- 図（`docs/team-e/diagrams/*.drawio.svg`）は draw.io でそのまま開いて編集し、上書き保存する。
-  CLI から出し直すなら：
-
-```bash
-/Applications/draw.io.app/Contents/MacOS/draw.io --no-sandbox -x -f svg \
-  --embed-diagram --embed-svg-fonts false --theme light -o 図.drawio.svg 図.drawio
-```
+- 図（`docs/team-e/diagrams/*.drawio`）は draw.io で開いて編集し、上書き保存する。
+  **SVG は書き出さない**（原本と書き出しで二重管理になり、片方だけ古くなる）。
+  文書から貼るときは画像ではなく `.drawio` へのリンクにする
 
 ## ビルドの前提
 

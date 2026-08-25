@@ -272,7 +272,8 @@
 
 ## 画面遷移
 
-![画面遷移](diagrams/screen-flow.drawio.svg)
+図 — [画面遷移_SABERA.drawio](diagrams/画面遷移_SABERA.drawio) ／
+[画面遷移_スマホ.drawio](diagrams/画面遷移_スマホ.drawio)
 
 - **キャンバス 1 枚で回る。** ページ遷移が要らないので、状態はほぼ「観測中かどうか」だけ
 - **方位合わせ中は星図を消して十字だけを出す**（バッファに同時に入らない）
