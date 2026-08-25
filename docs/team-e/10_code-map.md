@@ -66,7 +66,7 @@
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
-| `narration/SkyTips.kt` | ダブルタップの一口メモ。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `narration/SkyTips.kt` | 読み込み画面の一言。**通信も生成も要らない**（時刻と場所から端末が組む） |
 | `guide/StarGuide.kt` | 台本の形と JSON。**方角は持たせない**（再生時に引き直す） |
 | `guide/GuidePlan.kt` | 台本をいまの空へ突き合わせる。**出ていない星座を飛ばす** |
 | `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |
