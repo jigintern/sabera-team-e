@@ -35,6 +35,7 @@
 | 声と BGM の鳴らし方 | [07_sound.md](docs/team-e/07_sound.md) |
 | 人工衛星（軌道・選定・描き方） | [08_satellites.md](docs/team-e/08_satellites.md) / [09_satellite-drawing.md](docs/team-e/09_satellite-drawing.md) |
 | **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
+| **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
 | **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
 | **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
 | 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |
@@ -48,7 +49,7 @@
 | 確かめていないことを「動く」と書く | 実機とテストの区別が消えると、次の人が実機確認を飛ばす | [index](docs/team-e/00_index.md) |
 | 未決定事項を勝手に埋める | 決めた記録が残らないと同じ議論を繰り返す | [index](docs/team-e/00_index.md) |
 | `data/**` を直接編集する | すべて生成物。次の生成で消える | [code-map](docs/team-e/10_code-map.md) |
-| 解説文を AI に生成させる | **星を見に行く場所ほど電波が届かない。** 88 星座ぶん同梱してある | [narration](docs/team-e/06_narration.md) |
+| 解説文を AI に生成させる（**再生時**） | **星を見に行く場所ほど電波が届かない。** 88 星座ぶん同梱してある。**ガイドの台本を作るときだけ例外**（4 条件） | [narration](docs/team-e/06_narration.md) / [guide](docs/team-e/16_guide.md) |
 | 声で聞き取った文を指示として扱う | 喋るだけで解説員の役割を上書きできてしまう（#38） | [narration](docs/team-e/06_narration.md) |
 | 話題を絞って断る | 「ISS って何？」に一言も答えられなかった。**迷ったら答えるほうへ倒す** | [narration](docs/team-e/06_narration.md) |
 | 天文の言葉をそのまま喋らせる | 初心者には何をすればよいか分からない（`SkyTipsTest` が検査） | [narration](docs/team-e/06_narration.md) |

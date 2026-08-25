@@ -173,6 +173,9 @@ internal fun ObservationActions(
     primaryLabel: String,
     onPrimary: () -> Unit,
     onRecalibrate: () -> Unit,
+    /** 主ボタンの次に置くもの（いまはガイドの開始）。**要らないときは出さない** */
+    secondaryLabel: String? = null,
+    onSecondary: () -> Unit = {},
 ) {
     Spacer(Modifier.height(12.dp))
     Button(
@@ -185,6 +188,13 @@ internal fun ObservationActions(
     ) {
         Text(primaryLabel)
     }
+    if (secondaryLabel != null) {
+        OutlinedButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
+            Text(secondaryLabel)
+        }
+    }
+    // **やり直しの逃げ道はいちばん下のまま。** 押す機会がいちばん少ないので、
+    // 上に来ると誤って押される（押すと方位合わせからやり直しになる）
     OutlinedButton(onClick = onRecalibrate, modifier = Modifier.fillMaxWidth()) {
         Text("方位を合わせ直す")
     }

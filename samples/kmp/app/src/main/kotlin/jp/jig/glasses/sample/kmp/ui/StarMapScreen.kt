@@ -41,6 +41,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -90,6 +91,12 @@ import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
 import jp.jig.glasses.sample.kmp.glass.withGuidanceLabel
+import jp.jig.glasses.sample.kmp.guide.GuidePhase
+import jp.jig.glasses.sample.kmp.guide.GuidePlan
+import jp.jig.glasses.sample.kmp.guide.GuideProgress
+import jp.jig.glasses.sample.kmp.guide.GuideStore
+import jp.jig.glasses.sample.kmp.guide.ImpromptuGuide
+import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.narration.NarrationInput
 import jp.jig.glasses.sample.kmp.narration.NarrationPhase
@@ -142,6 +149,8 @@ import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
+import jp.jig.glasses.sample.kmp.ui.component.GuidePickerDialog
+import jp.jig.glasses.sample.kmp.ui.component.GuideProgressCard
 import jp.jig.glasses.sample.kmp.ui.component.KeepScreenOn
 import jp.jig.glasses.sample.kmp.ui.component.LogLine
 import jp.jig.glasses.sample.kmp.ui.component.NarrationPanel
@@ -453,6 +462,38 @@ fun StarMapScreen(
     var guidanceFrame by remember { mutableStateOf<GuidanceFrame?>(null) }
     // 開始・到着・終了では、首が6°動かなくても星図のラベルと強調を入れ替える。
     var guidanceRevision by remember { mutableStateOf(0) }
+
+    /**
+     * 案内 1 回ぶんの終わり。**ガイドの進行役はこれを待って次の段へ進む。**
+     *
+     * 追従ループ（約 10Hz）は到着とタイムアウトをその場で処理して畳んでしまうので、
+     * 外から「終わったかどうか」を知る手立てが無かった。**ループ側は 1 行流すだけ**にして、
+     * 待つ側の事情をループへ持ち込まない。
+     *
+     * `Channel` にしてあるのは、**受け取る前に届いた 1 件を落とさない**ため
+     * （`SharedFlow` は購読者がいない間の発行を捨てる）。**古い 1 件で次の段を飛ばさない**よう、
+     * 案内を始める直前に汲み出す（[startGuide]）。
+     */
+    val guidanceOutcomes = remember { Channel<GuidanceEvent>(Channel.CONFLATED) }
+
+    /** 台本の置き場。**アプリを閉じても残る**ので、家で作って外で使える */
+    val guideStore = remember(context) { GuideStore.of(context) }
+    var guides by remember { mutableStateOf<List<StarGuide>>(emptyList()) }
+
+    /** 台本を選ぶダイアログを開いているか。**メイン画面を太らせずに選ばせる** */
+    var showGuidePicker by remember { mutableStateOf(false) }
+
+    /** ガイドを流している間だけ中身が入る。**null がふだんの観測** */
+    var guideProgress by remember { mutableStateOf<GuideProgress?>(null) }
+    var guideJob by remember { mutableStateOf<Job?>(null) }
+
+    /**
+     * 次に読む段の番号。**進行役の外から書き換えて送り・戻しをする。**
+     *
+     * 進行役が自分で足す前にここが変わっていれば、進行役は足さない。
+     * こうしておかないと、手で送ったぶんと自動で進むぶんで **2 段飛ぶ**。
+     */
+    var guideIndex by remember { mutableStateOf(0) }
 
     // 6DoF のサンプルが着いた時刻。初回受信待ちとログに使う
     var lastImuAt by remember { mutableStateOf(0L) }
@@ -782,7 +823,13 @@ fun StarMapScreen(
                 map = renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
             }
             guidanceSession?.let { guidance ->
-                map = map.withGuidanceLabel(guidance.target.nameJa, guidanceFrame?.arrived == true)
+                map = map.withGuidanceLabel(
+                    guidance.target.nameJa,
+                    guidanceFrame?.arrived == true,
+                    // ガイド中は**声で言った方角を文字にも残す**。声で頼んだ案内は
+                    // 「案内中」のまま（自分で名前を言った直後なので、方角だけが要る）
+                    where = guideProgress?.let { ImpromptuGuide.where(guidance.target) },
+                )
             }
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
@@ -1140,6 +1187,12 @@ fun StarMapScreen(
     // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
 
+    // 台本はホーム側で作るので、**観測画面へ入るたびに読み直す**（作った直後にここへ来る）
+    LaunchedEffect(guideStore) {
+        guides = withContext(Dispatchers.IO) { guideStore.list() }
+        if (guides.isNotEmpty()) log("ガイドの台本 ${guides.size} 件")
+    }
+
     /**
      * 解説をグラスの専用ページへ出す（#40）。
      *
@@ -1429,8 +1482,13 @@ fun StarMapScreen(
         }
     }
 
-    /** 案内の小画像と状態を片付ける。星図本体は追従ループが通常表示へ焼き直す。 */
-    fun stopGuidance(reason: String, speech: String? = null) {
+    /**
+     * 案内の小画像と状態を片付ける。星図本体は追従ループが通常表示へ焼き直す。
+     *
+     * [fromLoop] は追従ループ自身からの呼び出し。**そちらは本当の結末
+     * （到着・時間切れ）を自分で流す**ので、ここから割り込み扱いを重ねて流さない。
+     */
+    fun stopGuidance(reason: String, speech: String? = null, fromLoop: Boolean = false) {
         val active = guidanceSession != null || guidanceFrame != null
         guidanceSession = null
         guidanceFrame = null
@@ -1441,6 +1499,9 @@ fun StarMapScreen(
             log(reason)
         }
         speech?.let(voice::say)
+        // **ガイドの待ちを取り残さない。** 声の質問（#38）や解説の割り込みもここを通るので、
+        // ここで流しておかないと、進行役が到着を待ったまま止まる
+        if (!fromLoop && guideProgress != null) guidanceOutcomes.trySend(GuidanceEvent.NONE)
         scope.launch {
             sendGate.withLock {
                 withContext(NonCancellable) {
@@ -1450,23 +1511,30 @@ fun StarMapScreen(
         }
     }
 
-    /** 確認を1秒だけ見せてから、星図と案内矢印へ戻す。 */
-    suspend fun beginGuidance(target: GuidanceTarget) {
+    /**
+     * 確認を1秒だけ見せてから、星図と案内矢印へ戻す。
+     *
+     * [announce] を false にするのはガイドの進行役から呼ぶとき。**名乗りを重ねない**
+     * （「次は南の空、さそり座です」の直後に「さそり座を案内します」と言うことになる）。
+     */
+    suspend fun beginGuidance(target: GuidanceTarget, announce: Boolean = true) {
         val unavailable = guidanceUnavailableMessage(target)
         if (unavailable != null) {
             narrator.cannotAnswer(target.nameJa, unavailable)
             log("案内できない: $unavailable")
             return
         }
-        val warning = when {
-            target.aim.altDeg < GUIDANCE_LOW_ALTITUDE_DEG -> "地平線近くで見つけにくいですが、"
-            skyDarkness != SkyDarkness.NIGHT -> "空が明るく見つけにくいですが、"
-            else -> ""
+        if (announce) {
+            val warning = when {
+                target.aim.altDeg < GUIDANCE_LOW_ALTITUDE_DEG -> "地平線近くで見つけにくいですが、"
+                skyDarkness != SkyDarkness.NIGHT -> "空が明るく見つけにくいですが、"
+                else -> ""
+            }
+            val confirmation = "$warning${target.nameJa}を案内します。"
+            narrator.progress(target.nameJa, confirmation)
+            voice.say(confirmation)
+            delay(GUIDANCE_CONFIRMATION_MS)
         }
-        val confirmation = "$warning${target.nameJa}を案内します。"
-        narrator.progress(target.nameJa, confirmation)
-        voice.say(confirmation)
-        delay(GUIDANCE_CONFIRMATION_MS)
 
         val now = System.currentTimeMillis()
         val initial = GuidanceSession(target, now).update(look(), target.aim, glassRoll, now)
@@ -1477,6 +1545,193 @@ fun StarMapScreen(
         narrator.reset()
         glassPage = GlassPage.STAR_MAP
         log("案内開始: ${target.nameJa} 方位${target.aim.azDeg.roundToInt()}° 高度${target.aim.altDeg.roundToInt()}°")
+    }
+
+    /**
+     * ガイドの進行役（受動的な星座ガイド）。
+     *
+     * **新しい画面も新しい誘導処理も作らない。** 既にあるものを順に呼ぶだけ。
+     *
+     * ```
+     * 「次は南の空、さそり座です」を喋る
+     *    ↓
+     * beginGuidance(対象)        ← #46。矢印が出て、主役以外の星座が薄くなる
+     *    ↓
+     * 到着（または 60 秒）を待つ  ← 追従ループが [guidanceOutcomes] に流す
+     *    ↓
+     * 同梱／台本の本文を読み上げ、グラスの解説画面へ流す
+     *    ↓
+     * 読み上げの終わりを待って次の段へ
+     * ```
+     *
+     * **見つけられなくても止まらない。** 60 秒で諦めた段は飛ばして次へ行く。
+     * 探せない 1 つでツアーごと終わるほうが困る。
+     */
+    fun stopGuide(reason: String, speech: String? = null) {
+        val running = guideProgress != null
+        guideJob?.cancel()
+        guideJob = null
+        guideProgress = null
+        guideIndex = 0
+        if (running) {
+            stopGuidance(reason)
+            voice.stop()
+            narrator.stop()
+        }
+        speech?.let(voice::say)
+    }
+
+    /**
+     * いま待っているものを打ち切る。**次へ・もう一度の共通の入口。**
+     *
+     * どちらを待っている最中かは進行役しか知らないので、**両方に終わりを渡す**。
+     * 案内していなければ [stopGuidance] は何もしないし、喋っていなければ [Voice.stop] も同じ。
+     */
+    fun releaseGuideStep() {
+        stopGuidance("ガイドの段を切り上げ")
+        narrator.stop()
+        voice.stop()
+    }
+
+    /** 次の段へ。**進行役が自分で足す前に番号を進める**ので、二重に飛ばない */
+    fun guideNext() {
+        val progress = guideProgress ?: return
+        guideIndex = progress.stepIndex + 1
+        log("ガイド: 次へ（${progress.counter}）")
+        releaseGuideStep()
+    }
+
+    /** いまの段をもう一度。番号は進めない */
+    fun guideRepeat() {
+        val progress = guideProgress ?: return
+        guideIndex = progress.stepIndex
+        log("ガイド: もう一度（${progress.counter}）")
+        releaseGuideStep()
+    }
+
+    /** 喋り終わるまで待つ。**合成に数秒かかる**ので、鳴り始めるまでも待つ */
+    suspend fun awaitSpeech() {
+        withTimeoutOrNull(SPEECH_START_TIMEOUT_MS) { voice.speaking.first { it } }
+        withTimeoutOrNull(SPEECH_END_TIMEOUT_MS) { voice.speaking.first { !it } }
+    }
+
+    /**
+     * 字幕を流し終わるまで次の段へ進まない（05_app-flow.md）。
+     *
+     * **読み上げは字幕より先に終わる。** 字幕は 1 行流すごとに 6% ずつ遅くしてあるので、
+     * 声が止まった時点で最後の数行はまだ出ていない。そこで進むと、
+     * [leaveGlassExplanation] が**読み切る前に消す**ことになる。
+     *
+     * 畳む条件（字幕・読み上げ・声の質問・5 秒の余韻）はワンタップ解説がすでに持っている。
+     * ここは「解説画面から出た」ことだけを待ち、**待ち方の規則を 2 か所に置かない**。
+     * 首の上下フリックで読み直せば向こうが数え直すので、**そのぶんツアーも待つ**。
+     *
+     * **手で送られたら待たない**（1 回タップの反応が鈍る）。
+     */
+    suspend fun awaitExplanationClosed(index: Int) {
+        if (guideIndex != index) return
+        withTimeoutOrNull(SUBTITLE_DRAIN_TIMEOUT_MS) {
+            snapshotFlow { glassPage to guideIndex }
+                .first { (page, current) -> page != GlassPage.EXPLANATION || current != index }
+        }
+    }
+
+    fun startGuide(guide: StarGuide) {
+        if (guide.steps.isEmpty()) return
+        stopGuide("前のガイドを終了")
+        guideIndex = 0
+        guideJob = launchNarration("ガイド", guide.title) {
+            val observedAt = System.currentTimeMillis()
+            // **台本は星座名しか持っていない。** どちらに何度で見えるかはいま引き直す
+            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observedAt))
+            for (skipped in resolved.filterNot { it.playable }) {
+                log("ガイド: ${skipped.step.targetName}を飛ばす（${skipped.skipReason}）")
+            }
+            val steps = GuidePlan.playable(resolved)
+            if (steps.isEmpty()) {
+                // **黙って終わらせない。** 何も起きないと壊れたようにしか見えない
+                narrator.cannotAnswer(
+                    guide.title,
+                    "この台本の星座は、いまの空には出ていません。別のガイドを試してください。",
+                )
+                guideProgress = null
+                return@launchNarration
+            }
+            log("ガイド開始: ${guide.title}（${steps.size} 段・${guide.origin.label}）")
+
+            while (true) {
+                val index = guideIndex
+                if (index !in steps.indices) break
+                val step = steps[index]
+                val target = step.target ?: break
+
+                guideProgress = GuideProgress(
+                    title = guide.title,
+                    stepIndex = index,
+                    stepCount = steps.size,
+                    stepName = step.step.targetName,
+                    phase = GuidePhase.INTRO,
+                )
+                // **前の段の解説を出したまま「次はこちら」と言わない。** 星図へ戻しておけば、
+                // 言われた方角をそのまま探し始められる
+                leaveGlassExplanation("次の段へ進むので星図へ戻る")
+                // **どちらを向けばよいかは、いまの空から言い直す。** 台本を作ったときと
+                // 日も場所も違えば方角はまるで変わるので、**方角と高さは台本に書かせない**。
+                // 台本の [GuideStep.intro] は方角を含まない導入の一言なので、後ろに足す
+                val lead = ImpromptuGuide.intro(target) + step.step.intro
+                narrator.retell(step.step.targetName, lead, "ガイドの案内")
+                awaitSpeech()
+                if (guideIndex != index) continue
+
+                guideProgress = guideProgress?.copy(phase = GuidePhase.GUIDING)
+                // **古い 1 件で次の段を飛ばさない。** 待ち始める前に汲み出す
+                while (guidanceOutcomes.tryReceive().isSuccess) Unit
+                beginGuidance(target, announce = false)
+                val outcome = guidanceOutcomes.receive()
+                if (guideIndex != index) continue
+                if (outcome == GuidanceEvent.NONE) {
+                    // 声で質問された（#38）。**答え終わったら同じ段から続ける。**
+                    // 割り込みで段を飛ばすと、聞いたせいで見られなかったことになる
+                    log("ガイド: 割り込みで中断（${step.step.targetName}）")
+                    snapshotFlow { asking }.first { !it }
+                    awaitSpeech()
+                    continue
+                }
+                if (outcome != GuidanceEvent.COMPLETED) {
+                    log("ガイド: ${step.step.targetName}を見つけられないので次へ")
+                    guideIndex = index + 1
+                    continue
+                }
+
+                val narrating = guideProgress?.copy(phase = GuidePhase.NARRATING)
+                guideProgress = narrating
+                // **進み具合の枠をグラスに増やさない**（8 つは星座名と月惑星で埋まる）。
+                // 見出しはもともと 1 行あるので、そこへ「3/5」を混ぜる。
+                //
+                // **星座名はここに入れない。** 見出しは `state.constellation` と連結されるので、
+                // 入れると「さそり座　さそり座 3/5」と二重に出る（ワンタップは方角を入れている）。
+                //
+                // **高度は落とす。** 見出しは 1 行 17 文字で切られる。ワンタップと同じ
+                // 「南南西 45°」にすると、いちばん長い「みなみのかんむり座」で 21 文字になり、
+                // **後ろにある進み具合から先に消える**。着いたあとに要るのは度数より、
+                // ツアーのどこにいるかのほう
+                explanationHeading = "${cardinalDirection16(target.aim.azDeg)} ${narrating?.counter.orEmpty()}"
+                explanationSpoke = false
+                explanationDropped = 0
+                explanationPaging = false
+                narrator.reset()
+                glassPage = GlassPage.EXPLANATION
+                narrator.retell(step.step.targetName, step.step.body, "ガイドの解説")
+                // 解説した星座は今夜の記録に残す（タップしたときと同じ扱い）
+                NightRecord.add(step.step.targetName, System.currentTimeMillis(), step.step.body)
+                awaitSpeech()
+                awaitExplanationClosed(index)
+                if (guideIndex == index) guideIndex = index + 1
+            }
+            guideProgress = null
+            log("ガイド終了: ${guide.title}")
+            narrator.retell(guide.title, "ガイドはここまでです。おつかれさまでした。", "ガイドの締め")
+        }
     }
 
     fun startNarration() {
@@ -1912,9 +2167,12 @@ fun StarMapScreen(
                 current.target
             }
             if (target == null || target.aim.altDeg <= 0.0) {
+                // ガイド中なら、この段は諦めて次へ進ませる（**止まらないことを優先する**）
+                guidanceOutcomes.trySend(GuidanceEvent.TIMED_OUT)
                 stopGuidance(
                     "案内終了: ${current.target.nameJa}を追跡できない",
                     "${current.target.nameJa}は、いま案内できません。",
+                    fromLoop = true,
                 )
                 break
             }
@@ -1934,11 +2192,18 @@ fun StarMapScreen(
                     log("案内到着: ${target.nameJa} 誤差${"%.1f".format(update.frame.distanceDeg)}°")
                 }
                 GuidanceEvent.COMPLETED -> {
-                    stopGuidance("案内完了: ${target.nameJa}")
+                    guidanceOutcomes.trySend(GuidanceEvent.COMPLETED)
+                    stopGuidance("案内完了: ${target.nameJa}", fromLoop = true)
                     break
                 }
                 GuidanceEvent.TIMED_OUT -> {
-                    stopGuidance("案内終了: ${target.nameJa}を60秒で見つけられない", "案内を終了します。")
+                    guidanceOutcomes.trySend(GuidanceEvent.TIMED_OUT)
+                    stopGuidance(
+                        "案内終了: ${target.nameJa}を60秒で見つけられない",
+                        // ガイド中は次の段へ続くので、「終了します」と言い切らない
+                        if (guideProgress == null) "案内を終了します。" else null,
+                        fromLoop = true,
+                    )
                     break
                 }
                 GuidanceEvent.NONE -> Unit
@@ -1954,10 +2219,18 @@ fun StarMapScreen(
         val job: Job = scope.launch {
             commandManager.gestureEvents.collect { gesture ->
                 when (gesture) {
-                    GestureType.SINGLE_TAP -> if (recordingVoice) submitVoiceQuestion() else toggleNarration()
+                    // **ガイド中だけ意味を入れ替える。** 終われば元の割り当てに戻る。
+                    // 送信だけは入れ替えない（録っている最中に送れなくなると質問が捨てられる）
+                    GestureType.SINGLE_TAP -> when {
+                        recordingVoice -> submitVoiceQuestion()
+                        guideProgress != null -> guideNext()
+                        else -> toggleNarration()
+                    }
 
-                    // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した
-                    GestureType.DOUBLE_TAP -> showTip()
+                    // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した。
+                    // ガイド中は「聞き逃したのでもう一度」がいちばん要る
+                    GestureType.DOUBLE_TAP ->
+                        if (guideProgress != null) guideRepeat() else showTip()
 
                     // **長押しは声で聞く**（#38）。方位合わせはスマホのボタンに残してある
                     GestureType.HOLD -> askByVoice()
@@ -1986,15 +2259,27 @@ fun StarMapScreen(
             // 案内中なのに「解説を止める」と出るようなずれ方をする。null = 止めるものが無い
             val stopLabel = when {
                 recordingVoice -> "質問を送信"
+                guideProgress != null -> "ガイドを止める"
                 guidanceSession != null -> "案内を終了"
                 narrator.busy || speaking -> "解説を止める"
                 else -> null
             }
             // 質問を処理している間も止めさせる（主ボタンは「解説する」に戻しておく）
-            val barStopLabel = if (guidanceSession != null || narrator.busy || speaking || asking) {
+            val barStopLabel = if (
+                guideProgress != null || guidanceSession != null || narrator.busy || speaking || asking
+            ) {
                 stopLabel ?: "解説を止める"
             } else {
                 null
+            }
+            // 押したときの動きも 1 か所に置く。**文言と動きが別々に散ると、
+            // 「ガイドを止める」が解説だけ止めるような食い違いが出る**
+            val onStopAction: () -> Unit = {
+                when {
+                    recordingVoice -> submitVoiceQuestion()
+                    guideProgress != null -> stopGuide("スマホからガイドを終了", "ガイドを終わります。")
+                    else -> toggleNarration()
+                }
             }
             SeasonalConstellationBackground(
                 constellation = constellation,
@@ -2031,9 +2316,7 @@ fun StarMapScreen(
                                 // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
                                 // （戻るキーを知らないと止められない）
                                 if (barStopLabel != null) {
-                                    TextButton(
-                                        onClick = { if (recordingVoice) submitVoiceQuestion() else toggleNarration() },
-                                    ) {
+                                    TextButton(onClick = onStopAction) {
                                         Text(barStopLabel, color = Color.White)
                                     }
                                 }
@@ -2059,6 +2342,8 @@ fun StarMapScreen(
                         recordingVoice ->
                             "グラスのマイクで質問を聞いています。1回タップで送信 ${micMeter(micLevel)}"
                         asking -> "質問を処理しています"
+                        guideProgress != null ->
+                            "ガイド中です。1回タップで次へ、2回タップでもう一度"
                         speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
                         // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
                         BuildConfig.OPENAI_API_KEY.isEmpty() ->
@@ -2098,13 +2383,6 @@ fun StarMapScreen(
                                         "グラスの向きを止めると、その方角の星図に更新します",
                                         style = MaterialTheme.typography.bodySmall,
                                     )
-                                    guidanceFrame?.let { frame ->
-                                        Spacer(Modifier.height(12.dp))
-                                        GuidanceCard(
-                                            frame = frame,
-                                            onStop = { stopGuidance("スマホから案内を終了") },
-                                        )
-                                    }
                                     Spacer(Modifier.height(10.dp))
                                     Text(
                                         narrationStatus,
@@ -2136,7 +2414,7 @@ fun StarMapScreen(
                                 if (landscape) {
                                     LandscapeActions(
                                         stopLabel = barStopLabel,
-                                        onStop = { if (recordingVoice) submitVoiceQuestion() else toggleNarration() },
+                                        onStop = onStopAction,
                                         onSettings = if (!showDetails) ({ showDetails = true }) else null,
                                     )
                                 }
@@ -2170,13 +2448,26 @@ fun StarMapScreen(
                                                 "グラスの向きを止めると、その方角の星図に更新します",
                                                 style = MaterialTheme.typography.bodySmall,
                                             )
-                                            guidanceFrame?.let { frame ->
-                                                Spacer(Modifier.height(12.dp))
-                                                GuidanceCard(
-                                                    frame = frame,
-                                                    onStop = { stopGuidance("スマホから案内を終了") },
-                                                )
-                                            }
+                                        }
+                                        // **案内とガイドの札は解説と同じ側に置く。** 横で左の
+                                        // プレビューへ積むと、縦幅 350dp に収まらず切れる
+                                        guidanceFrame?.let { frame ->
+                                            Spacer(Modifier.height(12.dp))
+                                            GuidanceCard(
+                                                frame = frame,
+                                                onStop = { stopGuidance("スマホから案内を終了") },
+                                            )
+                                        }
+                                        guideProgress?.let { progress ->
+                                            Spacer(Modifier.height(12.dp))
+                                            GuideProgressCard(
+                                                progress = progress,
+                                                onNext = { guideNext() },
+                                                onRepeat = { guideRepeat() },
+                                            )
+                                        }
+                                        // 横は札が出たときだけ空ける（何も無い頭に余白を作らない）
+                                        if (!landscape || guidanceFrame != null || guideProgress != null) {
                                             Spacer(Modifier.height(16.dp))
                                         }
                                         Text("星座解説", style = MaterialTheme.typography.titleMedium)
@@ -2193,8 +2484,14 @@ fun StarMapScreen(
                                         )
                                         ObservationActions(
                                             primaryLabel = stopLabel ?: "この星空を解説する",
-                                            onPrimary = { if (recordingVoice) submitVoiceQuestion() else toggleNarration() },
+                                            onPrimary = onStopAction,
                                             onRecalibrate = onRecalibrate,
+                                            // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
+                                            // 作るのはホーム画面の「ガイドを作る」から。
+                                            // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
+                                            secondaryLabel = "ガイドを始める"
+                                                .takeIf { guides.isNotEmpty() && guideProgress == null },
+                                            onSecondary = { showGuidePicker = true },
                                         )
                                     } else {
                                         // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
@@ -2330,6 +2627,18 @@ fun StarMapScreen(
                     }
                 }
             }
+
+            // **設定を開かずに始められるようにする。** 台本が増えてもメイン画面は太らない
+            if (showGuidePicker) {
+                GuidePickerDialog(
+                    guides = guides,
+                    onStart = {
+                        showGuidePicker = false
+                        startGuide(it)
+                    },
+                    onDismiss = { showGuidePicker = false },
+                )
+            }
         }
     }
 }
@@ -2405,6 +2714,29 @@ private const val GUIDANCE_REFRESH_MIN_DELAY_MS = 10L
 
 /** 音声で対象を復唱し、見間違いならタップで止められる時間。 */
 private const val GUIDANCE_CONFIRMATION_MS = 1_000L
+
+/**
+ * ガイドが「喋り始めた」と諦めるまで。**合成に 1〜3 秒かかる**ので短くしすぎない。
+ *
+ * 鳴らないまま次の段へ進むより、少し待って次を出すほうがよい。
+ */
+private const val SPEECH_START_TIMEOUT_MS = 5_000L
+
+/**
+ * ガイドが「喋り終わった」と見なすまでの上限。
+ *
+ * **読み上げの終わりを取り落としてもツアーが止まらない**ようにするための保険で、
+ * ふつうは 100 文字を 15 秒ほどで読み終わる。
+ */
+private const val SPEECH_END_TIMEOUT_MS = 90_000L
+
+/**
+ * 字幕が流れ切るのを諦めるまで。**ツアーを止めないための保険。**
+ *
+ * 字幕 16 行（22 秒ほど）＋ 最後の 1 枚の据え置き 6 秒 ＋ 余韻 5 秒でも 35 秒ほどなので、
+ * ここに掛かるのは何かが詰まったときだけ。
+ */
+private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
 
 /** 地平線すれすれは遮蔽物や大気で見つけにくいため、案内前に断りを入れる。 */
 private const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0

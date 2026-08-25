@@ -74,7 +74,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         catalog.constellations.size,
     ) { i ->
         var bestIndex = -1
-        var bestMagnitude = 99.0
+        var bestMagnitude = UNKNOWN_MAGNITUDE
         for (seg in catalog.constellations[i].lines) {
             for (point in seg) {
                 for ((index, star) in catalog.stars.withIndex()) {
@@ -91,7 +91,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }.also { constellationAnchorCache = it }
 
     private fun brightestPerConstellation(): DoubleArray = constellationAnchors().map { index ->
-        if (index < 0) 99.0 else catalog.stars[index].magnitude
+        if (index < 0) UNKNOWN_MAGNITUDE else catalog.stars[index].magnitude
     }.toDoubleArray()
 
     /** HIP → 星表の添字。結びは HIP で星を指すので、引くたびに探さないよう 1 回だけ作る */
@@ -523,6 +523,18 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     fun knownBrightStarNames(): Set<String> = catalog.brightNames.values.toSet()
+
+    /**
+     * その星座でいちばん明るい星の等級。**ガイドの「明るくて探しやすい」で使う。**
+     *
+     * 星座を間引く判定（[SkyDensity]）と同じ値なので、**星図に線と名前が出るかどうかと
+     * ガイドの選び方がずれない**。星が引けなければ null。
+     */
+    fun brightestMagnitude(nameJa: String): Double? {
+        val index = catalog.constellations.indexOfFirst { it.nameJa == nameJa }
+        if (index < 0) return null
+        return brightestPerConstellation()[index].takeIf { it < UNKNOWN_MAGNITUDE }
+    }
 
     /**
      * 「ふつう」の星図が描く対象から、声で名前を指定できるものだけを返す。
@@ -1546,5 +1558,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         /** 放射する線の本数。少ないと十字に、多いと円に見える */
         const val RADIANT_RAYS = 8
+
+        /** 星が 1 つも引けなかった星座の等級。どんな下限より暗いので必ず落ちる */
+        private const val UNKNOWN_MAGNITUDE = 99.0
     }
 }
