@@ -147,6 +147,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         radiants: List<MeteorRadiantMark> = emptyList(),
         // 案内中は周囲を薄くし、到着時は対象の線または点へリングも重ねる
         guidanceHighlight: GuidanceHighlight? = null,
+        // 下敷き（星座絵・星座線・結び・天の川）の濃さ。**屋外でしか正解が出ない**ので現地で動かせる
+        ink: StarMapInk = StarMapInk(),
     ): StarMap {
         val brightest = brightestPerConstellation()
         val d = daysFromJ2000(epochMillis)
@@ -164,12 +166,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         }
 
         if (drawMilkyWay) {
+            val bandValue = ink.value(StarMapLayer.MILKY_WAY)
             for (edge in catalog.milkyWay) {
                 var previous: DoubleArray? = null
                 for (point in edge) {
                     val aa = toApparentAltAz(point[0], point[1], lst, site.latDeg)
                     val q = project(enu(aa[0], aa[1]), basis, k, width, height)
-                    if (q != null) previous?.let { line(gray, width, height, it, q, MILKY_WAY_VALUE, 0) }
+                    if (q != null) previous?.let { line(gray, width, height, it, q, bandValue, 0) }
                     previous = q
                 }
             }
@@ -178,12 +181,16 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         if (drawFigureArt) {
             for (i in catalog.constellations.indices) {
                 if (brightest[i] > constellationMagnitude) continue
-                val figure = catalog.figures[catalog.constellations[i].abbr] ?: continue
+                val figure = precessed.figures[i] ?: continue
                 val focused = guidanceHighlight?.kind == GuidanceTargetKind.CONSTELLATION &&
                     guidanceHighlight.nameJa == catalog.constellations[i].nameJa
                 drawConstellationArt(
-                    gray, width, height, figure, precessed.lines[i], lst, site, basis, k,
-                    value = if (guidanceHighlight != null && !focused) GUIDANCE_DIM_ART_VALUE else ART_VALUE,
+                    gray, width, height, figure, lst, site, basis, k,
+                    value = if (guidanceHighlight != null && !focused) {
+                        ink.dimValue(StarMapLayer.ART)
+                    } else {
+                        ink.value(StarMapLayer.ART)
+                    },
                 )
             }
         }
@@ -197,8 +204,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 val value = when {
                     highlighted && guidanceHighlight.arrived -> GUIDANCE_HIGHLIGHT_VALUE
                     highlighted -> GUIDANCE_FOCUS_VALUE
-                    guidanceHighlight != null -> GUIDANCE_DIM_LINE_VALUE
-                    else -> LINE_VALUE
+                    guidanceHighlight != null -> ink.dimValue(StarMapLayer.LINE)
+                    else -> ink.value(StarMapLayer.LINE)
                 }
                 for (seg in lines) {
                     for (i in 0 until seg.size - 1) {
@@ -228,8 +235,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                     guidanceHighlight.nameJa == asterism.nameJa
                 val value = when {
                     highlighted -> GUIDANCE_HIGHLIGHT_VALUE
-                    guidanceHighlight != null -> GUIDANCE_DIM_ASTERISM_VALUE
-                    else -> ASTERISM_VALUE
+                    guidanceHighlight != null -> ink.dimValue(StarMapLayer.ASTERISM)
+                    else -> ink.value(StarMapLayer.ASTERISM)
                 }
                 var inside = false
                 for (i in 0 until closed.size - 1) {
@@ -635,6 +642,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val stars: Array<DoubleArray>,
         val lines: List<List<List<DoubleArray>>>,
         val centers: Array<DoubleArray?>,
+        /** 星座と同じ並び。絵を持たない星座は null */
+        val figures: List<ConstellationFigure?>,
     )
 
     /** 空に出ている星座の一覧は描画と別のコルーチンから来るので、作り直しは 1 本に絞る */
@@ -663,8 +672,15 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             }
         }
         val centers = Array(catalog.constellations.size) { i -> meanDirection(lines[i]) }
+        // **絵に固有運動は入れない。** 星に載せて作ってあるが、動きの速い星でも 100 年で 0.03° と、
+        // 絵の大きさ（十数度）に対して読み取れない。歳差（100 年で 1.4°）だけ星と揃える
+        val figures = catalog.constellations.map { c ->
+            catalog.figures[c.abbr]?.map { stroke ->
+                stroke.map { precessWithProperMotion(it[0], it[1], 0.0, 0.0, d) }
+            }
+        }
         precessedKey = key
-        return Precessed(stars, lines, centers).also { cache = it }
+        return Precessed(stars, lines, centers, figures).also { cache = it }
     }
 
     /**
@@ -798,11 +814,13 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     /**
      * 星座絵を 1 つ敷く。
      *
-     * **その星座の星座線を投影した外接矩形へ、正規化した絵を写すだけ。**
-     * 星の位置へ厳密に貼るのではないので、絵は星より暗く細くして「下敷き」に見せる。
+     * **絵は星と同じ赤道座標で持っている**ので、星や星座線とまったく同じ道筋で投影する。
+     * 以前は正規化した絵を「投影後の外接矩形」へ写していたが、それだと
+     * **矩形の縦横比が空の位置で変わるぶん絵が伸び縮みし、首を傾けても絵だけ画面軸のまま立っていた**。
+     * 星の上に載せる絵である以上、星と同じ変換を通すのが唯一ずれない置き方（2026-08-25）。
      *
-     * 視野に入っていない星座は矩形が画面の外へ出るので、[line] の中で捨てられる。
-     * **矩形が画面よりずっと大きいときは描かない**（星座の端がかすっただけで
+     * 視野に入っていない星座は投影後に画面の外へ出るので、[line] の中で捨てられる。
+     * **画面よりずっと大きい／小さいときは描かない**（星座の端がかすっただけで
      * 画面いっぱいに絵が広がると、見えている星と対応が取れなくなる）。
      */
     private fun drawConstellationArt(
@@ -810,27 +828,28 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         width: Int,
         height: Int,
         figure: ConstellationFigure,
-        lines: List<List<DoubleArray>>,
         lst: Double,
         site: Site,
         basis: Basis,
         k: Double,
-        value: Int = ART_VALUE,
+        value: Int = StarMapInk().value(StarMapLayer.ART),
     ) {
         var minX = Double.MAX_VALUE
         var minY = Double.MAX_VALUE
         var maxX = -Double.MAX_VALUE
         var maxY = -Double.MAX_VALUE
         var count = 0
-        for (seg in lines) {
-            for (p in seg) {
-                val aa = toApparentAltAz(p[0], p[1], lst, site.latDeg)
-                val q = project(enu(aa[0], aa[1]), basis, k, width, height) ?: continue
-                minX = min(minX, q[0])
-                minY = min(minY, q[1])
-                maxX = max(maxX, q[0])
-                maxY = max(maxY, q[1])
-                count++
+        // 大きさの判定に投影が要るので、描く前に 1 度だけ投影して持っておく
+        val projected = figure.map { stroke ->
+            stroke.map { point ->
+                val aa = toApparentAltAz(point[0], point[1], lst, site.latDeg)
+                project(enu(aa[0], aa[1]), basis, k, width, height)?.also { q ->
+                    minX = min(minX, q[0])
+                    minY = min(minY, q[1])
+                    maxX = max(maxX, q[0])
+                    maxY = max(maxY, q[1])
+                    count++
+                }
             }
         }
         if (count < 2) return
@@ -844,11 +863,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // **1 画素の細線で描く。** 輪郭の点数を増やしたぶん、太いと絵が潰れるうえ
         // 圧縮後のバイト数も膨らむ（544×340 では 4,300 バイトしか余裕がない）
         val radius = 0
-        for (stroke in figure) {
+        for (stroke in projected) {
             var previous: DoubleArray? = null
-            for (point in stroke) {
-                val q = doubleArrayOf(minX + point[0] * boxWidth, minY + point[1] * boxHeight)
-                previous?.let { line(gray, width, height, it, q, value, radius) }
+            for (q in stroke) {
+                // 視野の裏へ回った点は project が null を返す。そこで線を切る
+                if (q != null && previous != null) line(gray, width, height, previous, q, value, radius)
                 previous = q
             }
         }
@@ -1208,7 +1227,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         site: Site,
         basis: Basis,
         k: Double,
-        value: Int = LINE_VALUE,
+        value: Int = StarMapInk().value(StarMapLayer.LINE),
         radius: Int = lineRadius(width),
     ) {
         val a = toApparentAltAz(from[0], from[1], lst, site.latDeg)
@@ -1364,37 +1383,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
 
         const val GUIDANCE_HIGHLIGHT_VALUE = 255
         const val GUIDANCE_FOCUS_VALUE = 210
-        const val GUIDANCE_DIM_LINE_VALUE = 72
-        const val GUIDANCE_DIM_ASTERISM_VALUE = 72
-        const val GUIDANCE_DIM_ART_VALUE = 36
         const val GUIDANCE_AREA_RADIUS = 0.10
         const val GUIDANCE_POINT_RADIUS = 0.045
 
-        /**
-         * 星座線の明るさ。**3bit に落ちるので「少し暗く」は効かない。**
-         *
-         * 110 は量子化すると 8 階調の 3 で、**一番暗い星と同じ段**だった。
-         * 実機で線が見えなかったのはこれと細さの合わせ技。144 なら段が 4 に上がり、
-         * 中くらい以上の星（5〜7）より暗いまま、線として読める。
-         * **明るさは転送量に効かない**（同じ値が続くので RLE の走長は変わらない）。
-         */
-        const val LINE_VALUE = 144
-
         /** スターリンクの点。名前つきより暗くして、群れとして見せる */
         const val CROWD_VALUE = 170
-
-        /**
-         * 星座絵の明るさ。**3bit の 2 段目**（線が 4・暗い星が 3）。
-         * 星より暗くないと、絵が主役になって星の位置が読めない。
-         */
-        /**
-         * 星座絵の明るさ。**3bit でいちばん暗い段**（1/7）。
-         *
-         * 骨組みの線だった頃は段 2 でも「線が増えた」としか見えなかったが、
-         * **輪郭にして 1 画素まで細くしたので、段 2 でも絵として読める**。
-         * 段 1 まで落とすと実機で薄すぎた。**細さで主張を抑え、明るさは残す。**
-         */
-        const val ART_VALUE = 72
 
         /** 星座絵を敷く矩形の下限・上限（画面に対する比） */
         const val ART_MIN_SPAN = 0.15
@@ -1447,16 +1440,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         /** 星座線の頂点と星を同じものと見なす角距離。星座線は星の位置に引かれている */
         const val VERTEX_MATCH_DEG = 1.0
 
-        /**
-         * 天の川。**星座絵と同じ段**（3bit で 2）。
-         *
-         * 50 だと段が 1 で、実機の緑 8 階調では帯として読めない見込み。
-         * 星（3 以上）と星座線（4）より下なので、下敷きの位置は変わらない。
-         */
-        const val MILKY_WAY_VALUE = 70
-
-        /** 結びは星座線より明るく（3bit で 5）、破線の刻みは 6px */
-        const val ASTERISM_VALUE = 180
+        /** 結びの破線の刻み[px] */
         const val ASTERISM_DASH = 6
 
         /** 結びの名前に貸すテキスト枠。1 つで足りる */

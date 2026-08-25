@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.glass.StarMapInk
+import jp.jig.glasses.sample.kmp.glass.StarMapLayer
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sound.BgmScene
 import jp.jig.glasses.sample.kmp.sound.BgmTrack
@@ -216,6 +218,8 @@ internal fun SkyViewSettings(
     onArtChange: (Boolean) -> Unit,
     showGuides: Boolean,
     onGuidesChange: (Boolean) -> Unit,
+    ink: StarMapInk,
+    onInkChange: (StarMapInk) -> Unit,
 ) {
     SettingsSection(
         "見え方",
@@ -245,6 +249,14 @@ internal fun SkyViewSettings(
             showArt,
             onArtChange,
         )
+        // BGM と同じで、CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えない
+        if (showArt) {
+            Text(
+                "星座絵: The 88 Constellations by NOIRLab/NSF/AURA CC BY 4.0（改変あり）",
+                style = MaterialTheme.typography.bodySmall,
+                color = SaberaFinePrint,
+            )
+        }
         SettingSwitch(
             if (showGuides) "目印: 地平線と方位（北東南西）を出す" else "目印: 出さない",
             showGuides,
@@ -255,6 +267,45 @@ internal fun SkyViewSettings(
             showSatellites,
             onSatellitesChange,
         )
+        // **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる。** 現地で動かせるようにしておく
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "濃さ（緑 8 階調の段）",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            "星は等級を明るさで表しているので、ここでは動かさない",
+            style = MaterialTheme.typography.bodySmall,
+            color = SaberaFinePrint,
+        )
+        for (layer in StarMapLayer.entries) {
+            InkStepper(layer, ink.level(layer)) { onInkChange(ink.with(layer, it)) }
+        }
+    }
+}
+
+/**
+ * 層 1 つぶんの濃さ。
+ *
+ * **段そのものを出す。** グラスは緑 8 階調しか出せないので、0〜100% のつまみにすると
+ * 「動かしたのに何も変わらない」幅ができる。段なら 1 押しがそのまま実機の 1 段になる。
+ */
+@Composable
+private fun InkStepper(layer: StarMapLayer, level: Int, onChange: (Int) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("${layer.label}: 段 $level / ${StarMapLayer.MAX_LEVEL}", style = MaterialTheme.typography.bodyMedium)
+            Text(layer.hint, style = MaterialTheme.typography.bodySmall, color = SaberaFinePrint)
+        }
+        TextButton(
+            onClick = { onChange(level - 1) },
+            enabled = level > StarMapLayer.MIN_LEVEL,
+        ) { Text("薄く", style = MaterialTheme.typography.labelMedium) }
+        TextButton(
+            onClick = { onChange(level + 1) },
+            enabled = level < StarMapLayer.MAX_LEVEL,
+        ) { Text("濃く", style = MaterialTheme.typography.labelMedium) }
     }
 }
 
