@@ -1,7 +1,5 @@
 package jp.jig.glasses.sample.kmp.sky
 
-import kotlin.math.atan2
-
 /** 「ふつう」の星図と同じ出どころから選ぶ、案内可能な名前付き対象。 */
 enum class GuidanceTargetKind {
     CONSTELLATION,
@@ -127,99 +125,6 @@ object GuidanceRequestParser {
         }
     }
 }
-
-enum class GuidanceEvent {
-    NONE,
-    ARRIVED,
-    COMPLETED,
-    TIMED_OUT,
-}
-
-data class GuidanceFrame(
-    val targetName: String,
-    val distanceDeg: Double,
-    /** 画面の上を0°、右を90°とする矢印の向き。 */
-    val arrowClockwiseDeg: Double,
-    val near: Boolean,
-    val arrived: Boolean,
-)
-
-data class GuidanceSession(
-    val target: GuidanceTarget,
-    val startedAtMillis: Long,
-    val withinArrivalSinceMillis: Long? = null,
-    val arrivedAtMillis: Long? = null,
-)
-
-data class GuidanceUpdate(
-    val session: GuidanceSession?,
-    val frame: GuidanceFrame,
-    val event: GuidanceEvent,
-)
-
-/**
- * 5°へ0.5秒留まったら到着し、8°を超えたら案内へ戻す。
- *
- * 方位合わせには±5〜15°の残差があるため、表示では「到着」ではなく「このあたり」と伝える。
- */
-fun GuidanceSession.update(
-    currentLook: Look,
-    targetAim: Look,
-    rollDeg: Double,
-    nowMillis: Long,
-): GuidanceUpdate {
-    val distance = angleBetweenDeg(enu(currentLook.azDeg, currentLook.altDeg), enu(targetAim.azDeg, targetAim.altDeg))
-    val basis = Basis(currentLook.azDeg, currentLook.altDeg, rollDeg)
-    val targetVector = enu(targetAim.azDeg, targetAim.altDeg)
-    val x = targetVector dot basis.right
-    val y = targetVector dot basis.up
-    val arrow = ((atan2(x, y) * DEG) % 360.0 + 360.0) % 360.0
-
-    if (nowMillis - startedAtMillis >= GUIDANCE_TIMEOUT_MS) {
-        return GuidanceUpdate(null, frame(distance, arrow, arrived = false), GuidanceEvent.TIMED_OUT)
-    }
-
-    val arrivedAt = arrivedAtMillis
-    if (arrivedAt != null) {
-        if (distance > GUIDANCE_LEAVE_DEG) {
-            val resumed = copy(withinArrivalSinceMillis = null, arrivedAtMillis = null)
-            return GuidanceUpdate(resumed, frame(distance, arrow, arrived = false), GuidanceEvent.NONE)
-        }
-        if (nowMillis - arrivedAt >= GUIDANCE_ARRIVAL_HOLD_MS) {
-            return GuidanceUpdate(null, frame(distance, arrow, arrived = true), GuidanceEvent.COMPLETED)
-        }
-        return GuidanceUpdate(this, frame(distance, arrow, arrived = true), GuidanceEvent.NONE)
-    }
-
-    if (distance > GUIDANCE_ARRIVAL_DEG) {
-        val next = if (withinArrivalSinceMillis == null) this else copy(withinArrivalSinceMillis = null)
-        return GuidanceUpdate(next, frame(distance, arrow, arrived = false), GuidanceEvent.NONE)
-    }
-
-    val withinSince = withinArrivalSinceMillis ?: nowMillis
-    if (nowMillis - withinSince < GUIDANCE_ARRIVAL_DWELL_MS) {
-        val next = if (withinArrivalSinceMillis == null) copy(withinArrivalSinceMillis = withinSince) else this
-        return GuidanceUpdate(next, frame(distance, arrow, arrived = false), GuidanceEvent.NONE)
-    }
-
-    val arrived = copy(arrivedAtMillis = nowMillis, withinArrivalSinceMillis = withinSince)
-    return GuidanceUpdate(arrived, frame(distance, arrow, arrived = true), GuidanceEvent.ARRIVED)
-}
-
-private fun GuidanceSession.frame(distance: Double, arrow: Double, arrived: Boolean) = GuidanceFrame(
-    targetName = target.nameJa,
-    distanceDeg = distance,
-    arrowClockwiseDeg = arrow,
-    near = distance <= GUIDANCE_NEAR_DEG,
-    arrived = arrived,
-)
-
-const val GUIDANCE_NEAR_DEG = 10.0
-const val GUIDANCE_ARRIVAL_DEG = 5.0
-const val GUIDANCE_LEAVE_DEG = 8.0
-const val GUIDANCE_ARRIVAL_DWELL_MS = 500L
-const val GUIDANCE_ARRIVAL_HOLD_MS = 3_000L
-const val GUIDANCE_TIMEOUT_MS = 60_000L
 
 /** 案内を始められない理由。矢印を作る前に、表示と読み上げへ同じ文を渡す。 */
 fun guidanceUnavailableMessage(target: GuidanceTarget): String? = when {

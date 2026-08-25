@@ -27,16 +27,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.GuidanceIndicatorGeometry
+import jp.jig.glasses.sample.kmp.glass.GuidancePoint
+import jp.jig.glasses.sample.kmp.glass.guidanceIndicatorBox
+import jp.jig.glasses.sample.kmp.glass.guidanceIndicatorGeometry
+import jp.jig.glasses.sample.kmp.glass.guidanceTurnText
+import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
 import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
-import jp.jig.glasses.sample.kmp.sky.RAD
-import kotlin.math.cos
-import kotlin.math.sin
+import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 
 @Composable
 internal fun ObservationPreview(
@@ -77,22 +82,53 @@ private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Mo
     Canvas(modifier.fillMaxSize()) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val mint = Color(0xFF5CFFB0)
-        if (frame.arrived) {
-            drawCircle(mint, radius = size.minDimension * 0.10f, center = center, style = Stroke(3.dp.toPx()))
-            drawCircle(mint.copy(alpha = 0.7f), radius = size.minDimension * 0.14f, center = center, style = Stroke(2.dp.toPx()))
-            return@Canvas
-        }
-        val angle = frame.arrowClockwiseDeg * RAD
-        val half = size.minDimension * if (frame.near) 0.08f else 0.13f
-        val direction = Offset(sin(angle).toFloat(), -cos(angle).toFloat())
-        val tail = center - direction * half
-        val tip = center + direction * half
-        drawLine(mint, tail, tip, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
-        val head = size.minDimension * 0.06f
-        for (offset in listOf(-145.0, 145.0)) {
-            val a = angle + offset * RAD
-            val end = tip + Offset(sin(a).toFloat(), -cos(a).toFloat()) * head
-            drawLine(mint, tip, end, strokeWidth = 4.dp.toPx(), cap = StrokeCap.Round)
+        // **グラスに出るのと同じ大きさで重ねる。** 枠（120×48 など）をパネルの高さで
+        // 割った比率をそのまま使うので、プレビューだけ見やすくならない
+        // （見やすくすると、実機で読めるかを画面で判断できなくなる）
+        val box = guidanceIndicatorBox(frame)
+        val scale = size.minDimension * (box.span / PANEL_HEIGHT.toFloat())
+        fun at(point: GuidancePoint) = Offset(
+            center.x + point.x.toFloat() * scale,
+            center.y + point.y.toFloat() * scale,
+        )
+        when (val geometry = guidanceIndicatorGeometry(frame)) {
+            is GuidanceIndicatorGeometry.Arrival -> {
+                val stroke = (geometry.strokeHalfWidth * 2.0).toFloat() * scale
+                drawCircle(
+                    mint,
+                    radius = geometry.innerRadius.toFloat() * scale,
+                    center = center,
+                    style = Stroke(stroke),
+                )
+                drawCircle(
+                    mint,
+                    radius = geometry.outerRadius.toFloat() * scale,
+                    center = center,
+                    style = Stroke(stroke),
+                )
+                val arm = geometry.starArm.toFloat() * scale
+                drawLine(mint, center - Offset(arm * 0.45f, 0f), center + Offset(arm * 0.45f, 0f), stroke)
+                drawLine(mint, center - Offset(0f, arm), center + Offset(0f, arm), stroke)
+            }
+            is GuidanceIndicatorGeometry.Arrow -> {
+                // 軸は塗った帯、頭は塗った三角。**細線では描かない**（グラスと同じ理由）
+                drawLine(
+                    mint,
+                    at(geometry.tail),
+                    at(geometry.tip),
+                    strokeWidth = (geometry.shaftHalfWidth * 2.0).toFloat() * scale,
+                    cap = StrokeCap.Round,
+                )
+                val tip = at(geometry.tip)
+                val left = at(geometry.headBase.first())
+                val right = at(geometry.headBase.last())
+                val head = Path()
+                head.moveTo(tip.x, tip.y)
+                head.lineTo(left.x, left.y)
+                head.lineTo(right.x, right.y)
+                head.close()
+                drawPath(head, mint)
+            }
         }
     }
 }
@@ -114,7 +150,17 @@ internal fun GuidanceCard(
             )
             if (!frame.arrived) {
                 Spacer(Modifier.height(4.dp))
-                Text("目標まで約${frame.distanceDeg.toInt()}°")
+                Text(guidanceInstruction(frame), style = MaterialTheme.typography.bodyMedium)
+                // **グラスの 2 行目と同じ数字を出す。** 別の数字を並べると、
+                // 同伴者が見ているスマホと本人が見ているグラスで話が食い違う
+                val turn = guidanceTurnText(frame)
+                Text(
+                    if (turn == null) {
+                        "目標まで約${frame.distanceDeg.toInt()}°"
+                    } else {
+                        "$turn（目標まで約${frame.distanceDeg.toInt()}°）"
+                    },
+                )
                 if (frame.near) Text("もう少し", style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(8.dp))
@@ -123,6 +169,20 @@ internal fun GuidanceCard(
             }
         }
     }
+}
+
+internal fun guidanceInstruction(frame: GuidanceFrame): String = when (frame.stage) {
+    GuidanceStage.HORIZONTAL -> when (frame.direction) {
+        GuidanceDirection.LEFT -> "まず左を向いてください"
+        GuidanceDirection.RIGHT -> "まず右を向いてください"
+        else -> "まず左右を合わせてください"
+    }
+    GuidanceStage.VERTICAL -> when (frame.direction) {
+        GuidanceDirection.UP -> "次に上を向いてください"
+        GuidanceDirection.DOWN -> "次に下を向いてください"
+        else -> "次に上下を合わせてください"
+    }
+    GuidanceStage.ARRIVED -> "このあたりです"
 }
 
 @Composable
@@ -184,3 +244,4 @@ internal fun ObservationActions(
         Text("方位を合わせ直す")
     }
 }
+

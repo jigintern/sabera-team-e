@@ -1,6 +1,11 @@
 package jp.jig.glasses.sample.kmp.glass
 
+import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
+import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
+import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 // グラスに出す 1 枚ぶんの星図と、その上に置く名前。
 // **絵と名前は 1 つの器で持ち歩く。** 別々に計算すると、グラスに「オリオン座」と
@@ -92,22 +97,69 @@ class StarMap(val width: Int, val height: Int, val gray: ByteArray, val labels: 
 fun StarMap.constellationNames(): List<String> =
     labels.filter { it.kind == LabelKind.CONSTELLATION }.map { it.text }
 
-/** 案内名は重なりで落とさないよう、テキスト枠の先頭へ置く。 */
-fun StarMap.withGuidanceLabel(name: String, arrived: Boolean, where: String? = null): StarMap {
+/**
+ * 案内の文字を、テキスト枠の先頭 2 つへ置く。
+ *
+ * **1 行目は「何を案内しているか」、2 行目は「いまどちらへどれだけ首を振るか」。**
+ * 実機で矢印が読み取れなかった（2026-08-24）ので、**文字でも同じことを言う**。
+ * テキストは 2.1.0 のファームでも出た唯一の経路で、画像より先に信用できる
+ * （[02_glass-output.md] のファーム要件）。
+ *
+ * 2 行目に出すのは**目標までの角距離ではなく、いまの段で詰める差**（左右か上下）。
+ * 首を振るとこれが減るので、**案内が自分の動きを追えていることが数字で分かる**。
+ */
+fun StarMap.withGuidanceLabel(frame: GuidanceFrame, where: String? = null): StarMap {
+    val name = frame.targetName
     // **どちらを向くかを文字でも残す**（ガイドだけ [where] を渡す）。
     // 騒がしい場所では文字が主役なので、声を聞き逃すと方角が分からなくなっていた。
     // 到着したら方角はもう要らないので「このあたり」へ戻す。
     val text = when {
-        arrived -> "$name このあたり"
+        frame.arrived -> "$name このあたり"
         where != null -> "$name $where"
         else -> "$name 案内中"
     }
-    val label = Label(text, width / 2, GUIDANCE_LABEL_Y_PX, LabelKind.GUIDANCE)
+    val guidance = buildList {
+        add(Label(text, width / 2, GUIDANCE_LABEL_Y_PX, LabelKind.GUIDANCE))
+        guidanceTurnText(frame)?.let {
+            add(Label(it, width / 2, GUIDANCE_TURN_LABEL_Y_PX, LabelKind.GUIDANCE))
+        }
+    }
     // 周囲の名前が並ぶと、どれへ向かっているかを読み違える。星と天体名は残し、
     // 星座と大三角などの結びの名前だけを案内中は引く。
-    val focused = labels.filterNot { it.kind == LabelKind.CONSTELLATION || it.kind == LabelKind.ASTERISM }
-    return StarMap(width, height, gray, listOf(label) + focused)
+    val focused = labels.filterNot {
+        it.kind == LabelKind.CONSTELLATION || it.kind == LabelKind.ASTERISM
+    }
+    // **再現中のラベルだけは案内名より前に残す**（#45）。並びは優先順位で、
+    // ここで押し出すと「作った空を本物と信じたまま実際の空を探す」ことになる。
+    val (status, rest) = focused.partition { it.kind == LabelKind.STATUS }
+    return StarMap(width, height, gray, status + guidance + rest)
 }
+
+/**
+ * いまの段で詰める首振りの量。**到着したら出さない。**
+ *
+ * **度で言う。** 高さの言い換え（`ImpromptuGuide.heightWord`）と違って、
+ * ここは「あとどれだけ動かすか」なので、減っていく数字そのものが手がかりになる。
+ */
+internal fun guidanceTurnText(frame: GuidanceFrame): String? {
+    val direction = frame.direction ?: return null
+    if (frame.arrived) return null
+    val remaining = when (frame.stage) {
+        GuidanceStage.HORIZONTAL -> abs(frame.horizontalErrorDeg)
+        GuidanceStage.VERTICAL -> abs(frame.verticalErrorDeg)
+        GuidanceStage.ARRIVED -> return null
+    }
+    val word = when (direction) {
+        GuidanceDirection.LEFT -> "左"
+        GuidanceDirection.RIGHT -> "右"
+        GuidanceDirection.UP -> "上"
+        GuidanceDirection.DOWN -> "下"
+    }
+    return "${word}へ ${remaining.roundToInt().coerceAtLeast(1)}°"
+}
+
+/** 案内が使うテキスト枠の数。**星座名へ回せる枠がそのぶん減る** */
+const val GUIDANCE_LABEL_SLOTS = 2
 
 private const val GUIDANCE_LABEL_Y_PX = 24
 
@@ -123,3 +175,6 @@ fun StarMap.withStatusLabel(text: String): StarMap {
 }
 
 private const val STATUS_BOTTOM_PX = 60
+
+/** 1 行目の真下。**矢印（中央）には重ねない** */
+private const val GUIDANCE_TURN_LABEL_Y_PX = 68

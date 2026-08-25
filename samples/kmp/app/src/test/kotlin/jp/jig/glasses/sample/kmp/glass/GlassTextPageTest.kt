@@ -111,12 +111,20 @@ class GlassTextPageTest {
 
         val pages = GlassTextPage.pages(header, "これは長い解説の文です。".repeat(8))
 
-        assertEquals("1 枚目に見出しが無い", header, pages.first().elements.first().text)
+        assertEquals("1 枚目に星付きの見出しが無い", "● $header", pages.first().elements.first().text)
         assertEquals("1 枚目の本文が 2 行でない", GlassTextPage.ROWS, pages.first().elements.size)
         for (page in pages.drop(1)) {
             assertEquals("本文が 3 行になっていない", GlassTextPage.BODY_ROWS, page.elements.size)
-            assertTrue("見出しが残っている", page.elements.none { it.text == header })
+            assertTrue("見出しが残っている", page.elements.none { it.text == "● $header" })
         }
+    }
+
+    @Test
+    fun `短い見出しには星の点を添える`() {
+        val page = GlassTextPage.explanation("おとめ座", "春の空に広がります。")
+
+        assertEquals("● おとめ座", page.elements.first().text)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
     }
 
     /**

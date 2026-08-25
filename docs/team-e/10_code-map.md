@@ -50,11 +50,13 @@
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
-| `glass/GuidanceOverlay.kt` | 天体案内の64px矢印と到着リング。**全画面を送らず、この小画像だけ約10Hzで替える**（#46） |
+| `glass/GuidanceIndicator.kt` | 天体案内の矢印・到着リングの共通形状。グラスとスマホのプレビューを同じ向き・比率にする（#61） |
+| `glass/GuidanceOverlay.kt` / `GuidanceOverlaySender.kt` | 共通形状を小画像へ焼き（左右120×56・上下56×120・到着80×80）、**全画面を送らず、この小画像だけ替える**。**枠が変わるときは先に消す**（#46・#61） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
-| `sky/CelestialGuidance.kt` | 案内要求の固定ルール、5°/8°の到着ヒステリシス、60秒の状態遷移（#46） |
+| `sky/CelestialGuidance.kt` | 案内対象と、案内要求を取り出す固定ルール（#46） |
+| `sky/GuidanceTracker.kt` | 左右→上下の段階、5°/8°のヒステリシス、到着と60秒の状態遷移（#46・#61） |
 | `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時間再生は観測条件と別の状態**で持つ（#45） |
 | `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
