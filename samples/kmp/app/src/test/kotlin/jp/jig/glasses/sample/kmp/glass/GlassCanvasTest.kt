@@ -31,10 +31,10 @@ class GlassCanvasTest {
             330,
             ByteArray(528 * 330),
             listOf(Label("オリオン座", 264, 120)),
-        ).withStatusLabel("シミュレーション シドニー 8/24 20:30")
+        ).withStatusLabel("シドニー 8/24 20:30")
 
         val elements = map.toCanvasElements()
-        assertEquals("シミュレーション シドニー 8/24 20:30", elements.first().text)
+        assertEquals("シドニー 8/24 20:30", elements.first().text)
         assertEquals(0, elements.first().id)
         assertEquals(270, map.labels.first().y)
         assertEquals(listOf("オリオン座"), map.constellationNames())

@@ -139,7 +139,7 @@ class StarMapRendererTest {
         assertTrue("シドニーの星図が真っ黒", map.gray.any { (it.toInt() and 0xFF) > 0 })
         assertTrue("星座名が無い", map.constellationNames().isNotEmpty())
         assertEquals(LabelKind.STATUS, map.labels.first().kind)
-        assertEquals("シミュレーション シドニー 8/24 20:30", map.labels.first().text)
+        assertEquals("シドニー 8/24 20:30", map.labels.first().text)
     }
 
     @Test

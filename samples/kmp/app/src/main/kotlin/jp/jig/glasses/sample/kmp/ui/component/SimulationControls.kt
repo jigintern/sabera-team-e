@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -8,11 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -21,21 +23,30 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.SkyPreset
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
 
 /**
- * いま出ている星空の時刻だけを、**つまんで動かす**。
+ * いま出ている星空の時刻を動かす。
  *
- * **連続再生（2 秒ごとに 10 分ずつ送る）はやめた。** 1 枚 279〜390ms の全画面転送を
- * 繰り返すことになり、**転送のたびにパネルが消えるので原理的に点滅する**
- * （[docs/team-e/11_pitfalls.md] の「なめらかに追従させる」と同じ壁）。
- * つまみなら**離したときの 1 回だけ**送るので、条件を切り替えるのと変わらない。
+ * **押すたび・離すたびに 1 枚だけ送る。** 連続再生（2 秒ごとに 10 分ずつ自動で送る）は
+ * やめた。1 枚 279〜390ms の全画面転送を繰り返すことになり、**転送のたびにパネルが
+ * 消えるので原理的に点滅する**（[docs/team-e/11_pitfalls.md]）。
+ * ボタンは「1 時間ずつ動かす」に読み替えてあるので、1 回押して 1 回描き直すだけで済む。
  */
 @Composable
 internal fun TimeScrubControls(
@@ -46,9 +57,11 @@ internal fun TimeScrubControls(
     scrubbing: Boolean,
     /** つまみの位置。**その夜の中を ±12 時間**（0 が条件で指定した時刻） */
     offsetHours: Float,
+    onStep: (Float) -> Unit,
     onScrub: (Float) -> Unit,
     onScrubFinished: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     Column(Modifier.fillMaxWidth()) {
         // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる
         Row(
@@ -56,26 +69,57 @@ internal fun TimeScrubControls(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
-            )
-            if (detail != null) {
-                Spacer(Modifier.width(8.dp))
+            StepButton(
+                pointsRight = false,
+                description = "1時間戻す",
+                enabled = offsetHours > -TIME_SCRUB_HOURS,
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onStep(-TIME_SCRUB_STEP_HOURS)
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
                 )
+                if (detail != null) {
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            StepButton(
+                pointsRight = true,
+                description = "1時間進める",
+                enabled = offsetHours < TIME_SCRUB_HOURS,
+            ) {
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onStep(TIME_SCRUB_STEP_HOURS)
             }
         }
         // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
         // 1 枚 332〜390ms かかるので転送が追いつかず、指の動きから遅れて出続ける
+        var lastNotch by remember { mutableStateOf(Int.MIN_VALUE) }
         Slider(
             value = offsetHours,
-            onValueChange = onScrub,
-            onValueChangeFinished = onScrubFinished,
+            onValueChange = { value ->
+                // **目盛りをまたいだときだけ震わせる。** 動かすたびに震わせると、
+                // 指の細かい揺れで鳴り続けて何の合図か分からなくなる
+                val notch = Math.round(value / TIME_SCRUB_NOTCH_HOURS)
+                if (notch != lastNotch) {
+                    lastNotch = notch
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+                onScrub(value)
+            },
+            onValueChangeFinished = {
+                lastNotch = Int.MIN_VALUE
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onScrubFinished()
+            },
             valueRange = -TIME_SCRUB_HOURS..TIME_SCRUB_HOURS,
             // **15 分刻みで止める。** 星は 4 分で 1° しか動かないので、
             // それより細かく選ばせても見分けられないうえ、読みが半端な数字になる
@@ -100,8 +144,47 @@ internal fun TimeScrubControls(
     }
 }
 
-/** 15 分刻み。±12 時間 ＝ 96 目盛りなので、あいだの数はその 1 つ手前 */
-const val TIME_SCRUB_STEPS = 95
+/**
+ * 三角 2 つで描く送り・戻し。
+ *
+ * `material-icons` を足すと持ち物が増えるうえ、要るのは 2 つだけ。
+ * 形だけでは何のボタンか分からないので、読み上げ用の名前は必ず付ける。
+ */
+@Composable
+private fun StepButton(
+    pointsRight: Boolean,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint = if (enabled) Color.White else Color.White.copy(alpha = 0.3f)
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.semantics { contentDescription = description },
+    ) {
+        Canvas(Modifier.size(18.dp)) {
+            val w = size.width
+            val h = size.height
+            drawPath(trianglePath(0f, w / 2f, h, pointsRight), tint)
+            drawPath(trianglePath(w / 2f, w, h, pointsRight), tint)
+        }
+    }
+}
+
+private fun trianglePath(left: Float, right: Float, height: Float, pointsRight: Boolean): Path =
+    Path().apply {
+        if (pointsRight) {
+            moveTo(left, 0f)
+            lineTo(right, height / 2f)
+            lineTo(left, height)
+        } else {
+            moveTo(right, 0f)
+            lineTo(left, height / 2f)
+            lineTo(right, height)
+        }
+        close()
+    }
 
 /**
  * つまみで動かせる幅。**その夜の中だけ。**
@@ -110,6 +193,15 @@ const val TIME_SCRUB_STEPS = 95
  * **1 目盛りが粗くなって「もう少しだけ動かす」ができなくなる**。
  */
 const val TIME_SCRUB_HOURS = 12f
+
+/** 15 分刻み。±12 時間 ＝ 96 目盛りなので、あいだの数はその 1 つ手前 */
+const val TIME_SCRUB_STEPS = 95
+
+/** ボタン 1 回で動く量。**押すたびに 1 枚描き直す**ので、細かすぎると待たされる */
+const val TIME_SCRUB_STEP_HOURS = 1f
+
+/** 震わせる間隔。目盛りと同じ 15 分 */
+private const val TIME_SCRUB_NOTCH_HOURS = 0.25f
 
 /**
  * 圏外でも場所と日時を指定できる、設定画面だけの観測条件。

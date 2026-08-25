@@ -34,8 +34,14 @@ data class ObservationSnapshot(
     val placeLabel: String,
     val simulation: Boolean,
 ) {
+    /**
+     * 短い読み（`シドニー 8/25 0:30`）。
+     *
+     * **「シミュレーション」とは書かない。** 現在の空ではこの札を出さないので、
+     * **札が出ていること自体が「作った空だ」の合図**になる。書くと 8 文字＝
+     * 24 バイトを、190 バイトしかないテキスト枠から星座名の取り分として奪う。
+     */
     fun shortLabel(): String = buildString {
-        if (simulation) append("シミュレーション ")
         append(placeLabel).append(' ')
         append(SHORT_FORMAT.withZone(zoneId).format(Instant.ofEpochMilli(epochMillis)))
     }

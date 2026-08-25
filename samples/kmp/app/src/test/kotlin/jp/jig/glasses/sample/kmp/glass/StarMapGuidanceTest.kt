@@ -40,7 +40,7 @@ class StarMapGuidanceTest {
             height = 80,
             gray = ByteArray(8_000),
             labels = listOf(
-                Label("シミュレーション シドニー 8/24 20:30", 50, 70, LabelKind.STATUS),
+                Label("シドニー 8/24 20:30", 50, 70, LabelKind.STATUS),
                 Label("周囲座", 10, 10, LabelKind.CONSTELLATION),
             ),
         ).withGuidanceLabel(searching())

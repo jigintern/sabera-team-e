@@ -2789,6 +2789,16 @@ fun StarMapScreen(
                             scrubbing = scrubbingHours != null,
                             // つまんでいる間は指の値、離したら実際の時刻から引き直す
                             offsetHours = scrubbingHours ?: timeScrubHours(),
+                            // **1 回押して 1 枚だけ描き直す。** 自動で送り続けると点滅する
+                            onStep = { step ->
+                                if (scrubAnchorMillis == null) {
+                                    scrubAnchorMillis = observationSnapshot().epochMillis
+                                }
+                                applyTimeScrub(
+                                    (timeScrubHours() + step)
+                                        .coerceIn(-TIME_SCRUB_HOURS, TIME_SCRUB_HOURS),
+                                )
+                            },
                             onScrub = {
                                 if (scrubAnchorMillis == null) {
                                     scrubAnchorMillis = observationSnapshot().epochMillis
