@@ -26,7 +26,7 @@
 | `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
 | `alignment/` | **星図を空に合わせるために端末が測るもの。** 方位・傾き・磁気の歪み・観測地 |
 | `narration/` | **何を喋るか。** 解説の組み立て、一口メモ、声の質問の入口・出口の検査 |
-| `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て。**Android に触るのは保存だけ** |
+| `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て・詳細ガイドの編集・配る形。**Android に触るのは保存だけ** |
 | `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
 | `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
 | `sound/` | BGM |
@@ -43,7 +43,12 @@
 | `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
 | `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
-| `ui/GuideScreen.kt` | 台本を作る画面。**グラスをつなぐ前に通る**ので、接続の外側に置く |
+| `ui/GuideScreen.kt` | 台本の一覧と即興ガイド。**グラスをつなぐ前に通る**ので、接続の外側に置く。詳細エディタは**いちばん下に畳む** |
+| `ui/AuthoredGuideScreen.kt` | 詳細エディタ（toB）。想定した空・候補・AI 対話・段の編集と並べ替え |
+| `ui/GuideShareScreen.kt` | 配る。段の ON/OFF・編集の可否・QR・ファイル書き出し |
+| `ui/GuideImportScreen.kt` | 受け取る。**入れる前に中身を見せる**（何を喋るのか分からないまま入れさせない） |
+| `ui/component/ReorderableColumn.kt` | 自前のドラッグ並べ替え。**掴んでいる間は並びを変えない**（index が変わると指を離す前に切れる） |
+| `ui/component/QrScanner.kt` | CameraX で QR を探す。**独自 Activity を持ち込まない**（画面の向きの縦固定と衝突する） |
 | `ui/component/GuideControls.kt` | ガイドを選ぶダイアログと進み具合。**始める口は観測画面の畳んだ側 1 つだけ** |
 | `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` | 採用ロゴの実装用素材。横組みはホームとグラス、マーク単体はランチャーで使う |
 | `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
@@ -72,7 +77,14 @@
 | `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |
 | `guide/GuideMaker.kt` | **AI と同梱の切り替えはここだけ。** 失敗すれば必ず同梱へ落ちる |
 | `guide/GuideStore.kt` | 台本を `filesDir/guides/` に残す。**`data/` には置かない** |
-| `openai/OpenAiGuide.kt` | ガイドの文を書かせる。**「解説文を AI に生成させない」の唯一の例外**（[guide](16_guide.md) の 4 条件） |
+| `guide/GuideSchedule.kt` | 段ごとの推定時刻と、その時刻で見えるかの判定。**一点ではなく幅で見る** |
+| `guide/GuideCodec.kt` | QR とファイルの出入口。圧縮と**形の上限**。**中身は見ない** |
+| `guide/AuthoredGuide.kt` | 編集中の台本（toB）。並べ替え・段の増減・上限の判定 |
+| `guide/GuideAsk.kt` | toB の対話で**通信の前に端末が断る**ところ。`narration/AskGuard` と同じ位置づけ |
+| `openai/OpenAiGuide.kt` | 即興ガイドの文を書かせる（一往復）。**「解説文を AI に生成させない」の例外**（[guide](16_guide.md) の 4 条件） |
+| `openai/OpenAiGuideChat.kt` | 詳細ガイドを対話で作らせる（履歴を積む）。**候補の中からしか選ばせない** |
+| `support/QrCode.kt` | QR の生成と解読。**文字ではなく生バイトを運ぶ**（ISO-8859-1 経由でバイトモードにする） |
+| `support/Connectivity.kt` | いま通信できるか。**聞くのは台本を作る画面だけ**（再生中は通信しない） |
 | `support/AskHistory.kt` | 声のやり取りの履歴。設定パネルから読み直す |
 | `support/LoudnessBoost.kt` | つまみの上限（1.0）から先の音量。**読み上げと BGM に同じ量をかける** |
 
@@ -130,6 +142,9 @@ java -Djava.awt.headless=true tools/compose-phone-preview.java                  
 ## ビルドの前提
 
 - JDK 17 / Gradle 8.10.2（wrapper 同梱）/ Kotlin 2.3.10 / AGP 8.7.0
+- 実行時依存は **SDK・coroutines・Compose・activity・lifecycle** に加えて
+  **zxing core 1 個 ＋ CameraX 4 個**（台本を QR で配るため）。
+  **ZXing Android Embedded と ML Kit は使わない**（理由は [guide](16_guide.md)）
 - Android `minSdk 31` / `compileSdk 36` / `targetSdk 36`
 - **BLE 実機が必須。エミュレータでは動作確認できない**
 - SDK は private な GitHub Packages 配布。**`read:packages` の PAT が無いとビルドが落ちる**

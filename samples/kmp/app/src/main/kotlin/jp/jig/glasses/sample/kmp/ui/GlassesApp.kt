@@ -44,6 +44,7 @@ import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.clearedCanvasText
+import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.narration.SkyTips
 import jp.jig.glasses.sample.kmp.narration.tonightSky
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
@@ -67,6 +68,11 @@ import kotlin.random.Random
 @Composable
 fun GlassesApp(manager: GlassManager) {
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
+
+    // **台本は保存済みのものを渡す。** 画面の間で持ち回るのは「どれを開くか」だけで、
+    // 編集中の中身は編集画面が持つ（回転しない画面なので、これで足りる）
+    var editing by remember { mutableStateOf<StarGuide?>(null) }
+    var sharing by remember { mutableStateOf<StarGuide?>(null) }
     var headingOffset by rememberSaveable { mutableDoubleStateOf(0.0) }
     var pitchOffset by rememberSaveable { mutableDoubleStateOf(0.0) }
     var headingStd by rememberSaveable { mutableDoubleStateOf(0.0) }
@@ -111,6 +117,9 @@ fun GlassesApp(manager: GlassManager) {
         when (screen) {
             AppScreen.HOME -> Unit
             AppScreen.GUIDES -> screen = AppScreen.HOME
+            AppScreen.GUIDE_EDITOR -> screen = AppScreen.GUIDES
+            AppScreen.GUIDE_SHARE -> screen = AppScreen.GUIDES
+            AppScreen.GUIDE_IMPORT -> screen = AppScreen.GUIDES
             AppScreen.CONNECTION -> screen = AppScreen.HOME
             AppScreen.CALIBRATION -> screen = AppScreen.CONNECTION
             AppScreen.STAR_MAP -> confirmLeaving = true
@@ -163,7 +172,7 @@ fun GlassesApp(manager: GlassManager) {
         // ガイドを作っている間もグラスは挨拶のまま。**ここではグラスを使わない**ので、
         // 真っ暗にしてしまうと、つながっているのか分からなくなる
         val greeting = screen == AppScreen.HOME || screen == AppScreen.CONNECTION ||
-            screen == AppScreen.GUIDES
+            screen in GUIDE_SCREENS
         val commands = splashCommands
         if (client == null || commands == null || !greeting) return@LaunchedEffect
         val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
@@ -205,6 +214,41 @@ fun GlassesApp(manager: GlassManager) {
         AppScreen.GUIDES -> GuideScreen(
             constellation = constellation,
             onBack = { screen = AppScreen.HOME },
+            onAuthor = {
+                editing = it
+                screen = AppScreen.GUIDE_EDITOR
+            },
+            onShare = {
+                sharing = it
+                screen = AppScreen.GUIDE_SHARE
+            },
+            onImport = { screen = AppScreen.GUIDE_IMPORT },
+        )
+        AppScreen.GUIDE_EDITOR -> AuthoredGuideScreen(
+            constellation = constellation,
+            initial = editing,
+            onBack = { screen = AppScreen.GUIDES },
+            onShare = {
+                sharing = it
+                screen = AppScreen.GUIDE_SHARE
+            },
+        )
+        AppScreen.GUIDE_SHARE -> {
+            val target = sharing
+            if (target == null) {
+                screen = AppScreen.GUIDES
+            } else {
+                GuideShareScreen(
+                    constellation = constellation,
+                    guide = target,
+                    onBack = { screen = AppScreen.GUIDES },
+                )
+            }
+        }
+        AppScreen.GUIDE_IMPORT -> GuideImportScreen(
+            constellation = constellation,
+            onBack = { screen = AppScreen.GUIDES },
+            onImported = { screen = AppScreen.GUIDES },
         )
         AppScreen.CONNECTION -> ConnectionCheckScreen(
             manager = manager,
@@ -398,10 +442,27 @@ private enum class AppScreen {
     /** ガイドの台本を作る。**グラスをつなぐ前に通る**ので、接続の外側に置く */
     GUIDES,
 
+    /** 詳細ガイドの編集（toB）。ガイド一覧の畳んだ区画から入る */
+    GUIDE_EDITOR,
+
+    /** 台本を配る（段の ON/OFF・QR・ファイル） */
+    GUIDE_SHARE,
+
+    /** 台本を受け取る（QR・ファイル） */
+    GUIDE_IMPORT,
+
     CONNECTION,
     CALIBRATION,
     STAR_MAP,
 }
+
+/** 台本まわりの画面。**グラスをつなぐ前に通る**ので、あいさつを出したままにする */
+private val GUIDE_SCREENS = setOf(
+    AppScreen.GUIDES,
+    AppScreen.GUIDE_EDITOR,
+    AppScreen.GUIDE_SHARE,
+    AppScreen.GUIDE_IMPORT,
+)
 
 /** 起動ごとのひとことを散らす幅。件数より十分大きければよい */
 private const val SPLASH_TIP_SPREAD = 1_000
