@@ -235,6 +235,7 @@ import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.ui.starmap.LOG_LINES
 import jp.jig.glasses.sample.kmp.ui.starmap.ScreenLog
+import jp.jig.glasses.sample.kmp.ui.starmap.simulationPhrase
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
 import jp.jig.glasses.sample.kmp.voice.GlassMic
@@ -2111,27 +2112,16 @@ fun StarMapScreen(
     fun submitSimulationForm() {
         // **スマホも声とまったく同じ経路を通す。** 別の解釈を 2 つ持つと、
         // 片方だけ直したときに「スマホでは出せるのに声では出せない」が起きる
-        val raw = if (!simulationDetailed) {
-            SkyPresets.phraseOf(simulationPlace, simulationEra, simulationTime)
-        } else {
-            // **打った欄を優先する。** わざわざ開いて入れた指定を、選んだものが黙って上書きしない
-            val city = simulationCityText.trim().ifEmpty { simulationPlace.phrase }
-            val era = simulationEraText.trim().ifEmpty {
-                if (simulationDateText.isBlank()) simulationEra.phrase else ""
-            }
-            val date = simulationDateText.trim()
-            val time = simulationTimeText.trim().ifEmpty { simulationTime.phrase }
-            buildString {
-                if (city.isNotEmpty()) append(city).append("の")
-                // 時代を入れたら日付より優先する（パーサが「何年前」を先に見る）
-                if (era.isNotEmpty()) {
-                    append(era).append(' ')
-                } else if (date.isNotEmpty()) {
-                    append(date).append(' ')
-                }
-                append(time).append("の空を表示して")
-            }
-        }
+        val raw = simulationPhrase(
+            place = simulationPlace,
+            era = simulationEra,
+            time = simulationTime,
+            detailed = simulationDetailed,
+            cityText = simulationCityText,
+            eraText = simulationEraText,
+            dateText = simulationDateText,
+            timeText = simulationTimeText,
+        )
         when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis(), livePlace())) {
             is SkyCommandResult.Accepted -> {
                 if (parsed.command is SkyCommand.ShowSky) {
