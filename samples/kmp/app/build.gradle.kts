@@ -121,6 +121,8 @@ dependencies {
 
     // 座標変換は実機に載せる前に手元で検算する
     testImplementation(libs.junit)
+    // 進行係（Runner）は仮想時間で回して検算する
+    testImplementation(libs.kotlinx.coroutines.test)
     // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
     testImplementation(libs.org.json)
 }
