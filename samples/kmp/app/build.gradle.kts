@@ -106,6 +106,16 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
+    // 台本を QR で配る（toB）。core は純 Java なので生成も解読も同じ 1 個で足りる。
+    // **ZXing Android Embedded は使わない**（独自 Activity を持ち込み、画面の向きの
+    // 縦固定と衝突する）。**ML Kit も使わない**（Play Services をその場で落とすので、
+    // オフラインで完結するという土台が崩れる）
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("androidx.camera:camera-core:1.4.1")
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+
     // 座標変換は実機に載せる前に手元で検算する
     testImplementation("junit:junit:4.13.2")
     // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる

@@ -21,6 +21,7 @@ import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
 import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import jp.jig.glasses.sample.kmp.sky.precess
+import jp.jig.glasses.sample.kmp.sky.precessWithProperMotion
 import jp.jig.glasses.sample.kmp.sky.precessDateToB1875
 import jp.jig.glasses.sample.kmp.sky.project
 import jp.jig.glasses.sample.kmp.sky.projectionScale
@@ -641,12 +642,25 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     private fun precessed(d: Double): Precessed {
         val key = (d / 30.0).toLong()
         cache?.let { if (key == precessedKey) return it }
+        // **固有運動も同じ 1 か所で入れる。** 星と線で別々にかけると、
+        // 深い時代で線が星から外れる（#45）
         val stars = Array(catalog.stars.size) { i ->
             val s = catalog.stars[i]
-            precess(s.raDeg, s.decDeg, d)
+            precessWithProperMotion(s.raDeg, s.decDeg, s.pmRaMasPerYear, s.pmDecMasPerYear, d)
         }
         val lines = catalog.constellations.map { c ->
-            c.lines.map { seg -> seg.map { precess(it[0], it[1], d) } }
+            c.lines.map { seg ->
+                seg.map {
+                    // 固有運動の列は #45 で足した。**手で組んだ星座線と古い星表**は 2 要素のまま来る
+                    precessWithProperMotion(
+                        it[0],
+                        it[1],
+                        if (it.size > 2) it[2] else 0.0,
+                        if (it.size > 3) it[3] else 0.0,
+                        d,
+                    )
+                }
+            }
         }
         val centers = Array(catalog.constellations.size) { i -> meanDirection(lines[i]) }
         precessedKey = key

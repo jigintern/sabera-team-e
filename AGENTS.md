@@ -36,6 +36,7 @@
 | 人工衛星（軌道・選定・描き方） | [08_satellites.md](docs/team-e/08_satellites.md) / [09_satellite-drawing.md](docs/team-e/09_satellite-drawing.md) |
 | **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
 | **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
+| **星空の再現**（場所・日時の指定・時間再生） | [17_sky-simulation.md](docs/team-e/17_sky-simulation.md) |
 | **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
 | **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
 | 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |
@@ -90,6 +91,7 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 | 先出し | **減速に入ったら「止まる先」へ 1 枚**（割引 0.6・頭打ち 8°・間隔 1.2 秒）。**実機未確認** |
 | 画角 | **仮の 35° 固定・未実測**（`ObservationDefaults.STAR_MAP_FOV_DEG`） |
 | 解説画面 | **1 枚 3 行・1 行 17 文字**を 1 行ずつ上へ流す（189 バイト・1 電文）。**見出しは 1 枚目だけ** |
+| 台本の QR | 1 枚 **2,953 バイト**（version 40・誤り訂正 L・生バイト）。本文 200 字で **10 段**。Base64 を挟むと 5 段に落ちる |
 | ヨードリフト | 静止中 **44°/分**。補正込みで実測 0.0°/分 |
 | 方位の残差 | 地磁気で **±5〜15°**。星座の同定（±20°）は成立、星図の重ね合わせ（±2〜3°）は**追わない** |
 

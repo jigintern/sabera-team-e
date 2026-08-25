@@ -55,4 +55,51 @@ class StarGuideJsonTest {
         // 種別を書いていない台本（手書き）は星座として扱う
         assertEquals(GuidanceTargetKind.CONSTELLATION, decoded?.steps?.first()?.kind)
     }
+
+    /** toB のキー（想定した空・配る版・元にした台本）を往復させる */
+    @Test
+    fun `想定した日時と場所も書いて読める`() {
+        val authored = guide.copy(
+            origin = GuideOrigin.AUTHORED,
+            plannedAtMillis = 1_789_000_000_000L,
+            plannedMinutes = 45,
+            plannedLatDeg = 36.106,
+            plannedLonDeg = 137.626,
+            locked = true,
+            derivedFrom = GuideSource("guide-0", "秋の星空ツアー"),
+            steps = guide.steps.mapIndexed { i, step -> step.copy(enabled = i == 0) },
+        )
+        assertEquals(authored, StarGuideJson.decode(StarGuideJson.encode(authored)))
+    }
+
+    /**
+     * **「無い」と「0」を取り違えない。**
+     *
+     * 想定日時を持たない台本（toC の即興ガイド）が 0 になると、1970 年のツアーとして
+     * 扱われて「今夜の空とはずれています」が毎回出る。
+     */
+    @Test
+    fun `想定を持たない台本は null のまま読める`() {
+        val decoded = StarGuideJson.decode(StarGuideJson.encode(guide))
+        assertNull(decoded?.plannedAtMillis)
+        assertNull(decoded?.plannedMinutes)
+        assertNull(decoded?.plannedLatDeg)
+        assertNull(decoded?.derivedFrom)
+    }
+
+    /** 前の形（version 1・`enabled` を知らない）で書かれた台本も、そのまま読める */
+    @Test
+    fun `古い形の台本も読める`() {
+        val json = """
+            {"version":1,"id":"a","title":"b","summary":"c","createdAtMillis":1,
+             "origin":"IMPROMPTU_BUNDLED","steps":[
+              {"targetName":"さそり座","kind":"CONSTELLATION","intro":"","body":"さそりの姿です。"}
+            ]}
+        """.trimIndent()
+        val decoded = StarGuideJson.decode(json)
+        assertEquals(1, decoded?.steps?.size)
+        // 書かれていない段は配るぶんに入る（外したものだけ false で書く）
+        assertEquals(true, decoded?.steps?.first()?.enabled)
+        assertEquals(false, decoded?.locked)
+    }
 }

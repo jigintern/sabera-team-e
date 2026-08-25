@@ -95,8 +95,13 @@ fun localSiderealDeg(d: Double, lonDeg: Double): Double =
 /**
  * 歳差（Meeus 21.4 / IAU 1976）。J2000 から 2026 年で約 0.36° ＝ 満月の直径に近い量あるので入れる。
  * 章動 17″・固有運動・光行差 20″ はこの用途では無視できる。
+ *
+ * **±3 世紀を超えたら長期歳差へ渡す**（[longTermPrecess]）。ここの 3 次式は
+ * 1 万年（T = 100 世紀）だと `theta` の 3 次項だけで −41,833″ ＝ −11.6° になり、
+ * 星座がどこにあるかすら合わなくなる（#45）。
  */
 fun precess(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
+    if (abs(d) > LONG_TERM_PRECESSION_DAYS) return longTermPrecess(raDeg, decDeg, d)
     val t = d / 36525.0
     val t2 = t * t
     val t3 = t2 * t
@@ -120,6 +125,7 @@ fun precess(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
  * [precess] が作る回転行列の転置を掛けるため、同じ近似内では正確に逆変換できる。
  */
 fun inversePrecess(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
+    if (abs(d) > LONG_TERM_PRECESSION_DAYS) return longTermInversePrecess(raDeg, decDeg, d)
     val basisX = precess(0.0, 0.0, d).let { equatorialVector(it[0], it[1]) }
     val basisY = precess(90.0, 0.0, d).let { equatorialVector(it[0], it[1]) }
     val basisZ = precess(0.0, 90.0, d).let { equatorialVector(it[0], it[1]) }

@@ -46,6 +46,7 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.ui.component.AdvancedSection
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.LoadingPanel
 import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
@@ -74,6 +75,10 @@ import kotlinx.coroutines.withContext
 fun GuideScreen(
     constellation: ConstellationBackground,
     onBack: () -> Unit,
+    /** 詳細エディタへ。null なら新規、台本を渡せばその続きから */
+    onAuthor: (StarGuide?) -> Unit,
+    onShare: (StarGuide) -> Unit,
+    onImport: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,6 +88,8 @@ fun GuideScreen(
     var making by remember { mutableStateOf(false) }
     /** 直前に何が起きたか。**作ったのに何も言わないと、できたのか分からない** */
     var notice by remember { mutableStateOf<String?>(null) }
+    /** 詳細エディタは畳んでおく。**ふだんは目に入らないが、探せば見つかる** */
+    var advanced by remember { mutableStateOf(false) }
 
     fun reload() {
         scope.launch { guides = withContext(Dispatchers.IO) { store.list() } }
@@ -243,6 +250,8 @@ fun GuideScreen(
                     for (guide in guides) {
                         GuideCard(
                             guide = guide,
+                            onEdit = { onAuthor(guide) },
+                            onShare = { onShare(guide) },
                             onDelete = {
                                 store.delete(guide.id)
                                 notice = "「${guide.title}」を消しました"
@@ -252,12 +261,37 @@ fun GuideScreen(
                         Spacer(Modifier.height(8.dp))
                     }
 
+                    Spacer(Modifier.height(20.dp))
+                    OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+                        Text("ガイドを受け取る（QR・ファイル）")
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    AdvancedSection(expanded = advanced, onToggle = { advanced = !advanced }) {
+                        Column(Modifier.fillMaxWidth()) {
+                            Text(
+                                "星座と順番と文面を、ぜんぶ自分で決めます。" +
+                                    "想定した日時と場所で組めるので、先の日付のツアーも作れます",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { onAuthor(null) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("新しく作る")
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "始めるのは観測画面の「設定」から。グラスをつないでから選びます",
+                        "始めるのは観測画面の「ガイドを始める」から。グラスをつないでから選びます",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Spacer(Modifier.height(24.dp))
                 }
             }
         }
@@ -266,7 +300,12 @@ fun GuideScreen(
 
 /** 台本 1 本。**中身を読めるようにする**（何を喋るのか分からないまま外へ持ち出させない） */
 @Composable
-private fun GuideCard(guide: StarGuide, onDelete: () -> Unit) {
+private fun GuideCard(
+    guide: StarGuide,
+    onEdit: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     Card(
         Modifier.fillMaxWidth(),
@@ -275,10 +314,17 @@ private fun GuideCard(guide: StarGuide, onDelete: () -> Unit) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             Text(guide.title, style = MaterialTheme.typography.titleSmall)
             Text(
-                "${guide.size} 星座・${guide.origin.label}",
+                "${guide.size} 星座・${guide.origin.label}" + if (guide.locked) "・編集できません" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            guide.derivedFrom?.let {
+                Text(
+                    "「${it.title}」を元にしています",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(guide.summary, style = MaterialTheme.typography.bodySmall)
             if (expanded) {
                 for ((index, step) in guide.steps.withIndex()) {
@@ -301,6 +347,17 @@ private fun GuideCard(guide: StarGuide, onDelete: () -> Unit) {
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(if (expanded) "閉じる" else "中身を読む")
+                }
+                // **配った台本は守る。** 客がうっかり直すと、その 1 台だけ違うツアーになる
+                if (!guide.locked) {
+                    OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("直す") }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!guide.locked) {
+                    TextButton(onClick = onShare, modifier = Modifier.weight(1f)) {
+                        Text("配る", color = SaberaGreen)
+                    }
                 }
                 TextButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
                     Text("消す", color = SaberaWarning)

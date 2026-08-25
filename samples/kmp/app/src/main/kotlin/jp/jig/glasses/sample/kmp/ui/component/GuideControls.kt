@@ -91,7 +91,9 @@ internal fun GuidePickerDialog(
  * ガイドが流れている間の進み具合（観測画面の畳んだ側）。
  *
  * **空を見ている人はスマホを見ない**ので、ここは同伴者と、あとから確かめたい人のためにある。
- * グラスでできること（1 回タップで次へ・2 回でもう一度）も書いておく。
+ * グラスでできること（1 回タップで次へ・2 回で終了）も書いておく。
+ * **「もう一度」はスマホだけ。** グラスの 2 回タップはどの画面でも「戻る」なので、
+ * ガイド中はツアーごと終わる（#71 で戻るを DOUBLE_TAP に統一した）。
  *
  * **止めるのはここに置かない。** 主ボタンが「ガイドを止める」に変わっている
  * （止める口を 2 つ並べると、送るつもりで止めてしまう）。
@@ -123,7 +125,7 @@ internal fun GuideProgressCard(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "グラスは1回タップで次へ、2回タップでもう一度。長押しで質問できます",
+                "グラスは1回タップで次へ、2回タップでガイドを終了。長押しで質問できます",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -134,6 +136,41 @@ internal fun GuideProgressCard(
                 }
                 OutlinedButton(onClick = onNext, modifier = Modifier.weight(1f)) {
                     Text("次へ")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 想定した夜と違うときの確認。**客の前で気づくより先に言う。**
+ *
+ * 台本は星座名しか持たないので別の夜でも再生できるが、「沈む前に見ておく」ために決めた
+ * 順番はその夜には合っておらず、段がいくつか飛ぶ。**それでも半分見られるなら回すほうがよい**
+ * （止まらないことを優先する・16_guide.md）ので、止めずに選ばせる。
+ */
+@Composable
+internal fun GuideMismatchDialog(
+    note: String,
+    onStart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(colors = CardDefaults.cardColors(containerColor = SaberaSurface)) {
+            Column(Modifier.padding(16.dp).widthIn(max = 320.dp)) {
+                Text("今夜の空とはずれています", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(note, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "出ていない段は飛ばして進みます",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SaberaFinePrint,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("やめる") }
+                    OutlinedButton(onClick = onStart, modifier = Modifier.weight(1f)) { Text("それでも始める") }
                 }
             }
         }

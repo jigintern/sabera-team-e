@@ -19,6 +19,14 @@ import kotlin.math.roundToInt
  * 種別を持たせずに先頭を取ると、月が視野にあるだけで主役が「月」になる。
  */
 enum class LabelKind {
+    /**
+     * 現在の空と取り違えないための、再現中の場所・時刻。
+     *
+     * **いちばん先に置く。** 案内名より先なのは、これが消えると
+     * 「作った空を本物と信じたまま実際の空を探す」ことになるため。
+     */
+    STATUS,
+
     /** 案内中の対象名。8枠の先頭へ予約する。 */
     GUIDANCE,
     CONSTELLATION,
@@ -121,7 +129,10 @@ fun StarMap.withGuidanceLabel(frame: GuidanceFrame, where: String? = null): Star
     val focused = labels.filterNot {
         it.kind == LabelKind.CONSTELLATION || it.kind == LabelKind.ASTERISM
     }
-    return StarMap(width, height, gray, guidance + focused)
+    // **再現中のラベルだけは案内名より前に残す**（#45）。並びは優先順位で、
+    // ここで押し出すと「作った空を本物と信じたまま実際の空を探す」ことになる。
+    val (status, rest) = focused.partition { it.kind == LabelKind.STATUS }
+    return StarMap(width, height, gray, status + guidance + rest)
 }
 
 /**
@@ -151,6 +162,19 @@ internal fun guidanceTurnText(frame: GuidanceFrame): String? {
 const val GUIDANCE_LABEL_SLOTS = 2
 
 private const val GUIDANCE_LABEL_Y_PX = 24
+
+/** シミュレーション条件を最優先のテキスト枠として、表示が欠けない下側の位置へ置く。 */
+fun StarMap.withStatusLabel(text: String): StarMap {
+    val status = Label(
+        text = text,
+        x = width / 2,
+        y = height - STATUS_BOTTOM_PX,
+        kind = LabelKind.STATUS,
+    )
+    return StarMap(width, height, gray, listOf(status) + labels)
+}
+
+private const val STATUS_BOTTOM_PX = 60
 
 /** 1 行目の真下。**矢印（中央）には重ねない** */
 private const val GUIDANCE_TURN_LABEL_Y_PX = 68
