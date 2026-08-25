@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.BuildConfig
 import jp.jig.glasses.sample.kmp.alignment.Locator
@@ -95,71 +96,37 @@ fun AuthoredGuideScreen(
     val store = remember(context) { GuideStore.of(context) }
     val keyConfigured = BuildConfig.OPENAI_API_KEY.isNotEmpty()
 
-    var draft by remember {
+    val appContext = context.applicationContext
+    val vm = viewModel {
         val now = System.currentTimeMillis()
-        val located = runCatching { Locator(context).lastKnown() }.getOrNull()
+        val located = runCatching { Locator(appContext).lastKnown() }.getOrNull()
         val site = located?.site ?: ObservationDefaults.site
         val window = GuideWindow(tonightAt(now), GuideSchedule.DEFAULT_MINUTES)
-        mutableStateOf(
-            initial?.let { AuthoredGuide.edit(it, window, site) }
-                ?: AuthoredGuide.empty(GuideStore.newId(now), now, window, site),
+        val initialDraft = initial?.let { AuthoredGuide.edit(it, window, site) }
+            ?: AuthoredGuide.empty(GuideStore.newId(now), now, window, site)
+        AuthoredGuideViewModel(
+            initialDraft = initialDraft,
+            store = store,
+            targetsAtFactory = {
+                val renderer = BundledData.renderer(appContext)
+                val at = { millis: Long -> renderer.guidanceTargets(site, millis, SkyDensity.STANDARD) }
+                at
+            },
+            loreOf = { name -> BundledData.lore(appContext).of(name).orEmpty() },
+            askAi = { instruction, targets, steps, turns ->
+                OpenAiGuideChat(
+                    apiKey = BuildConfig.OPENAI_API_KEY,
+                    model = BuildConfig.OPENAI_ANSWER_MODEL,
+                ).reply(instruction, targets, steps, turns)
+                    ?.let { GuideChatReply(it.reply, it.steps, it.dropped) }
+            },
         )
     }
-    var candidates by remember { mutableStateOf<List<GuidanceTarget>>(emptyList()) }
-    var loadingCandidates by remember { mutableStateOf(false) }
-    var chat by remember { mutableStateOf<List<GuideChatTurn>>(emptyList()) }
-    var chatInput by remember { mutableStateOf("") }
-    var chatBusy by remember { mutableStateOf(false) }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var online by remember { mutableStateOf(false) }
-
-    /** その日その時間の空。**候補も判定もここから出す**（1 か所で計算する） */
-    suspend fun targetsAtFactory(): (Long) -> List<GuidanceTarget> {
-        val renderer = BundledData.renderer(context)
-        val site = draft.site
-        return { at -> renderer.guidanceTargets(site, at, SkyDensity.STANDARD) }
-    }
-
-    fun reloadCandidates() {
-        loadingCandidates = true
-        scope.launch {
-            candidates = runCatching {
-                val factory = targetsAtFactory()
-                withContext(Dispatchers.Default) {
-                    GuideSchedule.candidates(draft.window, factory)
-                        .sortedByDescending { it.aim.altDeg }
-                }
-            }.getOrElse {
-                notice = "その日の空を調べられませんでした: ${it.message}"
-                emptyList()
-            }
-            loadingCandidates = false
-        }
-    }
+    val draft = vm.draft
 
     LaunchedEffect(Unit) {
-        online = Connectivity.online(context)
-        reloadCandidates()
-    }
-
-    /** 段を足す。**同梱の解説を初期値にする**（白紙から書かせない） */
-    fun addTarget(target: GuidanceTarget) {
-        scope.launch {
-            val body = runCatching { BundledData.lore(context).of(target.nameJa) }.getOrNull().orEmpty()
-            draft = draft.plus(
-                GuideStep(
-                    targetName = target.nameJa,
-                    kind = target.kind,
-                    intro = "",
-                    body = body,
-                ),
-            )
-        }
-    }
-
-    fun toggleTarget(target: GuidanceTarget) {
-        val at = draft.steps.indexOfFirst { it.targetName == target.nameJa }
-        if (at >= 0) draft = draft.removedAt(at) else addTarget(target)
+        vm.online = Connectivity.online(appContext)
+        vm.reloadCandidates()
     }
 
     fun pickDateTime() {
@@ -174,8 +141,7 @@ fun AuthoredGuideScreen(
                             set(year, month, day, hour, minute, 0)
                             set(Calendar.MILLISECOND, 0)
                         }
-                        draft = draft.copy(window = draft.window.copy(startMillis = picked.timeInMillis))
-                        reloadCandidates()
+                        vm.onWindowStartPicked(picked.timeInMillis)
                     },
                     calendar.get(Calendar.HOUR_OF_DAY),
                     calendar.get(Calendar.MINUTE),
@@ -186,73 +152,6 @@ fun AuthoredGuideScreen(
             calendar.get(Calendar.MONTH),
             calendar.get(Calendar.DAY_OF_MONTH),
         ).show()
-    }
-
-    /**
-     * AI へ渡す前に、端末が先に断る。
-     *
-     * **打たれた文に候補外の名前があれば、通信せずに返す。** 渡してしまうと AI が
-     * 気を利かせて台本に載せ、再生で全部飛んで「何も起きないガイド」になる。
-     */
-    fun send() {
-        val instruction = GuideAsk.sanitizeInput(chatInput) ?: return
-        if (chatBusy) return
-        chatBusy = true
-        chatInput = ""
-        scope.launch {
-            try {
-                val factory = targetsAtFactory()
-                val known = withContext(Dispatchers.Default) {
-                    factory(draft.window.startMillis).map { it.nameJa }
-                }
-                val allowed = candidates.map { it.nameJa }.toSet()
-                val asked = GuideAsk.namesIn(instruction, known)
-                val blocked = asked.filterNot { it in allowed }
-                if (blocked.isNotEmpty()) {
-                    val name = blocked.first()
-                    val from = withContext(Dispatchers.Default) {
-                        GuideSchedule.availableFrom(name, null, draft.window, factory)
-                    }
-                    chat = chat + GuideChatTurn(true, instruction) +
-                        GuideChatTurn(false, GuideAsk.rejection(name, from?.let { formatTime(it) }))
-                    return@launch
-                }
-                val reply = withContext(Dispatchers.IO) {
-                    OpenAiGuideChat(
-                        apiKey = BuildConfig.OPENAI_API_KEY,
-                        model = BuildConfig.OPENAI_ANSWER_MODEL,
-                    ).reply(instruction, candidates, draft.steps, chat)
-                }
-                if (reply == null) {
-                    chat = chat + GuideChatTurn(true, instruction) +
-                        GuideChatTurn(false, "うまく答えられませんでした。もう一度お願いします。")
-                    return@launch
-                }
-                reply.steps?.let { draft = draft.copy(steps = it) }
-                val dropped = if (reply.dropped > 0) "（${reply.dropped} 件は空に無いので外しました）" else ""
-                chat = chat + GuideChatTurn(true, instruction) +
-                    GuideChatTurn(false, reply.reply + dropped)
-            } catch (error: Throwable) {
-                // **断って続ける。** 通信は落ちるものなので、落ちても台本は残る
-                chat = chat + GuideChatTurn(true, instruction) +
-                    GuideChatTurn(false, "通信できませんでした: ${error.message}")
-            } finally {
-                chatBusy = false
-            }
-        }
-    }
-
-    fun save(then: ((StarGuide) -> Unit)? = null) {
-        val guide = draft.toGuide()
-        scope.launch {
-            val saved = withContext(Dispatchers.IO) { store.save(guide) }
-            if (!saved) {
-                notice = "台本を保存できませんでした"
-                return@launch
-            }
-            notice = "「${guide.title}」を保存しました"
-            then?.invoke(guide)
-        }
     }
 
     val checks = remember(draft.steps.size, draft.window) {
@@ -288,7 +187,7 @@ fun AuthoredGuideScreen(
                 ) {
                     OutlinedTextField(
                         value = draft.title,
-                        onValueChange = { draft = draft.copy(title = it.take(GuideCodec.MAX_TITLE_CHARS)) },
+                        onValueChange = { vm.draft = draft.copy(title = it.take(GuideCodec.MAX_TITLE_CHARS)) },
                         label = { Text("ツアーの名前") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -296,7 +195,7 @@ fun AuthoredGuideScreen(
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(
                         value = draft.summary,
-                        onValueChange = { draft = draft.copy(summary = it.take(GuideCodec.MAX_SUMMARY_CHARS)) },
+                        onValueChange = { vm.draft = draft.copy(summary = it.take(GuideCodec.MAX_SUMMARY_CHARS)) },
                         label = { Text("一行の説明") },
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -310,11 +209,11 @@ fun AuthoredGuideScreen(
                         siteNote = "ツアーをする場所の緯度経度。事務所で書くなら打ち替えてください",
                         onPickDateTime = { pickDateTime() },
                         onMinutes = {
-                            draft = draft.copy(window = draft.window.copy(minutes = it))
-                            reloadCandidates()
+                            vm.draft = draft.copy(window = draft.window.copy(minutes = it))
+                            vm.reloadCandidates()
                         },
                         onLatLon = { lat, lon ->
-                            draft = draft.copy(
+                            vm.draft = draft.copy(
                                 site = Site(
                                     latDeg = lat.toDoubleOrNull() ?: draft.site.latDeg,
                                     lonDeg = lon.toDoubleOrNull() ?: draft.site.lonDeg,
@@ -323,29 +222,29 @@ fun AuthoredGuideScreen(
                         },
                     )
                     Spacer(Modifier.height(4.dp))
-                    TextButton(onClick = { reloadCandidates() }) {
+                    TextButton(onClick = { vm.reloadCandidates() }) {
                         Text("この場所と時刻で調べ直す", color = SaberaGreen)
                     }
 
                     Spacer(Modifier.height(12.dp))
                     CandidateCard(
-                        candidates = candidates,
+                        candidates = vm.candidates,
                         chosen = { draft.contains(it) },
-                        loading = loadingCandidates,
-                        onToggle = { toggleTarget(it) },
-                        onRefresh = { reloadCandidates() },
+                        loading = vm.loadingCandidates,
+                        onToggle = { vm.toggleTarget(it) },
+                        onRefresh = { vm.reloadCandidates() },
                     )
 
                     Spacer(Modifier.height(12.dp))
                     GuideChatCard(
-                        online = online,
+                        online = vm.online,
                         keyConfigured = keyConfigured,
-                        turns = chat.map { it.fromUser to it.text },
-                        input = chatInput,
-                        busy = chatBusy,
-                        remainingTurns = (GuideAsk.MAX_TURNS - chat.count { it.fromUser }).coerceAtLeast(0),
-                        onInput = { chatInput = it },
-                        onSend = { send() },
+                        turns = vm.chat.map { it.fromUser to it.text },
+                        input = vm.chatInput,
+                        busy = vm.chatBusy,
+                        remainingTurns = (GuideAsk.MAX_TURNS - vm.chat.count { it.fromUser }).coerceAtLeast(0),
+                        onInput = { vm.chatInput = it },
+                        onSend = { vm.send(::formatTime) },
                     )
 
                     Spacer(Modifier.height(16.dp))
@@ -365,7 +264,7 @@ fun AuthoredGuideScreen(
                     }
                     ReorderableColumn(
                         items = draft.steps,
-                        onMove = { from, to -> draft = draft.moved(from, to) },
+                        onMove = { from, to -> vm.draft = draft.moved(from, to) },
                     ) { index, step, handle ->
                         StepCard(
                             index = index,
@@ -373,12 +272,12 @@ fun AuthoredGuideScreen(
                             step = step,
                             slotNote = checks.getOrNull(index)?.let { "${formatTime(it)} ごろ" },
                             handle = handle,
-                            onIntro = { draft = draft.replacedAt(index, step.copy(intro = it)) },
-                            onBody = { draft = draft.replacedAt(index, step.copy(body = it)) },
-                            onMoveUp = { draft = draft.moved(index, index - 1) },
-                            onMoveDown = { draft = draft.moved(index, index + 1) },
-                            onToggle = { draft = draft.toggledAt(index) },
-                            onRemove = { draft = draft.removedAt(index) },
+                            onIntro = { vm.draft = draft.replacedAt(index, step.copy(intro = it)) },
+                            onBody = { vm.draft = draft.replacedAt(index, step.copy(body = it)) },
+                            onMoveUp = { vm.draft = draft.moved(index, index - 1) },
+                            onMoveDown = { vm.draft = draft.moved(index, index + 1) },
+                            onToggle = { vm.draft = draft.toggledAt(index) },
+                            onRemove = { vm.draft = draft.removedAt(index) },
                         )
                     }
 
@@ -388,18 +287,18 @@ fun AuthoredGuideScreen(
                         remainingBytes = GuideCodec.QR_CAPACITY_BYTES - packedSize,
                     )
 
-                    notice?.let {
+                    vm.notice?.let {
                         Spacer(Modifier.height(8.dp))
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaGreen)
                     }
 
                     Spacer(Modifier.height(16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { save() }, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = { vm.save() }, modifier = Modifier.weight(1f)) {
                             Text("保存する")
                         }
                         Button(
-                            onClick = { save { onShare(it) } },
+                            onClick = { vm.save { onShare(it) } },
                             enabled = shareable,
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
