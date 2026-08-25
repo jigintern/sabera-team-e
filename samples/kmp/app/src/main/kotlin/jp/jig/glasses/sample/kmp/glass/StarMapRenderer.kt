@@ -91,7 +91,14 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         bestIndex
     }.also { constellationAnchorCache = it }
 
-    private fun brightestPerConstellation(): DoubleArray = constellationAnchors().map { index ->
+    @Volatile
+    private var brightestCache: DoubleArray? = null
+
+    /** 星表は差し替わらないので 1 回作れば足りる（毎フレーム 88 個を箱詰めし直していた） */
+    private fun brightestPerConstellation(): DoubleArray =
+        brightestCache ?: brightestPerConstellationUncached().also { brightestCache = it }
+
+    private fun brightestPerConstellationUncached(): DoubleArray = constellationAnchors().map { index ->
         if (index < 0) UNKNOWN_MAGNITUDE else catalog.stars[index].magnitude
     }.toDoubleArray()
 
@@ -449,14 +456,17 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         for (i in catalog.constellations.indices) {
             var nearest = -2.0
             for (seg in precessed.lines[i]) {
+                // **1 本の線につき 1 回だけ変換する。** 隣どうしで同じ頂点を使うので、
+                // その場で引き直すと屈折補正（tan）まで含めて 2 倍になる
+                val points = Array(seg.size) { sky(seg[it]) }
                 for (j in seg.indices) {
-                    val v = sky(seg[j])
+                    val v = points[j]
                     if ((v dot target) > nearest) nearest = v dot target
                     // 頂点だけ見ると、長い星座線が視線のすぐ脇を通っていても拾えない。
                     // 星座は数十度に広がるので、5° ごとに刻めば取りこぼさない
                     if (j + 1 < seg.size) {
                         val a = v
-                        val b = sky(seg[j + 1])
+                        val b = points[j + 1]
                         val ang = acos((a dot b).coerceIn(-1.0, 1.0))
                         val steps = ceil(ang * DEG / 5.0).toInt()
                         val s = sin(ang)
@@ -1240,10 +1250,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val vb = enu(b[0], b[1])
         val ang = acos((va dot vb).coerceIn(-1.0, 1.0))
         val steps = max(2, ceil(ang * DEG / 3.0).toInt())
+        // 角度はループの外で決まっている。中で引き直すと 1 本の弧につき数十回の sin になる
+        val s = sin(ang)
         var prev: DoubleArray? = null
         for (i in 0..steps) {
             val f = i.toDouble() / steps
-            val s = sin(ang)
             val v = if (s < 1e-9) {
                 va
             } else {
