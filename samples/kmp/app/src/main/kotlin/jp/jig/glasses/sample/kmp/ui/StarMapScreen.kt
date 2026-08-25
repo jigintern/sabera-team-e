@@ -94,6 +94,7 @@ import jp.jig.glasses.sample.kmp.glass.PREDICT_DAMPING
 import jp.jig.glasses.sample.kmp.glass.REDRAW_DEG
 import jp.jig.glasses.sample.kmp.glass.REDRAW_ROLL_DEG
 import jp.jig.glasses.sample.kmp.glass.ROLL_SMOOTHING
+import jp.jig.glasses.sample.kmp.glass.RedrawDecider
 import jp.jig.glasses.sample.kmp.glass.SETTLE_MS
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STILL_DEG
@@ -1117,17 +1118,11 @@ fun StarMapScreen(
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var renderedObservationRevision = -1
-        var previous = look()
-        var movedAt = 0L
-        /** 先出しした時刻。**首を振り続けている間に何枚も先出ししない**ための間隔 */
-        var predictedAt = 0L
+        val decider = RedrawDecider()
         while (true) {
             val now = look()
             headMotion.add(System.currentTimeMillis(), now)
-            val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
-            if (step > STILL_DEG) movedAt = System.currentTimeMillis()
-            previous = now
-            settled = System.currentTimeMillis() - movedAt > STILL_MS
+            settled = decider.settle(System.currentTimeMillis(), now.azDeg, now.altDeg)
 
             // 解説画面の間は星図を送らない。文字の上に画像が重なるうえ、
             // 転送のあいだ（実測 332〜390ms）は文字ごと消える
@@ -1146,21 +1141,18 @@ fun StarMapScreen(
             // ここを見ないと地平線が傾いたまま残る
             val rolled = abs(normalizeDeg(glassRoll - drawnRoll))
             val observationChanged = renderedObservationRevision != observationRevision
-            if (settled && (observationChanged || drift > REDRAW_DEG || rolled > REDRAW_ROLL_DEG)) {
+            if (decider.shouldRedraw(settled, observationChanged, drift, rolled)) {
                 // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
                 // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
                 drawAndSend()?.let {
                     drawn = it
                     renderedObservationRevision = observationRevision
-                    predictedAt = 0L
+                    decider.onDrawn()
                 }
-            } else if (
-                drift > REDRAW_DEG && headMotion.slowing &&
-                System.currentTimeMillis() - predictedAt > PREDICT_COOLDOWN_MS
-            ) {
+            } else if (decider.shouldPredict(System.currentTimeMillis(), drift, headMotion.slowing)) {
                 // **止まる先へ 1 枚。** 行き過ぎるより届かないほうが安全なので割り引く
                 val aim = headMotion.predict(now, transferMs + SETTLE_MS, PREDICT_DAMPING)
-                predictedAt = System.currentTimeMillis()
+                decider.onPredicted(System.currentTimeMillis())
                 drawAndSend(aim)?.let {
                     drawn = it
                     renderedObservationRevision = observationRevision
