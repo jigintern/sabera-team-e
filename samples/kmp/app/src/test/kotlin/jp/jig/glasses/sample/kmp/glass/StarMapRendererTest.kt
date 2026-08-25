@@ -292,10 +292,14 @@ class StarMapRendererTest {
         // 同じ大きさの点を並べると「点々」にしか見えない。3 つ描き分けているかを見る
         val renderer = StarMapRenderer(catalog())
         val look = Look(180.0, 45.0)
+        // **下敷き（星座絵・結び・天の川・地平線）も全部切る。**
+        // 全画面の点灯画素を数えるので、消し忘れた層のぶんが両方に等しく乗り、
+        // 「2 倍」のような比の条件が下敷きの濃さで通ったり落ちたりする（#78 で実際に落ちた）
         fun lit(vararg tracks: SkyTrack): Int {
             val map = renderer.render(
                 site = site, epochMillis = epoch, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
                 drawLines = false, tracks = tracks.toList(), drawStars = false, drawFigures = false,
+                drawFigureArt = false, drawAsterisms = false, drawMilkyWay = false, drawGuides = false,
             )
             return map.gray.count { (it.toInt() and 0xFF) > 0 }
         }
