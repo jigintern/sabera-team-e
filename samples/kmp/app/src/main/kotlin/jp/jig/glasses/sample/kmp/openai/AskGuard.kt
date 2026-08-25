@@ -1,4 +1,4 @@
-package jp.jig.glasses.sample.kmp.narration
+package jp.jig.glasses.sample.kmp.openai
 
 /**
  * 声の質問（#38）の入口と出口を検査する。

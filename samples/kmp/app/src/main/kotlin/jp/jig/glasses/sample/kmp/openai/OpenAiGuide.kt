@@ -4,7 +4,6 @@ import jp.jig.glasses.sample.kmp.guide.GuideOrigin
 import jp.jig.glasses.sample.kmp.guide.GuideStep
 import jp.jig.glasses.sample.kmp.guide.GuideTheme
 import jp.jig.glasses.sample.kmp.guide.StarGuide
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16

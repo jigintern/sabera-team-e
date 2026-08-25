@@ -1,11 +1,9 @@
 package jp.jig.glasses.sample.kmp.narration
 
 import jp.jig.glasses.sample.kmp.glass.GlassTextPage
-import jp.jig.glasses.sample.kmp.openai.OpenAiAsk
 import jp.jig.glasses.sample.kmp.sky.NAKED_EYE_MAGNITUDE
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
-import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.Voice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -132,7 +130,7 @@ class Narrator(
         _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
     }
 
-    /** 声の質問への答え。中身は [OpenAiAsk] が作るので、ここは喋って画面へ出すだけ */
+    /** 声の質問への答え。中身は openai.OpenAiAsk が作るので、ここは喋って画面へ出すだけ */
     fun answer(subject: String, text: String) {
         val accumulator = SentenceAccumulator()
         val sentences = accumulator.append(text) +
@@ -269,7 +267,7 @@ class Narrator(
          * 最初の一言。**タップされたことがすぐ音で返る**ようにするための名乗り。
          *
          * ここに切り出してあるのは、**タップより先にこの音声を作っておく**ため
-         * （[CloudVoice.warm] の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
+         * （voice.CloudVoice.warm の鍵は文字列そのものなので、1 文字でも違うと当たらない）。
          */
         fun opening(constellation: String): String = "${constellation}ですね。"
 

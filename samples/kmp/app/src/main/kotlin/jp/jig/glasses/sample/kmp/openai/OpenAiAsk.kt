@@ -1,6 +1,5 @@
 package jp.jig.glasses.sample.kmp.openai
 
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import org.json.JSONArray

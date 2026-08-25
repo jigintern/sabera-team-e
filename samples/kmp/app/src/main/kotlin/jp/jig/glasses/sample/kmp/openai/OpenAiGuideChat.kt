@@ -2,7 +2,6 @@ package jp.jig.glasses.sample.kmp.openai
 
 import jp.jig.glasses.sample.kmp.guide.GuideAsk
 import jp.jig.glasses.sample.kmp.guide.GuideStep
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import org.json.JSONArray

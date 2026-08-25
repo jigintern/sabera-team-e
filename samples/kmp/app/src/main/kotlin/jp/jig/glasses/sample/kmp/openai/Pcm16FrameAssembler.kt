@@ -1,4 +1,4 @@
-package jp.jig.glasses.sample.kmp.voice
+package jp.jig.glasses.sample.kmp.openai
 
 import java.io.EOFException
 

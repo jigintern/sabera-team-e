@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * 打たれた文を、**AI へ渡す前に端末が見る**ところ。
  *
- * `narration/AskGuardTest`（声の質問）と同じ位置づけで、ここが抜けると
+ * `openai/AskGuardTest`（声の質問）と同じ位置づけで、ここが抜けると
  * AI が空に出ていない星座を台本に載せ、再生で全部飛んで「何も起きないガイド」になる。
  */
 class GuideAskTest {

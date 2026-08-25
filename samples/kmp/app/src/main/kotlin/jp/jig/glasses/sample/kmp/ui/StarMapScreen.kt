@@ -105,7 +105,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideProgress
 import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.ImpromptuGuide
 import jp.jig.glasses.sample.kmp.guide.StarGuide
-import jp.jig.glasses.sample.kmp.narration.AskGuard
+import jp.jig.glasses.sample.kmp.openai.AskGuard
 import jp.jig.glasses.sample.kmp.narration.NarrationInput
 import jp.jig.glasses.sample.kmp.narration.NarrationPhase
 import jp.jig.glasses.sample.kmp.narration.Narrator
