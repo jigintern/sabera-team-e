@@ -171,7 +171,6 @@ import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import jp.jig.glasses.sample.kmp.sky.SkyPlace
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
-import jp.jig.glasses.sample.kmp.sky.TIP_PASS_WINDOW_MIN
 import jp.jig.glasses.sample.kmp.sky.Timelapse
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
@@ -487,7 +486,7 @@ fun StarMapScreen(
     // （ダブルタップは一口メモへ譲った）
     var showSatellites by remember { mutableStateOf(true) }
 
-    /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
+    /** 次に出す一口メモ（[SkyTips]）。読み込み画面で 1 つ使うたびに進める */
     var tipIndex by remember { mutableStateOf(0) }
 
     /**
@@ -1461,7 +1460,6 @@ fun StarMapScreen(
         delay(LOADING_GRACE_MS)
 
         val observation = observationSnapshot()
-        // 衛星のパスは渡さない。**軌道要素はまだ読んでいる最中**なので待たせられない
         val tip = SkyTips.of(
             tonightSky(context, observation.site, observation.epochMillis, observation.zoneId),
             tipIndex,

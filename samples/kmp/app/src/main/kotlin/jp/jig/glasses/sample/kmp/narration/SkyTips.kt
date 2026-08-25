@@ -10,20 +10,19 @@ import jp.jig.glasses.sample.kmp.sky.TIP_PASS_WINDOW_MIN
 import jp.jig.glasses.sample.kmp.sky.allowsSatellites
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /** 一口メモ 1 つ。[header] はグラスの見出し 1 行、[text] は本文（読み上げる文でもある） */
 class SkyTip(val header: String, val text: String)
 
 /**
- * ダブルタップで出す**その場の一口メモ**。
+ * 起動直後と読み込み画面に出す**その場の一口メモ**。
  *
  * **通信も生成も要らない。** 中身は「いまの時刻」と「この場所」から端末が計算できることだけで、
  * 解説文を同梱してあるのと同じ理由（**星を見に行く場所ほど電波が届かない**）。
  *
- * **押すたびに別のことを言う。** 同じ空でも言えることは複数あるので、
- * 押し直しで一巡できるようにしてある（[of] の `index`）。
+ * **出すたびに別のことを言う。** 同じ空でも言えることは複数あるので、
+ * 1 つ使うたびに一巡できるようにしてある（[of] の `index`）。
  *
  * ここは Android に触らない（時刻も場所も呼ぶ側が渡す）ので、**JVM テストで文面を固定できる**。
  */
@@ -41,37 +40,8 @@ object SkyTips {
         val moonAltDeg: Double,
         /** 地平線より上にいる月・惑星（明るい順）。`bodiesUp` の結果をそのまま渡す */
         val bodiesUp: List<ObservedStarFact>,
-        /**
-         * これから上がってくる人工衛星。**近いものが 1 機だけ**。
-         *
-         * 呼ぶ側が `SatelliteScene.nextPasses` から詰め替える（ここは衛星の計算に触らない）。
-         */
-        val risingPass: RisingPass? = null,
         /** その日に活動している流星群。無ければ null */
         val shower: ActiveShower? = null,
-    )
-
-    /**
-     * これから上がってくる 1 機。
-     *
-     * **「いま空に出ている」だけでは、待つという選択ができない。**
-     * 真っ暗な方角でも、10 分後にそこを ISS が通るなら待つ価値がある。
-     */
-    class RisingPass(
-        val nameJa: String,
-        val inMinutes: Double,
-        /**
-         * 出る方角と抜ける方角。
-         *
-         * `SatelliteScene.Pass.path`（「西 → 南東」）を**そのまま使わない**。
-         * ここは読み上げる文なので、矢印が記号のまま読まれてしまう。
-         */
-        val riseDirection: String,
-        val setDirection: String,
-        val peakAltDeg: Int,
-        val peakDirection: String,
-        /** いちばん高いところで日が当たっているか。当たっていなければ肉眼では見えない */
-        val sunlit: Boolean,
     )
 
     /**
@@ -90,10 +60,10 @@ object SkyTips {
     )
 
     /**
-     * [index] 番目のメモ。押すたびに [index] を 1 つ進めれば一巡する。
+     * [index] 番目のメモ。出すたびに [index] を 1 つ進めれば一巡する。
      *
      * 言えることは空によって増えたり減ったりするので、**残った数で割る**。
-     * 数が変わっても押し続ければ一巡することは変わらない。
+     * 数が変わっても出し続ければ一巡することは変わらない。
      */
     fun of(sky: Sky, index: Int): SkyTip {
         val tips = candidates(sky)
@@ -103,12 +73,11 @@ object SkyTips {
     /**
      * 言えることを、**いまに近い順**に並べる。
      *
-     * 1 回目のダブルタップでいちばん役に立つのは、目の前の空がどれだけ暗いか。
-     * 「星は 1 時間に 15 度動く」のような、いつ押しても同じことは後ろに置く。
+     * 1 つ目でいちばん役に立つのは、目の前の空がどれだけ暗いか。
+     * 「星は 1 時間に 15 度動く」のような、いつ出しても同じことは後ろに置く。
      */
     fun candidates(sky: Sky): List<SkyTip> = listOfNotNull(
         // **時間が決まっているものが先。** 待てば見えるものは、待つと決められるうちに言う
-        risingPass(sky),
         shower(sky),
         darkness(sky),
         moon(sky),
@@ -117,31 +86,6 @@ object SkyTips {
         place(sky),
         motion(sky),
     )
-
-    /**
-     * まもなく上がってくる人工衛星。**呼ぶ側が近いパスに絞って渡す**ので、あれば必ず先頭。
-     *
-     * 出る方角と抜ける方角を言うのは、**待つ向きが決まらないと待てない**から。
-     */
-    private fun risingPass(sky: Sky): SkyTip? {
-        val pass = sky.risingPass ?: return null
-        val minutes = ceil(pass.inMinutes).toInt().coerceAtLeast(1)
-        return SkyTip(
-            "まもなく人工衛星",
-            "あと%d分で%sが上がってきます。%sから%sへ抜けて、いちばん高いところは高度%d度、%sです。".format(
-                minutes,
-                pass.nameJa,
-                pass.riseDirection,
-                pass.setDirection,
-                pass.peakAltDeg,
-                pass.peakDirection,
-            ) + if (pass.sunlit) {
-                "日が当たっているので、動く光として肉眼でも見えます。"
-            } else {
-                "ただし地球の影に入るので、肉眼では見えません。"
-            },
-        )
-    }
 
     /**
      * その日の流星群。**「今夜がいちばん多い日」は見に行く理由そのもの。**
