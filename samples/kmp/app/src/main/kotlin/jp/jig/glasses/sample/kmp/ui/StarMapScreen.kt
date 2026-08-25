@@ -63,6 +63,8 @@ import jp.jig.glasses.sample.kmp.alignment.LookLatch
 import jp.jig.glasses.sample.kmp.alignment.YawDriftCorrector
 import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
 import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
+import jp.jig.glasses.sample.kmp.catalog.activeShower
+import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
@@ -833,22 +835,6 @@ fun StarMapScreen(
         }
     }
 
-    /**
-     * 放射点のいまの方位・高度。
-     *
-     * 放射点は **J2000 の赤経・赤緯**で持っている（星表と同じ座標系）。
-     * **星図の印と一口メモがここを共有する**ので、印の場所と喋る方角が食い違わない。
-     */
-    fun showerAt(observation: ObservationSnapshot): MeteorShowers.Shower? {
-        val local = Instant.ofEpochMilli(observation.epochMillis).atZone(observation.zoneId)
-        return showerCatalog.today(local.monthValue, local.dayOfMonth)
-    }
-
-    fun radiantAltAz(target: MeteorShowers.Shower, observation: ObservationSnapshot): DoubleArray {
-        val lst = localSiderealDeg(daysFromJ2000(observation.epochMillis), observation.site.lonDeg)
-        return toApparentAltAz(target.raDeg, target.decDeg, lst, observation.site.latDeg)
-    }
-
     fun look(): Look = Look(
         azimuthFromYaw(yawNow(), headingOffset),
         clampAltDeg(glassPitch + pitchOffset),
@@ -915,8 +901,8 @@ fun StarMapScreen(
                 }
             }
             // 放射点の印。**その日に活動している群があるときだけ**（無い日は何も増えない）
-            val radiants = showerAt(observation)?.let {
-                val aa = radiantAltAz(it, observation)
+            val radiants = showerCatalog.activeShower(observation)?.let {
+                val aa = it.radiantAltAz(observation)
                 listOf(MeteorRadiantMark(it.nameJa, aa[0], aa[1]))
             }.orEmpty()
             suspend fun renderAt(w: Int, h: Int) = withContext(Dispatchers.Default) {
@@ -2508,40 +2494,6 @@ fun StarMapScreen(
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
         narrator.again(entry.nameJa, entry.text)
-    }
-
-    /**
-     * まもなく上がってくる 1 機（[SkyTips.RisingPass]）。無ければ null。
-     *
-     * **絞るのは肉眼で追えるものだけ。** `nextPasses` は静止軌道と測位衛星を既に落として
-     * いるので、ここでは**日が当たっているか**だけを見る（影に入る機体を案内しても、
-     * 出てきた空に何も見えない）。
-     *
-     * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
-     * そのとき何をしているか分からないので待つ判断ができない。
-     */
-    fun risingPass(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
-        if (scene == null || !scene.loaded) return null
-        if (
-            observation.simulation &&
-            !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
-        ) {
-            return null
-        }
-        val pass = scene.nextPasses(
-            observer = Observer(observation.site.latDeg, observation.site.lonDeg),
-            epochMillis = observation.epochMillis,
-            withinMinutes = TIP_PASS_WINDOW_MIN,
-        ).firstOrNull { it.sunlitAtPeak } ?: return null
-        return SkyTips.RisingPass(
-            nameJa = pass.name,
-            inMinutes = pass.risesInMinutes(observation.epochMillis),
-            riseDirection = cardinalDirection16(pass.riseAzDeg),
-            setDirection = cardinalDirection16(pass.setAzDeg),
-            peakAltDeg = pass.peakAltDeg.roundToInt(),
-            peakDirection = cardinalDirection16(pass.peakAzDeg),
-            sunlit = pass.sunlitAtPeak,
-        )
     }
 
     /**
