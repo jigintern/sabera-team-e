@@ -867,6 +867,7 @@ fun StarMapScreen(
                         observation.epochMillis,
                         target,
                         fov.toDouble(),
+                        panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH,
                         maxStarlink = 0,
                     )
                         .filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
@@ -1241,6 +1242,7 @@ fun StarMapScreen(
                     observation.epochMillis,
                     baseLook,
                     drawnFov,
+                    panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH,
                     maxStarlink = 0,
                 )
                 r.trackLabels(

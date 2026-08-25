@@ -1,8 +1,6 @@
 package jp.jig.glasses.sample.kmp.satellite
 
 import android.content.Context
-import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
@@ -91,13 +89,18 @@ class SatelliteScene(
         epochMillis: Long,
         look: Look,
         fovDeg: Double,
+        /**
+         * 表示面の縦横比（高さ／幅）。軌道計算はパネルの都合を知らないほうが検算しやすいので、
+         * glass の寸法は呼び出し側から渡す（既定値にすると値の複製になる）
+         */
+        panelAspect: Double,
         maxNamed: Int = MAX_NAMED,
         maxStarlink: Int = MAX_STARLINK,
     ): List<SkyTrack> {
         val forward = enu(look.azDeg, look.altDeg)
         // **fovDeg は視野の「横幅」なので、視線からの角度は半分で見る。**
         // パネルの対角まで含め、端へ入ってくる機体を少し早めに拾う。
-        val diagonalScale = hypot(1.0, PANEL_HEIGHT.toDouble() / PANEL_WIDTH)
+        val diagonalScale = hypot(1.0, panelAspect)
         val radiusDeg = fovDeg * 0.5 * diagonalScale * VIEW_MARGIN_SCALE
         val cosLimit = kotlin.math.cos(radiusDeg * (Math.PI / 180.0))
 
