@@ -160,6 +160,7 @@ import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.update
 import jp.jig.glasses.sample.kmp.sound.Bgm
+import jp.jig.glasses.sample.kmp.sound.BgmScene
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.support.AskHistory
 import jp.jig.glasses.sample.kmp.support.BundledData
@@ -235,6 +236,9 @@ fun StarMapScreen(
     client: GlassClient,
     initialCalibration: CalibrationResult?,
     constellation: ConstellationBackground,
+    /** **持ち主は `GlassesApp`。** 画面ごとに作ると、ここへ入るたびに音が切れる（#69） */
+    bgm: Bgm,
+    soundPrefs: SoundPrefs,
     onRecalibrate: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -455,6 +459,14 @@ fun StarMapScreen(
     var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
     var skyDarkness by remember { mutableStateOf(SkyDarkness.NIGHT) }
 
+    /**
+     * 太陽高度を 1 回でも測ったか。**BGM の場面をこれで待つ。**
+     *
+     * 測る前の [skyDarkness] は既定の `NIGHT` なので、薄暮に星図へ入ると
+     * 夜の曲へ渡ってすぐ薄暮へ戻る（入口の画面では正しい場面が鳴っている）。
+     */
+    var skyMeasured by remember { mutableStateOf(false) }
+
     // SDK 0.6.0 は設定値の同期結果を公開していないため、
     // 最後にこのアプリから送った値だけをグラスごとに覚える
     val brightnessPrefs = remember(client.deviceIdentifier) {
@@ -643,6 +655,7 @@ fun StarMapScreen(
                 sunAltitudeDeg(observation.site, observation.epochMillis)
             }
             skyDarkness = SkyDarkness.of(altitude)
+            skyMeasured = true
             delay(SKY_DARKNESS_REFRESH_MS)
         }
     }
@@ -1254,7 +1267,6 @@ fun StarMapScreen(
     // 読み上げはスマホから鳴らす。SDK に音声出力 API が無いので、そもそもグラスからは鳴らせない。
     // 端末の TextToSpeech は棒読みで**プラネタリウムの雰囲気を壊す**ので、
     // 普段は AI 音声で喋り、作れないときだけ端末の読み上げに落ちる（CloudVoice）
-    val soundPrefs = remember { SoundPrefs(context) }
     val speaker = remember { DeviceVoice(context) }
     val voice = remember(speaker) {
         CloudVoice(
@@ -1519,15 +1531,24 @@ fun StarMapScreen(
     var voiceVolume by remember { mutableStateOf(soundPrefs.voiceVolume) }
     var bgmVolume by remember { mutableStateOf(soundPrefs.bgmVolume) }
     var bgmOn by remember { mutableStateOf(soundPrefs.bgmEnabled) }
-    val bgm = remember { Bgm(context, scope) { text, failed -> log(text, failed) } }
+    var bgmPinned by remember { mutableStateOf(soundPrefs.bgmTrack) }
     val bgmTrack by bgm.track.collectAsState()
-    DisposableEffect(bgm) { onDispose { bgm.release() } }
-
-    // 曲は太陽高度で決める。時計だと同じ 19 時が夏と冬で違う空になる
-    LaunchedEffect(skyDarkness, bgmOn) {
-        bgm.enabled = bgmOn
-        bgm.follow(skyDarkness)
+    // **作りも壊しもしない**（持ち主は GlassesApp）。この画面にいる間だけ失敗をログへ出す
+    DisposableEffect(bgm) {
+        bgm.onLog = { text, failed -> log(text, failed) }
+        onDispose { bgm.onLog = null }
     }
+
+    // 曲は太陽高度で決める。時計だと同じ 19 時が夏と冬で違う空になる。
+    // **ガイドの間だけ専用の曲へ寄せる**（喋っている時間が長く、ずっと絞られている）
+    LaunchedEffect(skyDarkness, skyMeasured, guideProgress != null, bgmOn) {
+        bgm.enabled = bgmOn
+        // 測るまでは入口の画面が入れた場面のまま（既定値で上書きしない）
+        if (!skyMeasured) return@LaunchedEffect
+        bgm.scene =
+            if (guideProgress != null) BgmScene.GUIDE else BgmScene.of(skyDarkness)
+    }
+    LaunchedEffect(bgmPinned) { bgm.pinned = bgmPinned }
 
     // **明るさも同じ値で決める。** 薄明のあいだは明るく、夜になったら落とす。
     // 手動へ倒れているときは触らない（合わせた値を勝手に戻さない）
@@ -3136,7 +3157,16 @@ fun StarMapScreen(
                                             bgmVolume = bgmVolume,
                                             onBgmVolumeChange = { bgmVolume = it },
                                             onBgmVolumeCommit = { soundPrefs.bgmVolume = bgmVolume },
-                                            bgmTrackLabel = bgmTrack?.label,
+                                            bgmPlaying = bgmTrack,
+                                            bgmPinned = bgmPinned,
+                                            onBgmPinnedChange = {
+                                                bgmPinned = it
+                                                soundPrefs.bgmTrack = it
+                                                log(
+                                                    it?.let { t -> "BGM: ${t.title} を選んだ" }
+                                                        ?: "BGM: おまかせに戻した",
+                                                )
+                                            },
                                         )
 
                                         ObservationStatusCard(

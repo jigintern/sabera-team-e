@@ -94,13 +94,16 @@ SGP4 の実装は David A. Vallado らの参照実装を Kotlin に移したも�
 
 --------------------------------------------------------------------------------
 
-samples/kmp/app/src/main/res/raw/bgm_twilight.ogg
-samples/kmp/app/src/main/res/raw/bgm_night.ogg
+samples/kmp/app/src/main/res/raw/bgm_*.ogg
 
 これらは Kevin MacLeod の楽曲から、ループ用に一部を切り出して再エンコードしたものです。
 
-  bgm_twilight.ogg — "Silver Blue Light" by Kevin MacLeod
-  bgm_night.ogg    — "Fluidscape" by Kevin MacLeod
+  bgm_silver_blue_light.ogg — "Silver Blue Light" by Kevin MacLeod
+  bgm_light_awash.ogg       — "Light Awash" by Kevin MacLeod
+  bgm_fluidscape.ogg        — "Fluidscape" by Kevin MacLeod
+  bgm_ambiment.ogg          — "Ambiment" by Kevin MacLeod
+  bgm_drone_in_d.ogg        — "Drone in D" by Kevin MacLeod
+  bgm_concentration.ogg     — "Concentration" by Kevin MacLeod
 
   incompetech.com
   https://incompetech.com/
@@ -108,7 +111,8 @@ samples/kmp/app/src/main/res/raw/bgm_night.ogg
   https://creativecommons.org/licenses/by/4.0/
 
   元の楽曲から 120 秒を切り出し、末尾を先頭にクロスフェードして繰り返せるようにし、
-  音量を揃えたうえで Ogg Opus に変換しています（改変あり）。
+  音量を -23 LUFS に揃えたうえで Ogg Opus に変換しています（改変あり）。
+  切り出し位置とエンコード条件は tools/build-bgm.sh に書いてあり、同じものを作り直せます。
 
 --------------------------------------------------------------------------------
 

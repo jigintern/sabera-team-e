@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
+import jp.jig.glasses.sample.kmp.sound.BgmScene
+import jp.jig.glasses.sample.kmp.sound.BgmTrack
 import jp.jig.glasses.sample.kmp.support.AskHistory
 import jp.jig.glasses.sample.kmp.support.NightRecord
 import java.text.SimpleDateFormat
@@ -273,7 +275,9 @@ internal fun SoundSettings(
     bgmVolume: Float,
     onBgmVolumeChange: (Float) -> Unit,
     onBgmVolumeCommit: () -> Unit,
-    bgmTrackLabel: String?,
+    bgmPlaying: BgmTrack?,
+    bgmPinned: BgmTrack?,
+    onBgmPinnedChange: (BgmTrack?) -> Unit,
 ) {
     SettingsSection("音", "鳴るのはスマホのスピーカー。グラスにスピーカーは無い") {
         // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
@@ -293,7 +297,7 @@ internal fun SoundSettings(
             onValueChangeFinished = onVoiceVolumeCommit,
         )
         SettingSwitch(
-            if (bgmOn) "BGM（いま ${bgmTrackLabel ?: "止まっている"}）" else "BGM なし",
+            if (bgmOn) "BGM（いま ${bgmPlaying?.title ?: "止まっている"}）" else "BGM なし",
             bgmOn,
             onBgmChange,
         )
@@ -307,12 +311,68 @@ internal fun SoundSettings(
             onValueChangeFinished = onBgmVolumeCommit,
             enabled = bgmOn,
         )
+        if (bgmOn) BgmPicker(bgmPinned, onBgmPinnedChange)
         // CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えないので、ここにも出しておく
         Text(
-            "BGM: Silver Blue Light / Fluidscape by Kevin MacLeod (incompetech.com) CC BY 4.0",
+            "BGM: ${BgmTrack.credit}",
             style = MaterialTheme.typography.bodySmall,
             color = SaberaFinePrint,
         )
+    }
+}
+
+/**
+ * 曲を指名する。**既定はおまかせ**（空の明るさとガイドで勝手に選ぶ）。
+ *
+ * 空の濃さ（[SkyViewSettings]）のような**横並びにはしない。** 曲名は横に並べると
+ * 入りきらないうえ、どれがどんな曲かの手がかり（[BgmTrack.mood]）も置けなくなる。
+ *
+ * 場面ごとに見出しを付けるのは、**おまかせのときに何が鳴るのかをここで見せる**ため。
+ * 指名するとその 1 曲だけを繰り返すので、場面が変わっても入れ替わらない。
+ */
+@Composable
+private fun BgmPicker(pinned: BgmTrack?, onChange: (BgmTrack?) -> Unit) {
+    Spacer(Modifier.height(4.dp))
+    BgmChoice("おまかせ（空とガイドに合わせて選ぶ）", null, pinned == null) { onChange(null) }
+    for (scene in BgmScene.entries) {
+        Text(
+            scene.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        for (candidate in scene.tracks) {
+            BgmChoice(candidate.title, candidate.mood, pinned == candidate) { onChange(candidate) }
+        }
+    }
+}
+
+@Composable
+private fun BgmChoice(label: String, hint: String?, selected: Boolean, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = if (selected) SaberaSelected else Color.Transparent,
+        ),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) Color.White else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        if (hint != null) {
+            Text(
+                hint,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) {
+                    Color.White.copy(alpha = 0.72f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
     }
 }
 

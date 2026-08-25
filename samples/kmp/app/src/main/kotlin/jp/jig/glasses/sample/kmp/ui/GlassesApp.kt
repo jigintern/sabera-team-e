@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -24,6 +25,7 @@ import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -48,6 +50,11 @@ import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.narration.SkyTips
 import jp.jig.glasses.sample.kmp.narration.tonightSky
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
+import jp.jig.glasses.sample.kmp.sound.Bgm
+import jp.jig.glasses.sample.kmp.sound.BgmScene
+import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
 import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
@@ -104,6 +111,44 @@ fun GlassesApp(manager: GlassManager) {
 
     /** 戻るキーで観測をやめようとしているか。**一度の誤操作で観測を畳まない** */
     var confirmLeaving by rememberSaveable { mutableStateOf(false) }
+
+    /**
+     * BGM は**アプリを開いた時点から鳴らす**（#69）。
+     *
+     * 以前は星図の画面が [Bgm] を持っていたので、**星図以外はすべて無音**で、
+     * 星図に入った瞬間に音が始まっていた。目指しているのはミニプラネタリウムなので、
+     * 入口から鳴っているほうがよい。切ってある人（`bgmEnabled`）には鳴らない。
+     *
+     * ここが持つのは**画面をまたいで鳴らし続けるため**で、音量と曲の指名は設定パネルが動かす。
+     */
+    val soundScope = rememberCoroutineScope()
+    val soundPrefs = remember(context) { SoundPrefs(context) }
+    val bgm = remember(context) {
+        Bgm(context, soundScope).apply {
+            // **鳴らし始めるのは場面が決まってから**（下の LaunchedEffect）
+            restore(
+                enabled = soundPrefs.bgmEnabled,
+                volume = soundPrefs.bgmVolume,
+                pinned = soundPrefs.bgmTrack,
+            )
+        }
+    }
+    DisposableEffect(bgm) { onDispose { bgm.release() } }
+
+    /**
+     * 星図以外の画面で鳴らす曲。**星図と同じ束を共用する**（専用の曲は持たない）。
+     *
+     * 画面が増えてもここは触らなくてよい。**星図だけを除ける**書き方にしてある。
+     *
+     * 観測地はまだ測っていないので既定値（[ObservationDefaults]）で太陽高度を出す。
+     * **薄暮か夜かを決めるだけ**なので、これで足りる。星図に入ったら
+     * [StarMapScreen] が測位済みの観測地で出した値で上書きする。
+     */
+    LaunchedEffect(screen) {
+        if (screen == AppScreen.STAR_MAP) return@LaunchedEffect
+        val altitude = sunAltitudeDeg(ObservationDefaults.site, System.currentTimeMillis())
+        bgm.scene = BgmScene.of(SkyDarkness.of(altitude))
+    }
 
     /**
      * 戻るキーで 1 つ前の画面へ戻す。
@@ -308,6 +353,9 @@ fun GlassesApp(manager: GlassManager) {
                         )
                     },
                     constellation = constellation,
+                    // 画面をまたいで鳴らし続けるので、ここで作ったものを渡す（#69）
+                    bgm = bgm,
+                    soundPrefs = soundPrefs,
                     onRecalibrate = { screen = AppScreen.CALIBRATION },
                 )
             }
