@@ -449,7 +449,7 @@ fun StarMapScreen(
     // （ダブルタップは一口メモへ譲った）
     var showSatellites by remember { mutableStateOf(true) }
 
-    /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
+    /** 次に出す一口メモ（[SkyTips]）。読み込み画面で 1 つ使うたびに進める */
     var tipIndex by remember { mutableStateOf(0) }
 
 
@@ -1463,7 +1463,6 @@ fun StarMapScreen(
         delay(LOADING_GRACE_MS)
 
         val observation = observationSnapshot()
-        // 衛星のパスは渡さない。**軌道要素はまだ読んでいる最中**なので待たせられない
         val tip = SkyTips.of(
             tonightSky(context, observation.site, observation.epochMillis, observation.zoneId),
             tipIndex,
@@ -2495,40 +2494,6 @@ fun StarMapScreen(
     }
 
     /**
-     * まもなく上がってくる 1 機（[SkyTips.RisingPass]）。無ければ null。
-     *
-     * **絞るのは肉眼で追えるものだけ。** `nextPasses` は静止軌道と測位衛星を既に落として
-     * いるので、ここでは**日が当たっているか**だけを見る（影に入る機体を案内しても、
-     * 出てきた空に何も見えない）。
-     *
-     * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
-     * そのとき何をしているか分からないので待つ判断ができない。
-     */
-    fun risingPass(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
-        if (scene == null || !scene.loaded) return null
-        if (
-            observation.simulation &&
-            !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
-        ) {
-            return null
-        }
-        val pass = scene.nextPasses(
-            observer = Observer(observation.site.latDeg, observation.site.lonDeg),
-            epochMillis = observation.epochMillis,
-            withinMinutes = TIP_PASS_WINDOW_MIN,
-        ).firstOrNull { it.sunlitAtPeak } ?: return null
-        return SkyTips.RisingPass(
-            nameJa = pass.name,
-            inMinutes = pass.risesInMinutes(observation.epochMillis),
-            riseDirection = cardinalDirection16(pass.riseAzDeg),
-            setDirection = cardinalDirection16(pass.setAzDeg),
-            peakAltDeg = pass.peakAltDeg.roundToInt(),
-            peakDirection = cardinalDirection16(pass.peakAzDeg),
-            sunlit = pass.sunlitAtPeak,
-        )
-    }
-
-    /**
      * **いま乗っているものを 1 段降りて星図へ帰る**（`DOUBLE_TAP`）。
      *
      * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
@@ -3555,15 +3520,6 @@ private const val PREDICT_COOLDOWN_MS = 1_200L
  * 10Hz で 0.2 なら、傾けてから 1 秒ほどで追いつく。
  */
 private const val ROLL_SMOOTHING = 0.2
-
-/**
- * 一口メモでパスを案内する窓[分]。
- *
- * **待てる長さだけを出す。** 3 時間後のパスを言われても、そのとき何をしているか
- * 分からないので待つ判断ができない。ISS の 1 周は 90 分なので、この窓なら
- * 「いま出ていないが、そのうち来る」を取りこぼしても次の押し直しで拾える。
- */
-private const val TIP_PASS_WINDOW_MIN = 30.0
 
 /** 読み上げが終わってから星図へ戻すまでの余韻 */
 private const val EXPLANATION_LINGER_MS = 5_000L
