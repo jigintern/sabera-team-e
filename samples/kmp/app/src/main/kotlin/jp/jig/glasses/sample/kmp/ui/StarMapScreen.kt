@@ -59,6 +59,7 @@ import jp.jig.glasses.sample.kmp.alignment.HeadFlickDetector
 import jp.jig.glasses.sample.kmp.alignment.HeadMotion
 import jp.jig.glasses.sample.kmp.alignment.Located
 import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.LookLatch
 import jp.jig.glasses.sample.kmp.alignment.YawDriftCorrector
 import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
 import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
@@ -642,8 +643,8 @@ fun StarMapScreen(
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
 
-    // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
-    val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
+    // ツルをタップすると頭が動く。判定はタップ直前の視線から取る（LookLatch）
+    val lookLatch = remember { LookLatch() }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -667,10 +668,7 @@ fun StarMapScreen(
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
-                lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
-                while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
-                    lookHistory.removeFirst()
-                }
+                lookLatch.record(lastImuAt, yawNow(), glassPitch)
             }
         }
         onDispose {
@@ -859,11 +857,10 @@ fun StarMapScreen(
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
     fun latchedLook(): Look {
-        val target = System.currentTimeMillis() - LATCH_MS
-        val entry = lookHistory.lastOrNull { it.first <= target } ?: return look()
+        val (yaw, pitch) = lookLatch.latched(System.currentTimeMillis()) ?: return look()
         return Look(
-            (normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0,
-            clampAltDeg(entry.third + pitchOffset),
+            (normalizeDeg(yaw + headingOffset) + 360.0) % 360.0,
+            clampAltDeg(pitch + pitchOffset),
         )
     }
 
@@ -3477,11 +3474,6 @@ private fun overlayTracks(
 internal fun notableTracks(tracks: List<SkyTrack>): List<SkyTrack> =
     tracks.filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
         .take(MAX_SATELLITES_IN_VIEW)
-
-private const val LATCH_MS = 500L
-
-/** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
-private const val HISTORY_MS = 3_000L
 
 private const val TAG = "StarMap"
 
