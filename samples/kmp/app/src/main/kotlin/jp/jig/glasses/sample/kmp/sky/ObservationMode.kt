@@ -71,6 +71,26 @@ fun ObservationSnapshot.beyondStarShapes(): Boolean =
 fun scrubOffsetHours(anchorMillis: Long, epochMillis: Long, limitHours: Float): Float =
     ((epochMillis - anchorMillis) / 3_600_000f).coerceIn(-limitHours, limitHours)
 
+/**
+ * つまみのずれを読める形にする（「＋3時間30分」）。
+ *
+ * **つまんでいる間はこれと着地の時刻を出す。** 指がスライダーに乗っているので、
+ * どこへ着くのかが数字で見えないと**離してみるまで分からない**。
+ */
+fun scrubOffsetLabel(offsetHours: Float): String {
+    val minutes = Math.round(offsetHours * 60f)
+    if (minutes == 0) return "指定した時刻"
+    val sign = if (minutes > 0) "＋" else "−"
+    val absMinutes = kotlin.math.abs(minutes)
+    val hours = absMinutes / 60
+    val rest = absMinutes % 60
+    return when {
+        hours == 0 -> "$sign${rest}分"
+        rest == 0 -> "$sign${hours}時間"
+        else -> "$sign${hours}時間${rest}分"
+    }
+}
+
 /** つまみを離した位置に対応する時刻。**基準は動かさない**（動かすと行き来でずれる） */
 fun scrubTargetMillis(anchorMillis: Long, offsetHours: Float): Long =
     anchorMillis + (offsetHours * 3_600_000f).toLong()

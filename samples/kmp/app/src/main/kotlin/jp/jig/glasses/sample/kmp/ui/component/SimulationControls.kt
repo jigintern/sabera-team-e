@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -38,13 +39,37 @@ import jp.jig.glasses.sample.kmp.sky.SkyPresets
  */
 @Composable
 internal fun TimeScrubControls(
-    status: String,
+    /** いま出ている（つまんでいる間は**これから出す**）空の時刻 */
+    label: String,
+    /** 基準からのずれ。つまんでいる間だけ出す */
+    detail: String?,
+    scrubbing: Boolean,
     /** つまみの位置。**その夜の中を ±12 時間**（0 が条件で指定した時刻） */
     offsetHours: Float,
     onScrub: (Float) -> Unit,
     onScrubFinished: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
+        // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
+            )
+            if (detail != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
         // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
         // 1 枚 332〜390ms かかるので転送が追いつかず、指の動きから遅れて出続ける
         Slider(
@@ -52,6 +77,9 @@ internal fun TimeScrubControls(
             onValueChange = onScrub,
             onValueChangeFinished = onScrubFinished,
             valueRange = -TIME_SCRUB_HOURS..TIME_SCRUB_HOURS,
+            // **15 分刻みで止める。** 星は 4 分で 1° しか動かないので、
+            // それより細かく選ばせても見分けられないうえ、読みが半端な数字になる
+            steps = TIME_SCRUB_STEPS,
             modifier = Modifier.fillMaxWidth(),
         )
         Row(
@@ -63,7 +91,6 @@ internal fun TimeScrubControls(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text(status, style = MaterialTheme.typography.bodySmall)
             Text(
                 "＋12時間",
                 style = MaterialTheme.typography.bodySmall,
@@ -72,6 +99,9 @@ internal fun TimeScrubControls(
         }
     }
 }
+
+/** 15 分刻み。±12 時間 ＝ 96 目盛りなので、あいだの数はその 1 つ手前 */
+const val TIME_SCRUB_STEPS = 95
 
 /**
  * つまみで動かせる幅。**その夜の中だけ。**

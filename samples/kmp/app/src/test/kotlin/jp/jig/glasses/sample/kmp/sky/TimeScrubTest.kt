@@ -37,6 +37,33 @@ class TimeScrubTest {
         assertEquals(1f / 6f, scrubOffsetHours(anchor, after10min, 12f), 0.001f)
     }
 
+    /**
+     * つまんでいる間に出す読み。
+     *
+     * **指がスライダーに乗るので、どこへ着くのかが数字で見えないと離すまで分からない。**
+     */
+    @Test
+    fun `ずれを読める形にする`() {
+        assertEquals("指定した時刻", scrubOffsetLabel(0f))
+        assertEquals("＋3時間", scrubOffsetLabel(3f))
+        assertEquals("＋3時間30分", scrubOffsetLabel(3.5f))
+        assertEquals("−45分", scrubOffsetLabel(-0.75f))
+        assertEquals("−12時間", scrubOffsetLabel(-12f))
+    }
+
+    @Test
+    fun `15分刻みなら読みが半端にならない`() {
+        // 星は 4 分で 1° しか動かないので、これより細かく選ばせても見分けられない。
+        // 刻みに乗せておけば「＋2時間37分」のような読みが出ない
+        val step = 0.25f
+        for (i in -48..48) {
+            val label = scrubOffsetLabel(i * step)
+            assertTrue("$label が 15 分刻みでない", label.endsWith("時間") ||
+                label == "指定した時刻" ||
+                label.endsWith("15分") || label.endsWith("30分") || label.endsWith("45分"))
+        }
+    }
+
     @Test
     fun `つまみは範囲の外へ出ない`() {
         val anchor = 1_767_268_800_000L

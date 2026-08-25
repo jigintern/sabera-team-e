@@ -143,6 +143,7 @@ import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import jp.jig.glasses.sample.kmp.sky.rollFromAccel
 import jp.jig.glasses.sample.kmp.sky.scrubOffsetHours
+import jp.jig.glasses.sample.kmp.sky.scrubOffsetLabel
 import jp.jig.glasses.sample.kmp.sky.scrubTargetMillis
 import jp.jig.glasses.sample.kmp.sky.snapshot
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
@@ -2773,7 +2774,19 @@ fun StarMapScreen(
 
                         Spacer(Modifier.height(8.dp))
                         TimeScrubControls(
-                            status = observationSnapshot().shortLabel(),
+                            // **つまんでいる間は「これから出す時刻」を出す。**
+                            // 空はまだ変えていないので、いまの空の時刻を出しても手がかりにならない
+                            label = scrubbingHours?.let { hours ->
+                                val anchor = scrubAnchorMillis ?: observationSnapshot().epochMillis
+                                observationSnapshot()
+                                    .copy(
+                                        epochMillis = scrubTargetMillis(anchor, hours),
+                                        simulation = true,
+                                    )
+                                    .shortLabel()
+                            } ?: observationSnapshot().shortLabel(),
+                            detail = scrubbingHours?.let { scrubOffsetLabel(it) },
+                            scrubbing = scrubbingHours != null,
                             // つまんでいる間は指の値、離したら実際の時刻から引き直す
                             offsetHours = scrubbingHours ?: timeScrubHours(),
                             onScrub = {
