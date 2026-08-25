@@ -297,6 +297,7 @@ fun StarMapScreen(
     var timePlayback by remember { mutableStateOf(TimePlaybackState()) }
     var observationRevision by remember { mutableStateOf(0) }
     var simulationCityText by remember { mutableStateOf("シドニー") }
+    var simulationEraText by remember { mutableStateOf("") }
     var simulationDateText by remember { mutableStateOf("") }
     var simulationTimeText by remember { mutableStateOf("20:30") }
     var simulationMessage by remember { mutableStateOf<String?>(null) }
@@ -1872,6 +1873,8 @@ fun StarMapScreen(
                 timePlayback = timePlayback.stopPlayback()
                 val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.place.zoneId)
                 simulationCityText = command.place.nameJa
+                // 適用したら時代の欄は空にする。残すと、次に日付を直しても時代が勝ってしまう
+                simulationEraText = ""
                 simulationDateText = "%d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
                 simulationTimeText = "%02d:%02d".format(local.hour, local.minute)
                 simulationMessage = buildString {
@@ -1957,10 +1960,14 @@ fun StarMapScreen(
     }
 
     fun submitSimulationForm() {
+        val era = simulationEraText.trim()
         val date = simulationDateText.trim()
+        // **スマホも声とまったく同じ経路を通す。** 別の解釈を 2 つ持つと、
+        // 片方だけ直したときに「スマホでは出せるのに声では出せない」が起きる
         val raw = buildString {
             append(simulationCityText).append("の")
-            if (date.isNotEmpty()) append(date).append(' ')
+            // 時代を入れたら日付より優先する（パーサが「何年前」を先に見る）
+            if (era.isNotEmpty()) append(era).append(' ') else if (date.isNotEmpty()) append(date).append(' ')
             append(simulationTimeText).append("の空を表示して")
         }
         when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis(), livePlace())) {
@@ -2748,6 +2755,7 @@ fun StarMapScreen(
                             status = observationSnapshot().shortLabel(),
                             simulation = simulation != null,
                             cityText = simulationCityText,
+                            eraText = simulationEraText,
                             dateText = simulationDateText,
                             timeText = simulationTimeText,
                             message = if (satellitesSuppressedForSimulation) {
@@ -2756,6 +2764,7 @@ fun StarMapScreen(
                                 simulationMessage
                             },
                             onCityChange = { simulationCityText = it },
+                            onEraChange = { simulationEraText = it },
                             onDateChange = { simulationDateText = it },
                             onTimeChange = { simulationTimeText = it },
                             onApply = { submitSimulationForm() },

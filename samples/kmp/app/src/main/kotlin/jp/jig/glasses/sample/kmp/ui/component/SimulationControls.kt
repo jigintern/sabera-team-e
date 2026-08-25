@@ -64,10 +64,12 @@ internal fun SkyConditionSettings(
     status: String,
     simulation: Boolean,
     cityText: String,
+    eraText: String,
     dateText: String,
     timeText: String,
     message: String?,
     onCityChange: (String) -> Unit,
+    onEraChange: (String) -> Unit,
     onDateChange: (String) -> Unit,
     onTimeChange: (String) -> Unit,
     onApply: () -> Unit,
@@ -94,6 +96,19 @@ internal fun SkyConditionSettings(
             )
             Text(
                 "対応：${CityCatalog.cities.joinToString("・") { it.nameJa }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = eraText,
+                onValueChange = onEraChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("時代（省略可）") },
+                placeholder = { Text("1万年前 / 紀元前3000年 / 2000年後") },
+                singleLine = true,
+            )
+            Text(
+                "入れると日付より優先されます。紀元前10000年〜西暦12000年まで",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
