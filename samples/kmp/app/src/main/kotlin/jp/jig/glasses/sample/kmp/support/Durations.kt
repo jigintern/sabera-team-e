@@ -2,6 +2,9 @@ package jp.jig.glasses.sample.kmp.support
 
 // 時間の換算はここが正本。生の 60_000 などが式に混ざると、単位の取り違えを目で追えない
 
+/** 1 秒[ms] */
+const val SECOND_MILLIS = 1_000L
+
 /** 1 分[ms] */
 const val MINUTE_MILLIS = 60_000L
 

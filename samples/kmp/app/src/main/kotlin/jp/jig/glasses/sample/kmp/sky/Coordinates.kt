@@ -283,6 +283,9 @@ fun angleBetweenDeg(a: Vec3, b: Vec3): Double = acos((a dot b).coerceIn(-1.0, 1.
 /** 横 fovDeg が幅 w に収まるときの倍率。r = 2 tan(θ/2) の θ = fov/2 が w/2 に来る */
 fun projectionScale(w: Int, fovDeg: Double): Double = (w / 2.0) / (2.0 * tan(fovDeg * RAD / 4.0))
 
+/** 高度を ±90° に収める。オフセットの足し込みで天頂・天底を越えたときの保険 */
+fun clampAltDeg(deg: Double): Double = deg.coerceIn(-90.0, 90.0)
+
 /** 角度の差を -180..180 に畳む。ヨーが ±180 で折り返すので、差分を取るときは必ず通す */
 fun normalizeDeg(deg: Double): Double {
     var v = deg % 360.0

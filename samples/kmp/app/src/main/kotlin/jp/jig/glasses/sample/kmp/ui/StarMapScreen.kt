@@ -140,6 +140,7 @@ import jp.jig.glasses.sample.kmp.sky.GUIDANCE_CONFIRMATION_MS
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_LOW_ALTITUDE_DEG
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MIN_DELAY_MS
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MS
+import jp.jig.glasses.sample.kmp.sky.GUIDANCE_TIMEOUT_MS
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceEvent
 import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
@@ -177,6 +178,7 @@ import jp.jig.glasses.sample.kmp.sky.bodiesUp
 import jp.jig.glasses.sample.kmp.sky.bodyGuidanceTargets
 import jp.jig.glasses.sample.kmp.sky.bodyAltAz
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.sky.clampAltDeg
 import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
 import jp.jig.glasses.sample.kmp.sky.guidanceUnavailableMessage
 import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
@@ -197,6 +199,7 @@ import jp.jig.glasses.sample.kmp.support.AskHistory
 import jp.jig.glasses.sample.kmp.glass.BundledData
 import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
 import jp.jig.glasses.sample.kmp.support.NightRecord
+import jp.jig.glasses.sample.kmp.support.SECOND_MILLIS
 import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
@@ -850,7 +853,7 @@ fun StarMapScreen(
 
     fun look(): Look = Look(
         azimuthFromYaw(yawNow(), headingOffset),
-        (glassPitch + pitchOffset).coerceIn(-90.0, 90.0),
+        clampAltDeg(glassPitch + pitchOffset),
     )
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
@@ -859,7 +862,7 @@ fun StarMapScreen(
         val entry = lookHistory.lastOrNull { it.first <= target } ?: return look()
         return Look(
             (normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0,
-            (entry.third + pitchOffset).coerceIn(-90.0, 90.0),
+            clampAltDeg(entry.third + pitchOffset),
         )
     }
 
@@ -2719,7 +2722,7 @@ fun StarMapScreen(
                 GuidanceEvent.TIMED_OUT -> {
                     guidanceOutcomes.trySend(GuidanceEvent.TIMED_OUT)
                     stopGuidance(
-                        "案内終了: ${target.nameJa}を60秒で見つけられない",
+                        "案内終了: ${target.nameJa}を${GUIDANCE_TIMEOUT_MS / SECOND_MILLIS}秒で見つけられない",
                         // ガイド中は次の段へ続くので、「終了します」と言い切らない
                         if (guideProgress == null) "案内を終了します。" else null,
                         fromLoop = true,
