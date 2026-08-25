@@ -55,17 +55,23 @@
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
-| `glass/GuidanceOverlay.kt` | 天体案内の64px矢印と到着リング。**全画面を送らず、この小画像だけ約10Hzで替える**（#46） |
+| `glass/GuidanceIndicator.kt` | 天体案内の矢印・到着リングの共通形状。グラスとスマホのプレビューを同じ向き・比率にする（#61） |
+| `glass/GuidanceOverlay.kt` / `GuidanceOverlaySender.kt` | 共通形状を小画像へ焼き（左右120×56・上下56×120・到着80×80）、**全画面を送らず、この小画像だけ替える**。**枠が変わるときは先に消す**（#46・#61） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
-| `sky/CelestialGuidance.kt` | 案内要求の固定ルール、5°/8°の到着ヒステリシス、60秒の状態遷移（#46） |
+| `sky/CelestialGuidance.kt` | 案内対象と、案内要求を取り出す固定ルール（#46） |
+| `sky/GuidanceTracker.kt` | 左右→上下の段階、5°/8°のヒステリシス、到着と60秒の状態遷移（#46・#61） |
+| `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時刻のつまみの位置もここで出す**（#45） |
+| `sky/Timelapse.kt` | 時代を送る途中の空。**年だけを補間**し、月日と時刻は目的地に固定する（#45） |
+| `glass/TimelapseSender.kt` | 240×160 の窓を**画像 id 2 枚で交互に**送る。**置いてから消す**ので途中が空にならない（#45） |
+| `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
-| `narration/SkyTips.kt` | ダブルタップの一口メモ。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `narration/SkyTips.kt` | 読み込み画面の一言。**通信も生成も要らない**（時刻と場所から端末が組む） |
 | `guide/StarGuide.kt` | 台本の形と JSON。**方角は持たせない**（再生時に引き直す） |
 | `guide/GuidePlan.kt` | 台本をいまの空へ突き合わせる。**出ていない星座を飛ばす** |
 | `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |

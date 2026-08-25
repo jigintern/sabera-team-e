@@ -1,7 +1,6 @@
 package jp.jig.glasses.sample.kmp.sky
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -112,52 +111,6 @@ class CelestialGuidanceTest {
             GuidanceRequest.MultipleTargets,
             GuidanceRequestParser.parse("りゅうこつ座とりゅう座はどこ", listOf(dragon, keel)),
         )
-    }
-
-    @Test
-    fun `上と右を向く矢印の角度を画面基準で返す`() {
-        val session = GuidanceSession(orion, 0L)
-        val up = session.update(Look(120.0, 20.0), Look(120.0, 40.0), 0.0, 100L)
-        val right = session.update(Look(100.0, 40.0), Look(120.0, 40.0), 0.0, 100L)
-
-        assertEquals(0.0, up.frame.arrowClockwiseDeg, 0.1)
-        assertTrue(right.frame.arrowClockwiseDeg in 80.0..100.0)
-    }
-
-    @Test
-    fun `五度以内へ半秒留まると到着する`() {
-        var session = GuidanceSession(orion, 0L)
-        val first = session.update(Look(116.0, 40.0), orion.aim, 0.0, 100L)
-        session = requireNotNull(first.session)
-        assertFalse(first.frame.arrived)
-
-        val arrived = session.update(Look(116.0, 40.0), orion.aim, 0.0, 600L)
-        assertEquals(GuidanceEvent.ARRIVED, arrived.event)
-        assertTrue(arrived.frame.arrived)
-    }
-
-    @Test
-    fun `到着後八度を超えたら案内へ戻る`() {
-        val arrived = GuidanceSession(orion, 0L, withinArrivalSinceMillis = 0L, arrivedAtMillis = 600L)
-        // 同じ高度では方位差が球面上で縮むため、12°離して角距離8°超を作る。
-        val resumed = arrived.update(Look(108.0, 40.0), orion.aim, 0.0, 700L)
-
-        assertEquals(GuidanceEvent.NONE, resumed.event)
-        assertFalse(resumed.frame.arrived)
-        assertNull(requireNotNull(resumed.session).arrivedAtMillis)
-    }
-
-    @Test
-    fun `到着表示は三秒で終わり案内全体は六十秒で終わる`() {
-        val arrived = GuidanceSession(orion, 0L, withinArrivalSinceMillis = 0L, arrivedAtMillis = 600L)
-        assertEquals(
-            GuidanceEvent.COMPLETED,
-            arrived.update(orion.aim, orion.aim, 0.0, 3_600L).event,
-        )
-
-        val timedOut = GuidanceSession(orion, 0L).update(Look(0.0, 0.0), orion.aim, 0.0, 60_000L)
-        assertEquals(GuidanceEvent.TIMED_OUT, timedOut.event)
-        assertNull(timedOut.session)
     }
 
     @Test

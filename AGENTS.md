@@ -36,6 +36,7 @@
 | 人工衛星（軌道・選定・描き方） | [08_satellites.md](docs/team-e/08_satellites.md) / [09_satellite-drawing.md](docs/team-e/09_satellite-drawing.md) |
 | **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
 | **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
+| **星空の再現**（場所・日時の指定・時間再生） | [17_sky-simulation.md](docs/team-e/17_sky-simulation.md) |
 | **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
 | **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
 | 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |

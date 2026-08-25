@@ -9,6 +9,15 @@ import org.junit.Test
 class GlassTextPageTest {
 
     @Test
+    fun `場所と日時の確認文が一枚に収まる`() {
+        val page = GlassTextPage.explanation("", "シドニー 2026年8月24日 20:30を表示します")
+
+        assertEquals(0, page.dropped)
+        assertTrue(page.elements.size <= CANVAS_TEXT_SLOTS)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
+    }
+
+    @Test
     fun `1枚がパネルに収まる`() {
         val page = GlassTextPage.explanation("おとめ座 南南西 45°", "あ".repeat(GlassTextPage.headerBodyChars))
 
@@ -102,12 +111,20 @@ class GlassTextPageTest {
 
         val pages = GlassTextPage.pages(header, "これは長い解説の文です。".repeat(8))
 
-        assertEquals("1 枚目に見出しが無い", header, pages.first().elements.first().text)
+        assertEquals("1 枚目に星付きの見出しが無い", "● $header", pages.first().elements.first().text)
         assertEquals("1 枚目の本文が 2 行でない", GlassTextPage.ROWS, pages.first().elements.size)
         for (page in pages.drop(1)) {
             assertEquals("本文が 3 行になっていない", GlassTextPage.BODY_ROWS, page.elements.size)
-            assertTrue("見出しが残っている", page.elements.none { it.text == header })
+            assertTrue("見出しが残っている", page.elements.none { it.text == "● $header" })
         }
+    }
+
+    @Test
+    fun `短い見出しには星の点を添える`() {
+        val page = GlassTextPage.explanation("おとめ座", "春の空に広がります。")
+
+        assertEquals("● おとめ座", page.elements.first().text)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
     }
 
     /**

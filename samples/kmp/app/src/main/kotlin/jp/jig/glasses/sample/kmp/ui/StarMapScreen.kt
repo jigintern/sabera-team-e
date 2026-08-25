@@ -2,17 +2,26 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,8 +44,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
@@ -54,19 +65,22 @@ import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.GUIDANCE_LABEL_SLOTS
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
 import jp.jig.glasses.sample.kmp.glass.GlassPage
+import jp.jig.glasses.sample.kmp.glass.GlassTextArt
 import jp.jig.glasses.sample.kmp.glass.GlassTextPage
 import jp.jig.glasses.sample.kmp.glass.GuidanceHighlight
-import jp.jig.glasses.sample.kmp.glass.GUIDANCE_OVERLAY_IMAGE_ID
-import jp.jig.glasses.sample.kmp.glass.GUIDANCE_OVERLAY_SIZE
+import jp.jig.glasses.sample.kmp.glass.GuidanceOverlaySender
 import jp.jig.glasses.sample.kmp.glass.MeteorRadiantMark
 import jp.jig.glasses.sample.kmp.glass.LabelKind
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.TimelapseWindow
+import jp.jig.glasses.sample.kmp.glass.TimelapseSender
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
@@ -75,12 +89,14 @@ import jp.jig.glasses.sample.kmp.glass.StarMap
 import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
 import jp.jig.glasses.sample.kmp.glass.batched
 import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.glass.clearedCanvasText
 import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
 import jp.jig.glasses.sample.kmp.glass.constellationNames
 import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
 import jp.jig.glasses.sample.kmp.glass.withGuidanceLabel
+import jp.jig.glasses.sample.kmp.glass.withStatusLabel
 import jp.jig.glasses.sample.kmp.guide.GuidePhase
 import jp.jig.glasses.sample.kmp.guide.GuidePlan
 import jp.jig.glasses.sample.kmp.guide.GuideProgress
@@ -107,13 +123,24 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceRequestParser
 import jp.jig.glasses.sample.kmp.sky.GuidanceSession
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import jp.jig.glasses.sample.kmp.sky.ObservationMode
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
+import jp.jig.glasses.sample.kmp.sky.PendingSkyRequest
+import jp.jig.glasses.sample.kmp.sky.SkyCommand
+import jp.jig.glasses.sample.kmp.sky.SkyCommandParser
+import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
+import jp.jig.glasses.sample.kmp.sky.SkyPlace
+import jp.jig.glasses.sample.kmp.sky.SkyPresets
+import jp.jig.glasses.sample.kmp.sky.Timelapse
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
+import jp.jig.glasses.sample.kmp.sky.allowsSatellites
+import jp.jig.glasses.sample.kmp.sky.allowsSolarSystemBodies
 import jp.jig.glasses.sample.kmp.sky.bodiesInView
 import jp.jig.glasses.sample.kmp.sky.bodiesUp
 import jp.jig.glasses.sample.kmp.sky.bodyGuidanceTargets
@@ -125,6 +152,10 @@ import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
 import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import jp.jig.glasses.sample.kmp.sky.rollFromAccel
+import jp.jig.glasses.sample.kmp.sky.scrubOffsetHours
+import jp.jig.glasses.sample.kmp.sky.scrubOffsetLabel
+import jp.jig.glasses.sample.kmp.sky.scrubTargetMillis
+import jp.jig.glasses.sample.kmp.sky.snapshot
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.update
@@ -135,6 +166,7 @@ import jp.jig.glasses.sample.kmp.support.BundledData
 import jp.jig.glasses.sample.kmp.support.NightRecord
 import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
+import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
@@ -153,8 +185,11 @@ import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
 import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
+import jp.jig.glasses.sample.kmp.ui.component.SkyConditionSettings
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
 import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
+import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
+import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
@@ -175,7 +210,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
-import java.util.Calendar
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
@@ -272,6 +308,61 @@ fun StarMapScreen(
             )
         }
     }
+
+    // 現在地の更新先と、表示に使う場所・時刻を分ける。GPSが届いてもシミュレーションを解除しない。
+    var observationMode by remember { mutableStateOf<ObservationMode>(ObservationMode.Live) }
+    var observationRevision by remember { mutableStateOf(0) }
+    var simulationCityText by remember { mutableStateOf("シドニー") }
+    // ふだんは選ぶだけ。数字の欄は「細かく指定する」を開いたときだけ
+    var simulationPlace by remember { mutableStateOf(SkyPresets.defaultPlace) }
+    var simulationEra by remember { mutableStateOf(SkyPresets.defaultEra) }
+    var simulationTime by remember { mutableStateOf(SkyPresets.defaultTime) }
+    var simulationDetailed by remember { mutableStateOf(false) }
+    // つまみの位置。**離すまで空へは反映しない**（1 枚 332〜390ms かかるので追いつかない）
+    /**
+     * つまみの基準時刻。**条件を切り替えたときの時刻**で、動かしても変わらない。
+     *
+     * ここが動くと、つまみの位置が毎回 0 に戻ってしまう（**動かしたのに戻る**）。
+     */
+    var scrubAnchorMillis by remember { mutableStateOf<Long?>(null) }
+
+    /** つまんでいる最中だけ入る値。離したら null に戻し、**実際の時刻から位置を出す** */
+    var scrubbingHours by remember { mutableStateOf<Float?>(null) }
+    var simulationEraText by remember { mutableStateOf("") }
+    var simulationDateText by remember { mutableStateOf("") }
+    var simulationTimeText by remember { mutableStateOf("20:30") }
+    var simulationMessage by remember { mutableStateOf<String?>(null) }
+
+    fun observationSnapshot(nowMillis: Long = System.currentTimeMillis()): ObservationSnapshot =
+        observationMode.snapshot(
+            liveSite = site,
+            nowMillis = nowMillis,
+            liveZoneId = ZoneId.systemDefault(),
+            livePlaceLabel = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
+        )
+
+    /** 都市を言わなかったときに使う、いまいる場所。**時代だけ変えたい人に都市を言わせない** */
+    fun livePlace(): SkyPlace = SkyPlace(
+        site = site,
+        zoneId = ZoneId.systemDefault(),
+        nameJa = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
+    )
+
+    /** 適用する前に「その条件で何を出せるか」を見るための仮の観測条件。 */
+    fun observationSnapshotFor(place: SkyPlace, epochMillis: Long): ObservationSnapshot =
+        ObservationMode.Simulation.fromPlace(place, epochMillis)
+            .snapshot(liveSite = site, nowMillis = epochMillis)
+
+    /** 時代を送っている最中か。**`SINGLE_TAP` は「元に戻る」＝即着地**になる（#45） */
+    var timelapsePlaying by remember { mutableStateOf(false) }
+
+    /** タイムラプスの打ち切り。古い合図を溜めないよう 1 件だけ持つ */
+    val timelapseSkips = remember { Channel<Unit>(Channel.CONFLATED) }
+    val timelapseSender = remember { TimelapseSender(commandManager) }
+
+    /** 聞き返して持ち越している条件。**次の `HOLD` の答えと合流させる**（#45） */
+    var pendingSkyRequest by remember { mutableStateOf<PendingSkyRequest?>(null) }
+    var pendingSkyRequestAt by remember { mutableStateOf(0L) }
 
     val locator = remember { Locator(context) }
     var locateNow by remember { mutableStateOf(0) }
@@ -390,26 +481,12 @@ fun StarMapScreen(
     var drawnLook by remember { mutableStateOf<Look?>(null) }
     var drawnFov by remember { mutableStateOf(0.0) }
 
-    /**
-     * 今夜の流星群。**選ぶのはここ 1 か所**（星図の印も一口メモも同じものを見る）。
-     *
-     * 日付でしか変わらないので、画面に入ったとき 1 回決めれば足りる。
-     */
-    var shower by remember { mutableStateOf<MeteorShowers.Shower?>(null) }
-    var showerNearPeak by remember { mutableStateOf(false) }
+    /** 流星群は指定都市の日付で選び直すため、一覧だけを保持する。 */
+    var showerCatalog by remember { mutableStateOf(MeteorShowers.empty) }
     LaunchedEffect(Unit) {
-        val clock = Calendar.getInstance()
-        val month = clock.get(Calendar.MONTH) + 1
-        val day = clock.get(Calendar.DAY_OF_MONTH)
         val startedAt = System.currentTimeMillis()
-        val catalog = BundledData.showers(context)
+        showerCatalog = BundledData.showers(context)
         log("流星群を読み込んだ（${System.currentTimeMillis() - startedAt}ms）")
-        val today = catalog.today(month, day)
-        shower = today
-        showerNearPeak = today != null && catalog.nearPeak(today, month, day)
-        if (today != null) {
-            log("今夜の流星群: ${today.nameJa}（極大まで ${today.daysToPeak(month, day)} 日）")
-        }
     }
 
     // 10,748 機ぶんあるので IO で読む（[BundledData] が 1 回だけ読む）。
@@ -429,11 +506,13 @@ fun StarMapScreen(
 
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
+    var lastMapObservation by remember { mutableStateOf<ObservationSnapshot?>(null) }
     // 解説の根拠は**その絵を焼いた視線**から作る。いまの視線で作り直すと、
     // グラスに出ている絵と食い違う（[drawnLook] は「送れた」絵の視線なので別に持つ）
     var lastMapLook by remember { mutableStateOf<Look?>(null) }
     // 解説の根拠（月・惑星）にそのまま渡すぶん。**絵と根拠を別に計算しない**
     var bodiesShown by remember { mutableStateOf<List<SkyBodyMark>>(emptyList()) }
+    var satellitesSuppressedForSimulation by remember { mutableStateOf(false) }
     var renderMs by remember { mutableStateOf(0L) }
     // 画像の分割送信にかかる見積り。追従の間隔をこれに合わせる
     var transferMs by remember { mutableStateOf(1000L) }
@@ -557,10 +636,11 @@ fun StarMapScreen(
 
     // 空の暗さ。**BGM の曲がこれで決まる**（時計だと同じ 19 時が夏と冬で違う空になる）。
     // 星や衛星の一覧はスマホに出さないので、ここで測るのは太陽高度だけ
-    LaunchedEffect(latText, lonText) {
+    LaunchedEffect(latText, lonText, observationRevision) {
         while (true) {
+            val observation = observationSnapshot()
             val altitude = withContext(Dispatchers.Default) {
-                sunAltitudeDeg(site, System.currentTimeMillis())
+                sunAltitudeDeg(observation.site, observation.epochMillis)
             }
             skyDarkness = SkyDarkness.of(altitude)
             delay(SKY_DARKNESS_REFRESH_MS)
@@ -570,6 +650,9 @@ fun StarMapScreen(
     // 送信は呼び出しから見ると積むだけで終わる。転送しきる前に次を入れると順番待ちが伸びるので、
     // 見積り時間ぶんは次を入れずに捨てる
     val sendGate = remember { Mutex() }
+    val guidanceOverlaySender = remember(commandManager, sendGate, packetMs) {
+        GuidanceOverlaySender(commandManager, sendGate, packetMs.toLong())
+    }
 
     /**
      * 入ってきた時点でグラスを白紙に戻す。
@@ -633,6 +716,9 @@ fun StarMapScreen(
 
     /** マイクの音の大きさ（0..1）。スマホ側に出して「聞こえている」ことを見せる */
     var micLevel by remember { mutableStateOf(0f) }
+
+    /** 声として拾えたか。**スマホとグラスで同じことを言う** */
+    var micHeard by remember { mutableStateOf(false) }
 
     fun applyBrightness(level: Int, auto: Boolean = false) {
         // スライダーを動かしたら手動。**空の暗さで合わせた値を、触ったあとに戻さない**
@@ -701,9 +787,14 @@ fun StarMapScreen(
      * 放射点は **J2000 の赤経・赤緯**で持っている（星表と同じ座標系）。
      * **星図の印と一口メモがここを共有する**ので、印の場所と喋る方角が食い違わない。
      */
-    fun radiantAltAz(target: MeteorShowers.Shower, atMillis: Long): DoubleArray {
-        val lst = localSiderealDeg(daysFromJ2000(atMillis), site.lonDeg)
-        return toApparentAltAz(target.raDeg, target.decDeg, lst, site.latDeg)
+    fun showerAt(observation: ObservationSnapshot): MeteorShowers.Shower? {
+        val local = Instant.ofEpochMilli(observation.epochMillis).atZone(observation.zoneId)
+        return showerCatalog.today(local.monthValue, local.dayOfMonth)
+    }
+
+    fun radiantAltAz(target: MeteorShowers.Shower, observation: ObservationSnapshot): DoubleArray {
+        val lst = localSiderealDeg(daysFromJ2000(observation.epochMillis), observation.site.lonDeg)
+        return toApparentAltAz(target.raDeg, target.decDeg, lst, observation.site.latDeg)
     }
 
     fun look(): Look = Look(
@@ -734,45 +825,63 @@ fun StarMapScreen(
         try {
             val started = System.currentTimeMillis()
             val now = System.currentTimeMillis()
+            // 場所と時刻を1回だけ取り、星・月惑星・衛星・流星群・解説の根拠まで同じ値で通す。
+            val observation = observationSnapshot(now)
             // **1 枚のあいだ向きを変えない。** ここで look() を呼び直すと、
             // 星・衛星・月惑星・ラベルがそれぞれ違う瞬間の視線で計算される
             val target = aim ?: look()
             val scene = satellites
+            val satelliteAgeDays = scene?.elementAgeDays(observation.epochMillis)
+            val satellitesReliable = observation.allowsSatellites(satelliteAgeDays)
+            satellitesSuppressedForSimulation = showSatellites && !satellitesReliable
             // **名前つき、しかも名前で分かるものだけを重ねる。** スターリンクの群れも、
             // 地球観測衛星（だいち・いぶき・しきさい…）も、初心者には名前が手がかりにならない。
             // 測位（GPS・みちびき・ガリレオ）と ISS・ひまわり・ハッブルに絞る
-            val tracks = if (showSatellites && scene != null) {
+            val tracks = if (showSatellites && satellitesReliable && scene != null) {
                 withContext(Dispatchers.Default) {
-                    val observer = Observer(site.latDeg, site.lonDeg)
-                    scene.tracksInView(observer, now, target, fov.toDouble(), maxStarlink = 0)
+                    val observer = Observer(observation.site.latDeg, observation.site.lonDeg)
+                    scene.tracksInView(
+                        observer,
+                        observation.epochMillis,
+                        target,
+                        fov.toDouble(),
+                        maxStarlink = 0,
+                    )
                         .filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
                         .take(MAX_SATELLITES_IN_VIEW)
                 }
             } else {
                 emptyList()
             }
-            val bodies = withContext(Dispatchers.Default) {
-                bodiesInView(site, now, target, fov.toDouble()).map {
-                    SkyBodyMark(
-                        nameJa = it.nameJa,
-                        azDeg = it.azDeg,
-                        altDeg = it.altDeg,
-                        magnitude = it.magnitude,
-                        moon = it.nameJa == SolarSystemBody.MOON.nameJa,
-                    )
+            // **数世紀より前後は月惑星を描かない。** 恒星は長期歳差で 1 万年まで持つが、
+            // Ephemeris の摂動の級数はそこまで作られていない。衛星と同じ扱いで、
+            // もっともらしい嘘の月を空に置かない（#45）
+            val bodies = if (!observation.allowsSolarSystemBodies()) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.Default) {
+                    bodiesInView(observation.site, observation.epochMillis, target, fov.toDouble()).map {
+                        SkyBodyMark(
+                            nameJa = it.nameJa,
+                            azDeg = it.azDeg,
+                            altDeg = it.altDeg,
+                            magnitude = it.magnitude,
+                            moon = it.nameJa == SolarSystemBody.MOON.nameJa,
+                        )
+                    }
                 }
             }
             // 放射点の印。**その日に活動している群があるときだけ**（無い日は何も増えない）
-            val radiants = shower?.let {
-                val aa = radiantAltAz(it, now)
+            val radiants = showerAt(observation)?.let {
+                val aa = radiantAltAz(it, observation)
                 listOf(MeteorRadiantMark(it.nameJa, aa[0], aa[1]))
             }.orEmpty()
             suspend fun renderAt(w: Int, h: Int) = withContext(Dispatchers.Default) {
                 val guidance = guidanceSession
                 val frame = guidanceFrame
                 r.render(
-                    site = site,
-                    epochMillis = now,
+                    site = observation.site,
+                    epochMillis = observation.epochMillis,
                     look = target,
                     fovDeg = fov.toDouble(),
                     limitMagnitude = density.limitMagnitude,
@@ -781,7 +890,12 @@ fun StarMapScreen(
                     // 星座線と星座名は切れるようにしていない。**線が無いと星座に見えず、
                     // 名前が無いと解説の主役も決まらない**（主役はラベルの先頭・#37）
                     drawLines = true,
-                    maxLabels = CANVAS_TEXT_SLOTS - if (guidance == null) 0 else 1,
+                    // 案内名（2 枠）と再現ラベル（1 枠）は**あとから先頭へ差し込む**ので、
+                    // そのぶん先に空ける。空けずに詰めると、8 枠を超えたぶんが
+                    // 押し出されて**先頭＝いちばん消えてはいけない文字から消える**
+                    maxLabels = CANVAS_TEXT_SLOTS -
+                        (if (guidance == null) 0 else GUIDANCE_LABEL_SLOTS) -
+                        (if (observation.simulation) 1 else 0),
                     tracks = tracks,
                     drawStars = true,
                     drawFigures = showFigures,
@@ -806,41 +920,49 @@ fun StarMapScreen(
             }
             // **上限いっぱいで描く。** 入るかどうかは空の濃さと向きで変わるので、
             // 送る前に同じ式で数えて、溢れたときだけ標準サイズへ落とす
-            var map = renderAt(
-                if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_WIDTH else STAR_MAP_WIDTH,
-                if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
+            fun withObservationStatus(map: StarMap): StarMap {
+                if (!observation.simulation) return map
+                return map.withStatusLabel(observation.shortLabel())
+            }
+
+            var map = withObservationStatus(
+                renderAt(
+                    if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_WIDTH else STAR_MAP_WIDTH,
+                    if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
+                ),
             )
             if (useMaxSize && map.canvasBufferUsageBytes() > CANVAS_IMAGE_BUFFER_BYTES) {
                 useMaxSize = false
                 log("${STAR_MAP_MAX_WIDTH}×${STAR_MAP_MAX_HEIGHT} では入らないので落とす")
-                map = renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT)
+                map = withObservationStatus(renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT))
             }
             guidanceSession?.let { guidance ->
-                map = map.withGuidanceLabel(
-                    guidance.target.nameJa,
-                    guidanceFrame?.arrived == true,
-                    // ガイド中は**声で言った方角を文字にも残す**。声で頼んだ案内は
-                    // 「案内中」のまま（自分で名前を言った直後なので、方角だけが要る）
-                    where = guideProgress?.let { ImpromptuGuide.where(guidance.target) },
-                )
+                guidanceFrame?.let { frame ->
+                    map = map.withGuidanceLabel(
+                        frame,
+                        // ガイド中は**声で言った方角を文字にも残す**。声で頼んだ案内は
+                        // 「案内中」のまま（自分で名前を言った直後なので、方角だけが要る）
+                        where = guideProgress?.let { ImpromptuGuide.where(guidance.target) },
+                    )
+                }
             }
             renderMs = System.currentTimeMillis() - started
             bodiesShown = bodies
             lastMap = map
             lastMapLook = target
+            lastMapObservation = observation
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
             val compressed = map.compressedSizeBytes()
-            val overlayUsage = if (guidanceSession == null) {
-                0
-            } else {
-                val overlay = guidanceOverlay(
-                    guidanceFrame ?: GuidanceFrame(
-                        guidanceSession!!.target.nameJa, 180.0, 0.0, near = false, arrived = false,
-                    ),
-                )
-                GUIDANCE_OVERLAY_SIZE * GUIDANCE_OVERLAY_SIZE * 2 + overlay.compressedBytes
+            var overlayUsage = guidanceFrame?.let { guidanceOverlay(it).bufferUsageBytes } ?: 0
+            // **溢れるなら星図より矢印を捨てる。** 矢印が消えても文字の案内（「左へ 32°」）は
+            // 残るが、星図が出なければ何も分からない。星が多い空ほど圧縮後が膨らむので、
+            // ここに来るのは案内中のいちばん濃い空だけ
+            if (overlayUsage > 0 && map.canvasBufferUsageBytes() + overlayUsage > CANVAS_IMAGE_BUFFER_BYTES) {
+                log("バッファが足りないので案内表示を外して星図を通す")
+                runCatching { guidanceOverlaySender.removeWhileLocked() }
+                overlayUsage = 0
             }
             val used = map.canvasBufferUsageBytes() + overlayUsage
             transferMs = ((compressed + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES) * packetMs.toLong()
@@ -881,6 +1003,7 @@ fun StarMapScreen(
             val l = target
             log(
                 "送信 方位${l.azDeg.roundToInt()}° 高度${l.altDeg.roundToInt()}° " +
+                    (if (observation.simulation) "${observation.shortLabel()} " else "") +
                     (if (aim == null) "" else "先出し ") +
                     (if (tracks.isEmpty()) "" else "衛星${tracks.size}機 ") +
                     (if (bodies.isEmpty()) "" else bodies.joinToString("・") { it.nameJa } + " ") +
@@ -963,6 +1086,7 @@ fun StarMapScreen(
     LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, guidanceRevision) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
+        var renderedObservationRevision = -1
         var previous = look()
         var movedAt = 0L
         /** 先出しした時刻。**首を振り続けている間に何枚も先出ししない**ための間隔 */
@@ -991,11 +1115,13 @@ fun StarMapScreen(
             // **首を傾けただけでも描き直す。** 方位も高度も動かないので、
             // ここを見ないと地平線が傾いたまま残る
             val rolled = abs(normalizeDeg(glassRoll - drawnRoll))
-            if (settled && (drift > REDRAW_DEG || rolled > REDRAW_ROLL_DEG)) {
+            val observationChanged = renderedObservationRevision != observationRevision
+            if (settled && (observationChanged || drift > REDRAW_DEG || rolled > REDRAW_ROLL_DEG)) {
                 // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
                 // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
                 drawAndSend()?.let {
                     drawn = it
+                    renderedObservationRevision = observationRevision
                     predictedAt = 0L
                 }
             } else if (
@@ -1005,7 +1131,10 @@ fun StarMapScreen(
                 // **止まる先へ 1 枚。** 行き過ぎるより届かないほうが安全なので割り引く
                 val aim = headMotion.predict(now, transferMs + SETTLE_MS, PREDICT_DAMPING)
                 predictedAt = System.currentTimeMillis()
-                drawAndSend(aim)?.let { drawn = it }
+                drawAndSend(aim)?.let {
+                    drawn = it
+                    renderedObservationRevision = observationRevision
+                }
             }
             delay(POLL_MS)
         }
@@ -1069,18 +1198,28 @@ fun StarMapScreen(
         val baseLook = drawnLook ?: return
         val map = lastMap ?: return
         if (!showSatellites) return
+        // シミュレーションでは時刻の刻みごとに全体を描き直す。実時間で印だけ動かすと食い違う。
+        if (observationMode is ObservationMode.Simulation) return
         // 解説画面の枠を衛星の印で上書きしない
         if (glassPage != GlassPage.STAR_MAP) return
         // 画像を送っている最中なら邪魔しない。次の機会に送ればよい
         if (!sendGate.tryLock()) return
         try {
             val now = System.currentTimeMillis()
+            val observation = observationSnapshot(now)
+            if (observation.simulation) return
             val moved = withContext(Dispatchers.Default) {
-                val observer = Observer(site.latDeg, site.lonDeg)
+                val observer = Observer(observation.site.latDeg, observation.site.lonDeg)
                 // 輪郭は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
                 // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない。
                 // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）
-                val fresh = scene.tracksInView(observer, now, baseLook, drawnFov, maxStarlink = 0)
+                val fresh = scene.tracksInView(
+                    observer,
+                    observation.epochMillis,
+                    baseLook,
+                    drawnFov,
+                    maxStarlink = 0,
+                )
                 r.trackLabels(
                     baseLook, drawnFov, map.width, map.height, fresh, showFigures, drawnRoll,
                 )
@@ -1195,11 +1334,15 @@ fun StarMapScreen(
      */
     LaunchedEffect(glassPage) {
         if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
-        // 文字を置く前に星図を消す。逆にすると、消えるまでのあいだ文字が星図に重なる
+        // **前の星座名を先に消す。** 質問は見出しを出さないので、最初の途中経過が届くまで
+        // 星図のテキスト枠を残すと、画像だけ消えた画面に関係のない星座名が浮いて見える。
+        // 8枠96バイトなら1電文なので、差分を待たず画面切り替え時に全部掃除する。
         sendGate.withLock {
             withContext(NonCancellable) {
+                runCatching { commandManager.sendCanvasElements(clearedCanvasText()) }
+                    .onSuccess { shownElements = emptyList() }
                 runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
-                runCatching { commandManager.removeCanvasImage(GUIDANCE_OVERLAY_IMAGE_ID) }
+                runCatching { guidanceOverlaySender.removeWhileLocked() }
             }
         }
         narrator.state.collectLatest { state ->
@@ -1297,9 +1440,12 @@ fun StarMapScreen(
         // すぐ終わるなら出さない。2 回目以降は [BundledData] が覚えているので一瞬で抜ける
         delay(LOADING_GRACE_MS)
 
-        val observedAt = System.currentTimeMillis()
+        val observation = observationSnapshot()
         // 衛星のパスは渡さない。**軌道要素はまだ読んでいる最中**なので待たせられない
-        val tip = SkyTips.of(tonightSky(context, site, observedAt), tipIndex)
+        val tip = SkyTips.of(
+            tonightSky(context, observation.site, observation.epochMillis, observation.zoneId),
+            tipIndex,
+        )
         tipIndex++
         log("読み込み中: ${tip.header}を出す")
 
@@ -1399,6 +1545,7 @@ fun StarMapScreen(
     // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
     LaunchedEffect(lastMap, bodiesShown, lore.value) {
         val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
+        val observation = lastMapObservation ?: return@LaunchedEffect
         // **名乗りだけでなく解説の全文を作っておく。** ここを名乗りだけにしていたとき、
         // 圏外では「いて座ですね」が AI の声、続く解説が端末の読み上げになり、
         // **1 回の解説で声が入れ替わって聞こえた**（2026-08-22 実機）
@@ -1411,9 +1558,9 @@ fun StarMapScreen(
             altDeg = 0.0,
             azDeg = 0.0,
             constellations = listOf(name),
-            latDeg = site.latDeg,
-            lonDeg = site.lonDeg,
-            localTime = "",
+            latDeg = observation.site.latDeg,
+            lonDeg = observation.site.lonDeg,
+            localTime = observation.fullTimeLabel(),
             visibleBodies = bodies,
         )
         val script = Narrator.script(name, lore.value.of(name), warmInput)
@@ -1432,7 +1579,6 @@ fun StarMapScreen(
     }
 
     var narrationJob by remember { mutableStateOf<Job?>(null) }
-    val timestamp = remember { SimpleDateFormat("yyyy-MM-dd HH:mm z", Locale.JAPAN) }
 
     /**
      * 解説と質問はここから走らせる。**取りこぼした例外でアプリを終わらせない。**
@@ -1457,20 +1603,34 @@ fun StarMapScreen(
         }
     }
 
-    /** 「ふつう」の星図で名前を持つものだけを、現在地・現在時刻の案内候補にする。 */
-    suspend fun guidanceTargetsAt(epochMillis: Long): List<GuidanceTarget> = withContext(Dispatchers.Default) {
-        val observer = Observer(site.latDeg, site.lonDeg)
+    /**
+     * 「ふつう」の星図で名前を持つものだけを案内候補にする。
+     *
+     * **候補はいま描いている空から採る。** 再現中に現在地・現在時刻で引くと、
+     * グラスには 1 万年前のシドニーの空が出ているのに「いまの鯖江ではそこ」と案内してしまう
+     * （絵と根拠を別々に計算する・#37 と同じ壊れ方）。
+     */
+    suspend fun guidanceTargetsAt(
+        observation: ObservationSnapshot,
+    ): List<GuidanceTarget> = withContext(Dispatchers.Default) {
+        val where = observation.site
+        val epochMillis = observation.epochMillis
+        val observer = Observer(where.latDeg, where.lonDeg)
         buildList {
-            renderer?.let { addAll(it.guidanceTargets(site, epochMillis, SkyDensity.STANDARD)) }
-            addAll(bodyGuidanceTargets(site, epochMillis))
-            if (showSatellites) {
-                satellites?.let { scene ->
-                    addAll(
-                        scene.guidanceTargets(observer, epochMillis) { name ->
-                            NOTABLE_SATELLITES.any { name.startsWith(it) }
-                        },
-                    )
-                }
+            renderer?.let { addAll(it.guidanceTargets(where, epochMillis, SkyDensity.STANDARD)) }
+            // 描いていない月惑星・衛星へ案内しない。**矢印の先に何も無い**ことになる
+            if (observation.allowsSolarSystemBodies()) {
+                addAll(bodyGuidanceTargets(where, epochMillis))
+            }
+            val scene = satellites
+            if (showSatellites && scene != null &&
+                observation.allowsSatellites(scene.elementAgeDays(epochMillis))
+            ) {
+                addAll(
+                    scene.guidanceTargets(observer, epochMillis) { name ->
+                        NOTABLE_SATELLITES.any { name.startsWith(it) }
+                    },
+                )
             }
         }
     }
@@ -1496,11 +1656,7 @@ fun StarMapScreen(
         // ここで流しておかないと、進行役が到着を待ったまま止まる
         if (!fromLoop && guideProgress != null) guidanceOutcomes.trySend(GuidanceEvent.NONE)
         scope.launch {
-            sendGate.withLock {
-                withContext(NonCancellable) {
-                    runCatching { commandManager.removeCanvasImage(GUIDANCE_OVERLAY_IMAGE_ID) }
-                }
-            }
+            runCatching { guidanceOverlaySender.remove() }
         }
     }
 
@@ -1530,7 +1686,7 @@ fun StarMapScreen(
         }
 
         val now = System.currentTimeMillis()
-        val initial = GuidanceSession(target, now).update(look(), target.aim, glassRoll, now)
+        val initial = GuidanceSession(target, now).update(look(), target.aim, now)
         guidanceSession = initial.session
         guidanceFrame = initial.frame
         guidanceRevision++
@@ -1634,9 +1790,8 @@ fun StarMapScreen(
         stopGuide("前のガイドを終了")
         guideIndex = 0
         guideJob = launchNarration("ガイド", guide.title) {
-            val observedAt = System.currentTimeMillis()
             // **台本は星座名しか持っていない。** どちらに何度で見えるかはいま引き直す
-            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observedAt))
+            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observationSnapshot()))
             for (skipped in resolved.filterNot { it.playable }) {
                 log("ガイド: ${skipped.step.targetName}を飛ばす（${skipped.skipReason}）")
             }
@@ -1740,7 +1895,10 @@ fun StarMapScreen(
             return
         }
         scope.launch {
-            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(System.currentTimeMillis()))
+            // **進行役とまったく同じ空で見る**（`startGuide` も observationSnapshot を使う）。
+            // 実時刻で見てしまうと、時代や場所を送っている間に
+            // **これから流れるのとは別の空**について警告することになる
+            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observationSnapshot()))
             val skipped = resolved.count { !it.playable }
             if (skipped == 0) {
                 startGuide(guide)
@@ -1748,10 +1906,221 @@ fun StarMapScreen(
             }
             guideMismatch = guide to
                 "この台本は ${formatDateTime(plannedAt)} ごろを想定しています。" +
-                "今夜は ${guide.size} 段のうち $skipped 段が空に出ていません。"
+                "いま出している空では、${guide.size} 段のうち $skipped 段が出ていません。"
         }
     }
 
+    /** 許可済みの操作だけを状態へ反映する。適用前の表示は呼ぶ側が済ませる。 */
+    fun applySkyCommand(command: SkyCommand): String? {
+        fun invalidateSky() {
+            observationRevision++
+            drawnLook = null
+            lastMap = null
+            lastMapLook = null
+            lastMapObservation = null
+            bodiesShown = emptyList()
+        }
+
+        when (command) {
+            is SkyCommand.ShowSky -> {
+                observationMode = ObservationMode.Simulation.fromPlace(command.place, command.epochMillis)
+                val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.place.zoneId)
+                simulationCityText = command.place.nameJa
+                // 適用したら時代の欄は空にする。残すと、次に日付を直しても時代が勝ってしまう
+                simulationEraText = ""
+                // **つまみの基準はここで置き直す。** 条件を変えたら中央から始まってほしい
+                scrubAnchorMillis = command.epochMillis
+                scrubbingHours = null
+                simulationDateText = "%d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
+                simulationTimeText = "%02d:%02d".format(local.hour, local.minute)
+                simulationMessage = buildString {
+                    append(command.place.nameJa).append("の星空を表示中")
+                    val snapshot = observationSnapshotFor(command.place, command.epochMillis)
+                    if (!snapshot.allowsSolarSystemBodies()) {
+                        // **黙って消さない。** 何が出ていないかを言わないと、
+                        // 「月が無い空」を再現の結果だと思い込む
+                        append("（月と惑星は数世紀より前の位置を出せないので描いていません）")
+                    }
+                }
+                invalidateSky()
+                log("シミュレーション開始 ${observationSnapshot().shortLabel()}")
+            }
+
+            SkyCommand.ReturnToLive -> {
+                observationMode = ObservationMode.Live
+                scrubAnchorMillis = null
+                scrubbingHours = null
+                simulationMessage = "現在地・現在時刻へ戻りました"
+                satellitesSuppressedForSimulation = false
+                invalidateSky()
+                log("現在の空に戻した")
+            }
+        }
+        return null
+    }
+
+    /** 転送キューが混んでいても、確認文が実際に届いてから1.5秒置いて適用する。 */
+    suspend fun showCommandConfirmation(text: String) {
+        narrator.progress("", text)
+        // Composeの画面切り替えより先にこのコルーチンが走っても、星図へ文字を重ねない。
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
+            }
+        }
+        // **戻し方をその場で書く。** 「2 回タップで戻る」と知らないと戻れない。
+        // 星図のテキスト枠には出さない（190 バイトを星座名と取り合っているので、
+        // 案内ラベルや星座名を押し出してしまう）
+        sendTextPage(GlassTextPage.explanation("", "$text\n2回タップで今の空へ"))
+        delay(COMMAND_CONFIRM_MS)
+    }
+
+    /**
+     * 時代を送るところを見せる（#45）。
+     *
+     * **全画面ではやらない。** 転送時間の下限は面積 ÷ 32 で決まり、528×330 は真っ黒でも
+     * 231ms かかって 4fps にしかならない。**星を減らしても背景ぶんは減らない**ので、
+     * 精度ではなく枠の大きさで稼ぐ（240×160 で 20fps）。
+     *
+     * 星図は確認表示のときに消えているので、ここでは窓だけを出す。
+     * バッファも星図（348,480）と窓 2 枚（153,600）は同居できない。
+     */
+    suspend fun playTimelapse(fromEpochMillis: Long, target: SkyCommand.ShowSky) {
+        val frames = Timelapse.frames(fromEpochMillis, target.epochMillis, target.place.zoneId)
+        if (frames.isEmpty()) return
+        // 前の打ち切りが残っていると、始まった瞬間に終わる
+        while (timelapseSkips.tryReceive().isSuccess) Unit
+        timelapsePlaying = true
+        log("タイムラプス開始 ${frames.size}枚 → ${SkyCommandParser.yearLabel(frames.last().year)}")
+        try {
+            sendGate.withLock {
+                for (frame in frames) {
+                    if (timelapseSkips.tryReceive().isSuccess) {
+                        log("タップでタイムラプスを打ち切り")
+                        break
+                    }
+                    // **星は描かない。** 流れている間は誰も星を読めないので、
+                    // 年号だけを大きく出したほうが速く、しかも時代が飛んでいることは伝わる。
+                    // テキスト枠では字の大きさを変えられないので画像に焼く
+                    val map = withContext(Dispatchers.Default) {
+                        GlassTextArt.bigLine(
+                            SkyCommandParser.yearLabel(frame.year),
+                            TimelapseWindow.WIDTH,
+                            TimelapseWindow.HEIGHT,
+                        )
+                    }
+                    val waitMs = withContext(NonCancellable) { timelapseSender.show(map) }
+                    // **積まずに待つ。** 送信は呼び出し直後に返るので、待たないと
+                    // 転送が追いつかず古い枚が順番待ちで残る
+                    delay(waitMs)
+                }
+            }
+        } finally {
+            withContext(NonCancellable) { timelapseSender.clear() }
+            timelapsePlaying = false
+        }
+    }
+
+    /**
+     * いま出ている空が、基準時刻から何時間ずれているか。**つまみの位置はここから出す。**
+     *
+     * 別に持った値を離すたびに 0 へ戻していたときは、**動かしてもつまみが中央へ跳ね返って
+     * 「元に戻った」ように見えていた**。実際の時刻から引き直せば、置いた場所に留まるうえ、
+     * 時間送り中はつまみがひとりでに動いて進み具合が見える。
+     */
+    fun timeScrubHours(): Float {
+        val anchor = scrubAnchorMillis ?: return 0f
+        return scrubOffsetHours(anchor, observationSnapshot().epochMillis, TIME_SCRUB_HOURS)
+    }
+
+    /** つまみを離したところの空へ移す。**基準は動かさない。** */
+    fun applyTimeScrub(offsetHours: Float) {
+        val base = scrubAnchorMillis ?: observationSnapshot().epochMillis.also {
+            scrubAnchorMillis = it
+        }
+        val target = scrubTargetMillis(base, offsetHours)
+        val place = (observationMode as? ObservationMode.Simulation)?.let {
+            SkyPlace(it.site, it.zoneId, it.placeLabel)
+        } ?: livePlace()
+        observationMode = ObservationMode.Simulation.fromPlace(place, target)
+        observationRevision++
+        drawnLook = null
+        lastMap = null
+        lastMapLook = null
+        lastMapObservation = null
+        bodiesShown = emptyList()
+        simulationMessage = observationSnapshot().shortLabel()
+    }
+
+    /** 時代が大きく動くときだけ、送るところを見せてから切り替える。 */
+    suspend fun applySkyCommandShowing(command: SkyCommand): String? {
+        if (command is SkyCommand.ShowSky) {
+            playTimelapse(observationSnapshot().epochMillis, command)
+        }
+        return applySkyCommand(command)
+    }
+
+    /** スマホ操作も音声と同じ確認表示と許可済みコマンドを通す。 */
+    fun runPhoneCommand(command: SkyCommand, confirmation: String) {
+        narrationJob?.cancel()
+        narrator.stop()
+        narrator.reset()
+        explanationHeading = ""
+        explanationSpoke = false
+        explanationDropped = 0
+        explanationPaging = false
+        glassPage = GlassPage.EXPLANATION
+        narrationJob = launchNarration("スマホ操作", "") {
+            showCommandConfirmation(confirmation)
+            val error = applySkyCommandShowing(command)
+            if (error != null) {
+                simulationMessage = error
+                narrator.cannotAnswer("", error)
+            } else {
+                leaveGlassExplanation("スマホ操作を適用して星図へ戻る")
+                narrator.reset()
+            }
+        }
+    }
+
+    fun submitSimulationForm() {
+        // **スマホも声とまったく同じ経路を通す。** 別の解釈を 2 つ持つと、
+        // 片方だけ直したときに「スマホでは出せるのに声では出せない」が起きる
+        val raw = if (!simulationDetailed) {
+            SkyPresets.phraseOf(simulationPlace, simulationEra, simulationTime)
+        } else {
+            // **打った欄を優先する。** わざわざ開いて入れた指定を、選んだものが黙って上書きしない
+            val city = simulationCityText.trim().ifEmpty { simulationPlace.phrase }
+            val era = simulationEraText.trim().ifEmpty {
+                if (simulationDateText.isBlank()) simulationEra.phrase else ""
+            }
+            val date = simulationDateText.trim()
+            val time = simulationTimeText.trim().ifEmpty { simulationTime.phrase }
+            buildString {
+                if (city.isNotEmpty()) append(city).append("の")
+                // 時代を入れたら日付より優先する（パーサが「何年前」を先に見る）
+                if (era.isNotEmpty()) {
+                    append(era).append(' ')
+                } else if (date.isNotEmpty()) {
+                    append(date).append(' ')
+                }
+                append(time).append("の空を表示して")
+            }
+        }
+        when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis(), livePlace())) {
+            is SkyCommandResult.Accepted -> {
+                if (parsed.command is SkyCommand.ShowSky) {
+                    runPhoneCommand(parsed.command, parsed.confirmation)
+                } else {
+                    simulationMessage = "対応都市名を入力してください。"
+                }
+            }
+            is SkyCommandResult.Rejected -> simulationMessage = parsed.reason
+            // スマホは欄が見えているので、聞き返さずどこが足りないかを出す
+            is SkyCommandResult.NeedMore -> simulationMessage = parsed.question
+            SkyCommandResult.NotACommand -> simulationMessage = "都市と時刻を確認してください。"
+        }
+    }
 
     fun startNarration() {
         if (guidanceSession != null) {
@@ -1783,18 +2152,25 @@ fun StarMapScreen(
         glassPage = GlassPage.EXPLANATION
 
         narrationJob = launchNarration("解説", shown?.constellationNames()?.firstOrNull().orEmpty()) {
-            val observedAt = System.currentTimeMillis()
+            // 絵を焼いたときの場所・時刻を使う。シミュレーション中に端末の現在へ戻さない。
+            val observation = lastMapObservation ?: observationSnapshot()
             // ラベルは視野中心に近い順に並んでいる。**先頭が主役。**
             // 主役以外は 2 つまで（並べるほどモデルが主役を選び直す余地が増える）
             val shownNames = shown?.constellationNames()?.take(NARRATION_CONSTELLATIONS).orEmpty()
             val (names, visibleStars) = withContext(Dispatchers.Default) {
                 // ラベルが 1 つも出ていない方向（限界等級以内に星が無い）だけ境界表に頼る
-                shownNames.ifEmpty { r.constellationsNear(site, observedAt, basis) } to
-                    r.visibleNamedStars(site, observedAt, basis, fov.toDouble())
+                shownNames.ifEmpty {
+                    r.constellationsNear(observation.site, observation.epochMillis, basis)
+                } to r.visibleNamedStars(
+                    observation.site,
+                    observation.epochMillis,
+                    basis,
+                    fov.toDouble(),
+                )
             }
             // グラスに描いたのと同じ判定で月・惑星を渡す。**絵と根拠を別に作ると食い違う**
             val visibleBodies = withContext(Dispatchers.Default) {
-                bodiesInView(site, observedAt, basis, fov.toDouble())
+                bodiesInView(observation.site, observation.epochMillis, basis, fov.toDouble())
             }
             log(
                 "解説の根拠 主役=%s 方位%d° 高度%d° 名前%d個 絵=%s".format(
@@ -1811,9 +2187,9 @@ fun StarMapScreen(
                     altDeg = basis.altDeg,
                     azDeg = basis.azDeg,
                     constellations = names,
-                    latDeg = site.latDeg,
-                    lonDeg = site.lonDeg,
-                    localTime = timestamp.format(Date()),
+                    latDeg = observation.site.latDeg,
+                    lonDeg = observation.site.lonDeg,
+                    localTime = observation.fullTimeLabel(),
                     visibleStars = visibleStars,
                     visibleBodies = visibleBodies,
                 ),
@@ -1822,7 +2198,7 @@ fun StarMapScreen(
             // 同伴者がスマホを覗いたときには次の星座に変わっている
             val spoken = narrator.state.value
             if (spoken.phase == NarrationPhase.SPEAKING) {
-                NightRecord.add(spoken.constellation, System.currentTimeMillis(), spoken.text)
+                NightRecord.add(spoken.constellation, observation.epochMillis, spoken.text)
             }
         }
     }
@@ -1871,16 +2247,21 @@ fun StarMapScreen(
                 // からなので、喋っている最中に「届いているのか」を返せるのはこれだけ。
                 // 声が小さくて枠が伸びないなら、そのまま黙って待たれるより言い直せる
                 var meterAt = 0L
+                var heardVoice = false
                 recordingVoice = true
                 val recording = try {
-                    mic.record(voiceSubmits) { level ->
+                    mic.record(voiceSubmits) { level, heardNow ->
                         micLevel = level
+                        // **いちど拾えたら下げない。** 言葉の合間で「聞こえています」が
+                        // 消えると、届いていないのかと言い直すことになる
+                        if (heardNow) heardVoice = true
+                        micHeard = heardVoice
                         val at = System.currentTimeMillis()
                         // マイクは毎秒 32,000 バイトを同じ BLE に流している。**枠の送り直しで
                         // その帯域を食わない**ように、目で追える速さまで落とす
                         if (at - meterAt >= MIC_METER_MS) {
                             meterAt = at
-                            narrator.progress(subject, askPrompt(level))
+                            narrator.progress(subject, askPrompt(level, heardVoice))
                         }
                     }
                 } finally {
@@ -1902,10 +2283,16 @@ fun StarMapScreen(
                     narrator.cannotAnswer(subject, "時間切れになりました。もう一度お願いします。")
                     return@launchNarration
                 }
-                if (recording.speechMs == 0L) {
-                    narrator.cannotAnswer(subject, "聞き取れませんでした。もう一度お願いします。")
+                // **マイクから 1 バイトも来なかったのは、聞き取れなかったのとは違う。**
+                // 言い直しても直らないので、そう言う
+                if (recording.pcm.isEmpty()) {
+                    narrator.cannotAnswer(subject, "グラスのマイクから音が届きませんでした。")
                     return@launchNarration
                 }
+                // **声を 0ms しか数えられなくても文字起こしへ送る。** しきい値はその場の
+                // 暗騒音からの推測で、風の夜は上限に張り付く。**タップは「これを送る」という
+                // 意思表示**なので、端末の推測で質問を捨てない（2026-08-24 実機）
+                if (recording.speechMs == 0L) log("声として数えた時間は 0ms（しきい値が高い可能性）")
                 narrator.progress(subject, "聞き取っています。")
                 val wav = GlassMic.toWav(recording.pcm)
                 val heard = runCatching { withContext(Dispatchers.IO) { ask.transcribe(wav) } }
@@ -1922,10 +2309,58 @@ fun StarMapScreen(
                 }
                 log("質問: $question")
                 narrator.progress(subject, "「$question」")
-                val observedAt = System.currentTimeMillis()
+                // **空の再現の判定を、案内より先に走らせる。**
+                // 「シドニーの夜空を見せて」の「見せて」は [GuidanceRequestParser] の案内語なので、
+                // 順番を逆にすると「その名前の天体は案内対象に見つかりませんでした」で潰れる
+                // **持ち越しは古くなったら捨てる。** 何分も前の「シドニー」に、
+                // まったく別の質問の中の数字が合流すると、頼んでいない空が出る
+                val carried = pendingSkyRequest?.takeIf {
+                    System.currentTimeMillis() - pendingSkyRequestAt < PENDING_SKY_REQUEST_MS
+                }
+                pendingSkyRequest = null
+                when (
+                    val parsed = SkyCommandParser.parse(
+                        question,
+                        System.currentTimeMillis(),
+                        livePlace(),
+                        carried,
+                    )
+                ) {
+                    is SkyCommandResult.Rejected -> {
+                        narrator.cannotAnswer(subject, parsed.reason)
+                        return@launchNarration
+                    }
+
+                    is SkyCommandResult.NeedMore -> {
+                        // **断らずに聞き返す**（#45）。次の `HOLD` の答えと合流させるため、
+                        // 聞き取れたところまでを持ち越す
+                        pendingSkyRequest = parsed.pending
+                        pendingSkyRequestAt = System.currentTimeMillis()
+                        narrator.retell("星空の再現", parsed.question, what = "条件の聞き返し")
+                        return@launchNarration
+                    }
+
+                    is SkyCommandResult.Accepted -> {
+                        // 解釈を見せてから適用する。聞き間違いのまま星図だけ変わる状態を作らない。
+                        showCommandConfirmation(parsed.confirmation)
+                        val error = applySkyCommandShowing(parsed.command)
+                        if (error != null) {
+                            narrator.cannotAnswer(subject, error)
+                        } else {
+                            leaveGlassExplanation("音声操作を適用して星図へ戻る")
+                            narrator.reset()
+                        }
+                        return@launchNarration
+                    }
+
+                    SkyCommandResult.NotACommand -> Unit
+                }
+
+                val observation = lastMapObservation ?: observationSnapshot()
+
                 val guidanceRequest = GuidanceRequestParser.parse(
                     question,
-                    guidanceTargetsAt(observedAt),
+                    guidanceTargetsAt(observation),
                 )
                 when (guidanceRequest) {
                     is GuidanceRequest.Start -> {
@@ -1962,17 +2397,21 @@ fun StarMapScreen(
                     GuidanceRequest.NotGuidance -> Unit
                 }
                 val names = shown?.constellationNames()?.take(NARRATION_CONSTELLATIONS).orEmpty()
-                    .ifEmpty { withContext(Dispatchers.Default) { r.constellationsNear(site, observedAt, basis) } }
+                    .ifEmpty {
+                        withContext(Dispatchers.Default) {
+                            r.constellationsNear(observation.site, observation.epochMillis, basis)
+                        }
+                    }
                 val facts = AskFacts(
                     constellations = names,
                     azDeg = basis.azDeg,
                     altDeg = basis.altDeg,
-                    localTime = timestamp.format(Date()),
+                    localTime = observation.fullTimeLabel(),
                     visibleStars = withContext(Dispatchers.Default) {
-                        r.visibleNamedStars(site, observedAt, basis, fov.toDouble())
+                        r.visibleNamedStars(observation.site, observation.epochMillis, basis, fov.toDouble())
                     },
                     visibleBodies = withContext(Dispatchers.Default) {
-                        bodiesInView(site, observedAt, basis, fov.toDouble())
+                        bodiesInView(observation.site, observation.epochMillis, basis, fov.toDouble())
                     },
                 )
                 val reply = runCatching { withContext(Dispatchers.IO) { ask.answer(question, facts) } }
@@ -1981,17 +2420,18 @@ fun StarMapScreen(
                         val refusal = "うまく答えられませんでした。"
                         // **答えられなかったやり取りも残す**（#38）。履歴に無いと、
                         // 質問が届かなかったのか答えが返らなかったのかが分からない
-                        AskHistory.add(observedAt, question, refusal, answered = false)
+                        AskHistory.add(System.currentTimeMillis(), question, refusal, answered = false)
                         narrator.cannotAnswer(subject, refusal)
                         return@launchNarration
                     }
                 // 断り（[AskGuard.OFF_TOPIC]）は鳴らし直しても何も進まないので、答えとしては数えない
-                AskHistory.add(observedAt, question, reply, answered = reply != AskGuard.OFF_TOPIC)
+                AskHistory.add(System.currentTimeMillis(), question, reply, answered = reply != AskGuard.OFF_TOPIC)
                 narrator.answer(subject, reply)
             } finally {
                 asking = false
                 recordingVoice = false
                 micLevel = 0f
+                micHeard = false
             }
         }
     }
@@ -2033,16 +2473,22 @@ fun StarMapScreen(
      * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
      * そのとき何をしているか分からないので待つ判断ができない。
      */
-    fun risingPass(scene: SatelliteScene?, atMillis: Long): SkyTips.RisingPass? {
+    fun risingPass(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
         if (scene == null || !scene.loaded) return null
+        if (
+            observation.simulation &&
+            !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
+        ) {
+            return null
+        }
         val pass = scene.nextPasses(
-            observer = Observer(site.latDeg, site.lonDeg),
-            epochMillis = atMillis,
+            observer = Observer(observation.site.latDeg, observation.site.lonDeg),
+            epochMillis = observation.epochMillis,
             withinMinutes = TIP_PASS_WINDOW_MIN,
         ).firstOrNull { it.sunlitAtPeak } ?: return null
         return SkyTips.RisingPass(
             nameJa = pass.name,
-            inMinutes = pass.risesInMinutes(atMillis),
+            inMinutes = pass.risesInMinutes(observation.epochMillis),
             riseDirection = cardinalDirection16(pass.riseAzDeg),
             setDirection = cardinalDirection16(pass.setAzDeg),
             peakAltDeg = pass.peakAltDeg.roundToInt(),
@@ -2052,33 +2498,34 @@ fun StarMapScreen(
     }
 
     /**
-     * ダブルタップの**一口メモ**。いまの時刻とこの場所から言えることを 1 つ出す。
+     * **いま乗っているものを 1 段降りて星図へ帰る**（`DOUBLE_TAP`）。
      *
-     * **通信も生成も要らない**（[SkyTips]）。解説文を同梱してあるのと同じ理由で、
-     * 星を見に行く場所ほど電波が届かない。
+     * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
+     * 戻る口はここ 1 つだけにして、上から順に 1 つだけ効かせる。
      *
-     * **押すたびに次のメモへ進む。** 1 つしか言わないと、2 回目のダブルタップが
-     * 無反応と区別できない（**タップして無反応が一番よくない**・05_app-flow.md）。
+     * **順番は「かぶせた順」の逆。** タイムラプスは星図の上に出ているので先に降り、
+     * 再現（場所と時刻の入れ替え）はいちばん下なので最後に戻す。
      */
-    fun showTip() {
-        if (guidanceSession != null) stopGuidance("一口メモを出すため案内を終了")
-        narrationJob?.cancel()
-        narrator.stop()
-        narrator.reset()
-        // 見出しにはメモの題を出す（[Narrator.tip] の subject）。方角はメモと関係ない
-        explanationHeading = ""
-        explanationSpoke = false
-        explanationDropped = 0
-        explanationPaging = false
-        glassPage = GlassPage.EXPLANATION
-
-        narrationJob = launchNarration("一口メモ", "") {
-            val observedAt = System.currentTimeMillis()
-            val scene = satellites
-            val pass = withContext(Dispatchers.Default) { risingPass(scene, observedAt) }
-            val tip = SkyTips.of(tonightSky(context, site, observedAt, pass), tipIndex)
-            tipIndex++
-            narrator.retell(tip.header, tip.text, what = "一口メモ")
+    fun goBack() {
+        when {
+            // 流れている途中は待たせずに即着地させる
+            timelapsePlaying -> {
+                timelapseSkips.trySend(Unit)
+            }
+            recordingVoice -> {
+                stopNarration()
+                log("2回タップで音声入力をやめる")
+            }
+            glassPage == GlassPage.EXPLANATION -> {
+                stopNarration()
+                leaveGlassExplanation("2回タップで星図へ戻る")
+            }
+            guidanceSession != null -> stopGuidance("2回タップで案内を終了")
+            guideProgress != null -> stopGuide("2回タップでガイドを終了")
+            observationMode is ObservationMode.Simulation ->
+                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+            // ふつうの星図がいちばん下。**無反応でよい**（降りる先が無い）
+            else -> log("2回タップ：戻る先が無い")
         }
     }
 
@@ -2121,11 +2568,8 @@ fun StarMapScreen(
 
     /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
     fun toggleNarration() {
-        // 案内中のシングルタップは解説を始めず、その案内だけを止める。
-        if (guidanceSession != null) {
-            stopGuidance("タップで案内を終了")
-            return
-        }
+        // **案内中でも解説は始められる。** 案内をやめたいだけなら 2 回タップ（[goBack]）。
+        // 1 つの空に案内と解説を同時に出せないので、始めるときは [startNarration] が案内を畳む
         // **解説画面を出している間のタップは「もう終わり」**（#40）。止めて星図へ戻す。
         // ここで新しい解説を始めると、根拠にするのは前に焼いた古い絵になってしまう
         if (glassPage == GlassPage.EXPLANATION) {
@@ -2147,25 +2591,13 @@ fun StarMapScreen(
 
     /** 星図本体は止まったときだけ描き、64pxの矢印だけを短い電文で追従させる。 */
     suspend fun sendGuidanceOverlay(frame: GuidanceFrame) {
-        if (glassPage != GlassPage.STAR_MAP || !sendGate.tryLock()) return
+        if (glassPage != GlassPage.STAR_MAP) return
         try {
-            val overlay = guidanceOverlay(frame)
-            commandManager.sendCanvasImage(
-                id = GUIDANCE_OVERLAY_IMAGE_ID,
-                x = (PANEL_WIDTH - overlay.width) / 2,
-                y = (PANEL_HEIGHT - overlay.height) / 2,
-                width = overlay.width,
-                height = overlay.height,
-                grayscale = overlay.gray,
-            )
-            val packets = (overlay.compressedBytes + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
-            delay(packets * packetMs.toLong())
+            guidanceOverlaySender.send(frame)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
             log("案内矢印の更新で失敗: ${e.message}", failed = true)
-        } finally {
-            sendGate.unlock()
         }
     }
 
@@ -2197,7 +2629,14 @@ fun StarMapScreen(
             }
 
             val refreshed = if (target == current.target) current else current.copy(target = target)
-            val update = refreshed.update(look(), target.aim, glassRoll, now)
+            val update = refreshed.update(look(), target.aim, now)
+            // **衛星の位置を引き直す間にタップで止められることがある。** 停止も入れ替えも
+            // この変数で表すので、読んだときと違っていたら書き戻さない
+            // （書き戻すと、止めたはずの案内が矢印ごと復活する）
+            if (guidanceSession !== current) {
+                delay(GUIDANCE_REFRESH_MIN_DELAY_MS)
+                continue
+            }
             val wasArrived = guidanceFrame?.arrived == true
             guidanceSession = update.session
             guidanceFrame = update.frame
@@ -2240,16 +2679,18 @@ fun StarMapScreen(
                 when (gesture) {
                     // **ガイド中だけ意味を入れ替える。** 終われば元の割り当てに戻る。
                     // 送信だけは入れ替えない（録っている最中に送れなくなると質問が捨てられる）
+                    // **`SINGLE_TAP` は「いま何が出ているか」だけで決まる**（05_app-flow.md）。
+                    // 音声入力中は送信、星図なら音声解説、それ以外は元に戻る。
+                    // **1 回は進める、2 回は戻る。** 送信を最優先にするのは、
+                    // 録っている最中に送れないと質問が捨てられるから
                     GestureType.SINGLE_TAP -> when {
                         recordingVoice -> submitVoiceQuestion()
                         guideProgress != null -> guideNext()
                         else -> toggleNarration()
                     }
 
-                    // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した。
-                    // ガイド中は「聞き逃したのでもう一度」がいちばん要る
-                    GestureType.DOUBLE_TAP ->
-                        if (guideProgress != null) guideRepeat() else showTip()
+                    // **どの画面でも「戻る」。** 一口メモはここを譲ってやめた（3 枠しかない）
+                    GestureType.DOUBLE_TAP -> goBack()
 
                     // **長押しは声で聞く**（#38）。方位合わせはスマホのボタンに残してある
                     GestureType.HOLD -> askByVoice()
@@ -2270,7 +2711,10 @@ fun StarMapScreen(
         colorScheme = SaberaDarkColorScheme,
         typography = SaberaTypography,
     ) {
-        Box(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // **横縦の判定はここで 1 回だけ。** 上部バーを出すかどうかも横縦で変わるので、
+            // Scaffold の中身側で測っていては間に合わない
+            val landscape = maxWidth > maxHeight
             SeasonalConstellationBackground(
                 constellation = constellation,
                 modifier = Modifier.fillMaxSize(),
@@ -2278,267 +2722,459 @@ fun StarMapScreen(
             Scaffold(
                 containerColor = Color.Transparent,
                 topBar = {
-                    TopAppBar(
-                        title = { Text(if (showDetails) "星図の設定" else "現在の星空") },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color(0xA608111B),
-                            titleContentColor = Color.White,
-                        ),
-                        navigationIcon = {
-                            if (showDetails) {
-                                TextButton(onClick = { showDetails = false }) {
-                                    Text("戻る", color = Color.White)
-                                }
-                            }
-                        },
-                        actions = {
-                            // **止める手段はどの画面でも消さない。** 解説と設定は同じ画面の
-                            // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
-                            // （戻るキーを知らないと止められない）
-                            if (guideProgress != null || guidanceSession != null ||
-                                narrator.busy || speaking || asking
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        when {
-                                            recordingVoice -> submitVoiceQuestion()
-                                            guideProgress != null ->
-                                                stopGuide("上のバーからガイドを終了", "ガイドを終わります。")
-                                            else -> toggleNarration()
+                    // **横画面ではバーを出さない。** 全幅 64dp のうち右半分は空なのに、
+                    // その下の解説と設定はそのぶん低くなる（横の縦幅は 350dp ほどしかない）。
+                    // 中身は左ペインの見出しへ畳む。**高さ 0 の器も置かないこと** —
+                    // Scaffold は「バーはある・高さ 0」と数えて中身をステータスバーの裏へ潜らせる
+                    if (!landscape) {
+                        TopAppBar(
+                            // **「現在の」とは書かない。** 場所・日時を指定している間は現在の空ではない
+                            title = { Text(if (showDetails) "星図の設定" else "星空") },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = Color(0xA608111B),
+                                titleContentColor = Color.White,
+                            ),
+                            navigationIcon = {
+                                Box(Modifier.width(88.dp), contentAlignment = Alignment.CenterStart) {
+                                    if (showDetails) {
+                                        TextButton(
+                                            onClick = { showDetails = false },
+                                            modifier = Modifier.padding(start = 8.dp),
+                                        ) {
+                                            Text("戻る", color = Color.White)
                                         }
-                                    },
+                                    }
+                                }
+                            },
+                            actions = {
+                                // **止める手段はどの画面でも消さない。** 解説と設定は同じ画面の
+                                // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
+                                // （戻るキーを知らないと止められない）
+                                if (guideProgress != null || guidanceSession != null ||
+                                    narrator.busy || speaking || asking
                                 ) {
-                                    Text(
-                                        when {
-                                            recordingVoice -> "質問を送信"
-                                            guideProgress != null -> "ガイドを止める"
-                                            guidanceSession != null -> "案内を終了"
-                                            else -> "解説を止める"
+                                    TextButton(
+                                        onClick = {
+                                            when {
+                                                recordingVoice -> submitVoiceQuestion()
+                                                guideProgress != null ->
+                                                    stopGuide("上のバーからガイドを終了", "ガイドを終わります。")
+                                                else -> toggleNarration()
+                                            }
                                         },
-                                        color = Color.White,
-                                    )
+                                    ) {
+                                        Text(
+                                            when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                else -> "解説を止める"
+                                            },
+                                            color = Color.White,
+                                        )
+                                    }
                                 }
-                            }
-                            // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
-                            // スマホを見ないので、上のバーに常設する意味が無い
-                            if (!showDetails) {
-                                TextButton(onClick = { showDetails = true }) {
-                                    Text("設定", color = Color.White)
+                                // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
+                                // スマホを見ないので、上のバーに常設する意味が無い
+                                if (!showDetails) {
+                                    TextButton(onClick = { showDetails = true }) {
+                                        Text("設定", color = Color.White)
+                                    }
                                 }
-                            }
-                        },
-                    )
-                },
-            ) { padding ->
-                Column(
-                    Modifier.fillMaxSize().padding(padding).padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
-                    // 数字と設定は「設定」を開いた側へ全部やる（空を見ている人はスマホを見ない）
-                    if (!showDetails) {
-                        if (renderer == null) {
-                            Text("星表を読み込み中…")
-                            Spacer(Modifier.height(12.dp))
-                        }
-
-                        Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
-                        Spacer(Modifier.height(4.dp))
-                        ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
-                        Text(
-                            "グラスの向きを止めると、その方角の星図に更新します",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-
-                        guidanceFrame?.let { frame ->
-                            Spacer(Modifier.height(12.dp))
-                            GuidanceCard(
-                                frame = frame,
-                                onStop = { stopGuidance("スマホから案内を終了") },
-                            )
-                        }
-
-                        guideProgress?.let { progress ->
-                            Spacer(Modifier.height(12.dp))
-                            GuideProgressCard(
-                                progress = progress,
-                                onNext = { guideNext() },
-                                onRepeat = { guideRepeat() },
-                            )
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-                        Text("星座解説", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(4.dp))
-                        NarrationPanel(
-                            status = when {
-                                // 声で聞いている間は、同伴者にも「いま録っている」ことが見えるようにする。
-                                // 枠はグラスに出しているものと同じ（どちらを見ても同じ強さが見える）
-                                recordingVoice ->
-                                    "グラスのマイクで質問を聞いています。1回タップで送信 ${micMeter(micLevel)}"
-                                asking -> "質問を処理しています"
-                                guideProgress != null ->
-                                    "ガイド中です。1回タップで次へ、2回タップでもう一度"
-                                speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
-                                // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
-                                BuildConfig.OPENAI_API_KEY.isEmpty() ->
-                                    "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
-                                else -> "グラスのツルを1回タップすると解説します"
-                            },
-                            subject = narration.constellation,
-                            text = narration.text,
-                            failed = narration.phase == NarrationPhase.FAILED,
-                        )
-                        ObservationActions(
-                            primaryLabel = when {
-                                recordingVoice -> "質問を送信"
-                                guideProgress != null -> "ガイドを止める"
-                                guidanceSession != null -> "案内を終了"
-                                narrator.busy || speaking -> "解説を止める"
-                                else -> "この星空を解説する"
-                            },
-                            onPrimary = {
-                                when {
-                                    recordingVoice -> submitVoiceQuestion()
-                                    guideProgress != null ->
-                                        stopGuide("スマホからガイドを終了", "ガイドを終わります。")
-                                    else -> toggleNarration()
-                                }
-                            },
-                            onRecalibrate = onRecalibrate,
-                            // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
-                            // 作るのはホーム画面の「ガイドを作る」から。
-                            // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
-                            secondaryLabel = "ガイドを始める"
-                                .takeIf { guides.isNotEmpty() && guideProgress == null },
-                            onSecondary = { showGuidePicker = true },
-                        )
-                    } else {
-                        // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
-                        // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
-                        ObservationPreview(
-                            preview,
-                            sending,
-                            transferMs,
-                            modifier = Modifier.fillMaxWidth(0.62f),
-                            guidance = guidanceFrame,
-                        )
-
-                        // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
-                        // 1 つも無いうちは出さない（使う機能だけを置く）
-                        if (nightSeen.isNotEmpty()) {
-                            NightRecordCard(
-                                entries = nightSeen,
-                                onAgain = { replayRecord(it) },
-                                onClear = {
-                                    NightRecord.clear()
-                                    log("今夜の記録を消した")
-                                },
-                            )
-                        }
-
-                        // 声で聞いたやり取り。**答えはここにしか残らない**（#38）
-                        if (askHistory.isNotEmpty()) {
-                            AskHistoryCard(
-                                exchanges = askHistory,
-                                onAgain = { replayAsk(it) },
-                                onClear = {
-                                    AskHistory.clear()
-                                    log("声のやり取りを消した")
-                                },
-                            )
-                        }
-
-                        SkyViewSettings(
-                            density = density,
-                            onDensityChange = { step ->
-                                density = step
-                                // 次の 1 枚で入れ替わるように、描いた視線を捨てる
-                                drawnLook = null
-                                log("空の濃さ: ${step.label}（${step.limitMagnitude} 等まで）")
-                            },
-                            showSatellites = showSatellites,
-                            onSatellitesChange = { toggleSatellites() },
-                            showArt = showArt,
-                            onArtChange = {
-                                showArt = it
-                                drawnLook = null
-                                log(if (it) "星座絵を出す" else "星座絵を消す")
-                            },
-                            showGuides = showGuides,
-                            onGuidesChange = {
-                                showGuides = it
-                                drawnLook = null
-                                log(if (it) "目印を出す" else "目印を消す")
-                            },
-                        )
-
-                        BrightnessSettings(
-                            level = brightnessLevel,
-                            configured = brightnessConfigured,
-                            auto = brightnessAuto,
-                            onLevelChange = { applyBrightness(it) },
-                            onAutoRestore = {
-                                brightnessAuto = true
-                                applyBrightness(GlassBrightness.forDarkness(skyDarkness), auto = true)
-                            },
-                        )
-
-                        SoundSettings(
-                            aiVoice = aiVoice,
-                            onAiVoiceChange = {
-                                aiVoice = it
-                                soundPrefs.aiVoice = it
-                                voice.stop()
-                                log(if (it) "声: AI 音声にした" else "声: 端末の読み上げに戻した")
-                            },
-                            voiceVolume = voiceVolume,
-                            onVoiceVolumeChange = { voiceVolume = it },
-                            onVoiceVolumeCommit = { soundPrefs.voiceVolume = voiceVolume },
-                            bgmOn = bgmOn,
-                            onBgmChange = {
-                                bgmOn = it
-                                soundPrefs.bgmEnabled = it
-                                log(if (it) "BGM を入れた" else "BGM を止めた")
-                            },
-                            bgmVolume = bgmVolume,
-                            onBgmVolumeChange = { bgmVolume = it },
-                            onBgmVolumeCommit = { soundPrefs.bgmVolume = bgmVolume },
-                            bgmTrackLabel = bgmTrack?.label,
-                        )
-
-                        ObservationStatusCard(
-                            imuStarted = imuStarted,
-                            calibration = initialCalibration,
-                            siteSource = siteSource,
-                            latText = latText,
-                            onLatChange = { latText = it },
-                            lonText = lonText,
-                            onLonChange = { lonText = it },
-                            onLocate = { locateNow++ },
-                            onRecalibrate = onRecalibrate,
-                        )
-
-                        SessionLogCard(
-                            logBytes = logBytes,
-                            visibleLines = LOG_LINES,
-                            lines = logs,
-                            onExport = {
-                                val intent = sessionLog.shareIntent()
-                                if (intent == null) {
-                                    log("記録がまだ空", failed = true)
-                                } else {
-                                    context.startActivity(Intent.createChooser(intent, "記録を書き出す"))
-                                }
-                            },
-                            onClear = {
-                                sessionLog.clear()
-                                logs.clear()
-                                log("記録を消した。ここから計測しなおす")
                             },
                         )
                     }
-                    Spacer(Modifier.height(24.dp))
+                },
+            ) { padding ->
+                Box(
+                    Modifier.fillMaxSize().padding(padding)
+                        .padding(horizontal = 16.dp),
+                ) {
+                    val narrationStatus = when {
+                        // 声で聞いている間は、同伴者にも「いま録っている」ことが見えるようにする。
+                        // 枠はグラスに出しているものと同じ（どちらを見ても同じ強さが見える）
+                        recordingVoice ->
+                            (if (micHeard) "声を拾えています。" else "まだ声を拾えていません。") +
+                                "1回タップで送信 ${micMeter(micLevel)}"
+                        asking -> "質問を処理しています"
+                        guideProgress != null ->
+                            "ガイド中です。1回タップで次へ、2回タップでもう一度"
+                        speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
+                        // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
+                        BuildConfig.OPENAI_API_KEY.isEmpty() ->
+                            "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
+                        else -> "グラスのツルを1回タップすると解説します"
+                    }
+                    Row(
+                        Modifier.fillMaxSize().padding(
+                            vertical = if (landscape) 0.dp else 16.dp,
+                        ),
+                    ) {
+                        if (landscape) {
+                            Column(Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)) {
+                                // バーの代わり。題と「戻る」は左、操作は右ペインの頭（画面の右上）
+                                LandscapeHeader(
+                                    title = if (showDetails) "星図の設定" else "星空",
+                                    onBack = if (showDetails) ({ showDetails = false }) else null,
+                                )
+                                Column(
+                                    Modifier.fillMaxWidth().weight(1f),
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    if (renderer == null) {
+                                        Text("星表を読み込み中…")
+                                        Spacer(Modifier.height(12.dp))
+                                    }
+                                    Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(Modifier.height(4.dp))
+                                    ObservationPreview(
+                                        preview,
+                                        sending,
+                                        transferMs,
+                                        Modifier.fillMaxWidth(),
+                                        guidance = guidanceFrame,
+                                    )
+                                    Text(
+                                        "グラスの向きを止めると、その方角の星図に更新します",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Spacer(Modifier.height(10.dp))
+                                    Text(
+                                        narrationStatus,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                        }
+                        Box(
+                            modifier = if (landscape) {
+                                // **下端は背景の星座名に譲る。** 設定側は 85% の板を敷くので、
+                                // 下まで伸ばすと右下の「◯の星座・◯◯座」が板の裏に隠れる。
+                                // padding を background より先に置き、板ごと縮める
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .padding(start = 8.dp, bottom = BACKGROUND_LABEL_CLEARANCE)
+                                    .then(
+                                        if (showDetails) Modifier.background(Color(0xD908111B))
+                                        else Modifier,
+                                    )
+                            } else {
+                                Modifier.fillMaxWidth().fillMaxHeight()
+                            },
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            Column(Modifier.widthIn(max = 400.dp).fillMaxWidth().fillMaxHeight()) {
+                                // **操作は画面の右上へ。** 左ペインの題と同じ行に並ぶので、
+                                // 見た目は 1 本のバーのまま高さは 1 行ぶんで済む
+                                if (landscape) {
+                                    LandscapeActions(
+                                        stopLabel = if (
+                                            guideProgress != null || guidanceSession != null ||
+                                            narrator.busy || speaking || asking
+                                        ) {
+                                            when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                else -> "解説を止める"
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        onStop = {
+                                            when {
+                                                recordingVoice -> submitVoiceQuestion()
+                                                guideProgress != null ->
+                                                    stopGuide("右上からガイドを終了", "ガイドを終わります。")
+                                                else -> toggleNarration()
+                                            }
+                                        },
+                                        onSettings = if (!showDetails) ({ showDetails = true }) else null,
+                                    )
+                                }
+                                // 流れるのは中身だけ。上の操作はスクロールの外に残す
+                                Column(
+                                    Modifier.fillMaxWidth().weight(1f)
+                                        .then(
+                                            if (showDetails) Modifier.verticalScroll(rememberScrollState())
+                                            else Modifier,
+                                        ),
+                                ) {
+                                    // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
+                                    // 数字と設定は「設定」を開いた側へ全部やる（空を見ている人はスマホを見ない）
+                                    if (!showDetails) {
+                                        if (!landscape) {
+                                            if (renderer == null) {
+                                                Text("星表を読み込み中…")
+                                                Spacer(Modifier.height(12.dp))
+                                            }
+
+                                            Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                                            Spacer(Modifier.height(4.dp))
+                                            ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
+                                            Text(
+                                                "グラスの向きを止めると、その方角の星図に更新します",
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                        // **案内とガイドの札は解説と同じ側に置く。** 横で左の
+                                        // プレビューへ積むと、縦幅 350dp に収まらず切れる
+                                        guidanceFrame?.let { frame ->
+                                            Spacer(Modifier.height(12.dp))
+                                            GuidanceCard(
+                                                frame = frame,
+                                                onStop = { stopGuidance("スマホから案内を終了") },
+                                            )
+                                        }
+                                        guideProgress?.let { progress ->
+                                            Spacer(Modifier.height(12.dp))
+                                            GuideProgressCard(
+                                                progress = progress,
+                                                onNext = { guideNext() },
+                                                onRepeat = { guideRepeat() },
+                                            )
+                                        }
+                                        // 横は札が出たときだけ空ける（何も無い頭に余白を作らない）
+                                        if (!landscape || guidanceFrame != null || guideProgress != null) {
+                                            Spacer(Modifier.height(16.dp))
+                                        }
+                                        TimeScrubControls(
+                                            // **つまんでいる間は「これから出す時刻」を出す。**
+                                            // 空はまだ変えていないので、いまの空の時刻を出しても手がかりにならない
+                                            label = scrubbingHours?.let { hours ->
+                                                val anchor = scrubAnchorMillis ?: observationSnapshot().epochMillis
+                                                observationSnapshot()
+                                                    .copy(
+                                                        epochMillis = scrubTargetMillis(anchor, hours),
+                                                        simulation = true,
+                                                    )
+                                                    .shortLabel()
+                                            } ?: observationSnapshot().shortLabel(),
+                                            detail = scrubbingHours?.let { scrubOffsetLabel(it) },
+                                            scrubbing = scrubbingHours != null,
+                                            // つまんでいる間は指の値、離したら実際の時刻から引き直す
+                                            offsetHours = scrubbingHours ?: timeScrubHours(),
+                                            // **1 回押して 1 枚だけ描き直す。** 自動で送り続けると点滅する
+                                            onStep = { step ->
+                                                if (scrubAnchorMillis == null) {
+                                                    scrubAnchorMillis = observationSnapshot().epochMillis
+                                                }
+                                                applyTimeScrub(
+                                                    (timeScrubHours() + step)
+                                                        .coerceIn(-TIME_SCRUB_HOURS, TIME_SCRUB_HOURS),
+                                                )
+                                            },
+                                            onScrub = {
+                                                if (scrubAnchorMillis == null) {
+                                                    scrubAnchorMillis = observationSnapshot().epochMillis
+                                                }
+                                                scrubbingHours = it
+                                            },
+                                            onScrubFinished = {
+                                                scrubbingHours?.let { applyTimeScrub(it) }
+                                                scrubbingHours = null
+                                            },
+                                        )
+                                        Text("星座解説", style = MaterialTheme.typography.titleMedium)
+                                        Spacer(Modifier.height(4.dp))
+                                        NarrationPanel(
+                                            status = if (landscape) "" else narrationStatus,
+                                            subject = narration.constellation,
+                                            text = narration.text,
+                                            failed = narration.phase == NarrationPhase.FAILED,
+                                            // **横は残りの高さを本文に吸わせる。** そうしないと
+                                            // 解説の下が空いたままボタン 2 つが宙に浮く
+                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
+                                            maxTextHeight = if (landscape) null else 160.dp,
+                                        )
+                                        ObservationActions(
+                                            primaryLabel = when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                narrator.busy || speaking -> "解説を止める"
+                                                else -> "この星空を解説する"
+                                            },
+                                            onPrimary = {
+                                                when {
+                                                    recordingVoice -> submitVoiceQuestion()
+                                                    guideProgress != null ->
+                                                        stopGuide("スマホからガイドを終了", "ガイドを終わります。")
+                                                    else -> toggleNarration()
+                                                }
+                                            },
+                                            onRecalibrate = onRecalibrate,
+                                            // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
+                                            // 作るのはホーム画面の「ガイドを作る」から。
+                                            // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
+                                            secondaryLabel = "ガイドを始める"
+                                                .takeIf { guides.isNotEmpty() && guideProgress == null },
+                                            onSecondary = { showGuidePicker = true },
+                                        )
+                                    } else {
+                                        // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
+                                        // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
+                                        if (!landscape) {
+                                            ObservationPreview(
+                                                preview,
+                                                sending,
+                                                transferMs,
+                                                modifier = Modifier.fillMaxWidth(0.62f),
+                                                guidance = guidanceFrame,
+                                            )
+                                        }
+
+                                        Spacer(Modifier.height(16.dp))
+                                        val simulation = observationMode as? ObservationMode.Simulation
+                                        SkyConditionSettings(
+                                            status = observationSnapshot().shortLabel(),
+                                            simulation = simulation != null,
+                                            place = simulationPlace,
+                                            era = simulationEra,
+                                            time = simulationTime,
+                                            detailed = simulationDetailed,
+                                            cityText = simulationCityText,
+                                            eraText = simulationEraText,
+                                            dateText = simulationDateText,
+                                            timeText = simulationTimeText,
+                                            message = if (satellitesSuppressedForSimulation) {
+                                                "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
+                                            } else {
+                                                simulationMessage
+                                            },
+                                            onPlaceChange = { simulationPlace = it },
+                                            onEraChange = { simulationEra = it },
+                                            onTimeChange = { simulationTime = it },
+                                            onDetailedChange = { simulationDetailed = it },
+                                            onCityTextChange = { simulationCityText = it },
+                                            onEraTextChange = { simulationEraText = it },
+                                            onDateTextChange = { simulationDateText = it },
+                                            onTimeTextChange = { simulationTimeText = it },
+                                            onApply = { submitSimulationForm() },
+                                            onReturnLive = {
+                                                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+                                            },
+                                        )
+
+                                        // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
+                                        // 1 つも無いうちは出さない（使う機能だけを置く）
+                                        if (nightSeen.isNotEmpty()) {
+                                            NightRecordCard(
+                                                entries = nightSeen,
+                                                onAgain = { replayRecord(it) },
+                                                onClear = {
+                                                    NightRecord.clear()
+                                                    log("今夜の記録を消した")
+                                                },
+                                            )
+                                        }
+
+                                        // 声で聞いたやり取り。**答えはここにしか残らない**（#38）
+                                        if (askHistory.isNotEmpty()) {
+                                            AskHistoryCard(
+                                                exchanges = askHistory,
+                                                onAgain = { replayAsk(it) },
+                                                onClear = {
+                                                    AskHistory.clear()
+                                                    log("声のやり取りを消した")
+                                                },
+                                            )
+                                        }
+
+                                        SkyViewSettings(
+                                            density = density,
+                                            onDensityChange = { step ->
+                                                density = step
+                                                // 次の 1 枚で入れ替わるように、描いた視線を捨てる
+                                                drawnLook = null
+                                                log("空の濃さ: ${step.label}（${step.limitMagnitude} 等まで）")
+                                            },
+                                            showSatellites = showSatellites,
+                                            onSatellitesChange = { toggleSatellites() },
+                                            showArt = showArt,
+                                            onArtChange = {
+                                                showArt = it
+                                                drawnLook = null
+                                                log(if (it) "星座絵を出す" else "星座絵を消す")
+                                            },
+                                            showGuides = showGuides,
+                                            onGuidesChange = {
+                                                showGuides = it
+                                                drawnLook = null
+                                                log(if (it) "目印を出す" else "目印を消す")
+                                            },
+                                        )
+
+                                        BrightnessSettings(
+                                            level = brightnessLevel,
+                                            configured = brightnessConfigured,
+                                            auto = brightnessAuto,
+                                            onLevelChange = { applyBrightness(it) },
+                                            onAutoRestore = {
+                                                brightnessAuto = true
+                                                applyBrightness(GlassBrightness.forDarkness(skyDarkness), auto = true)
+                                            },
+                                        )
+
+                                        SoundSettings(
+                                            aiVoice = aiVoice,
+                                            onAiVoiceChange = {
+                                                aiVoice = it
+                                                soundPrefs.aiVoice = it
+                                                voice.stop()
+                                                log(if (it) "声: AI 音声にした" else "声: 端末の読み上げに戻した")
+                                            },
+                                            voiceVolume = voiceVolume,
+                                            onVoiceVolumeChange = { voiceVolume = it },
+                                            onVoiceVolumeCommit = { soundPrefs.voiceVolume = voiceVolume },
+                                            bgmOn = bgmOn,
+                                            onBgmChange = {
+                                                bgmOn = it
+                                                soundPrefs.bgmEnabled = it
+                                                log(if (it) "BGM を入れた" else "BGM を止めた")
+                                            },
+                                            bgmVolume = bgmVolume,
+                                            onBgmVolumeChange = { bgmVolume = it },
+                                            onBgmVolumeCommit = { soundPrefs.bgmVolume = bgmVolume },
+                                            bgmTrackLabel = bgmTrack?.label,
+                                        )
+
+                                        ObservationStatusCard(
+                                            imuStarted = imuStarted,
+                                            calibration = initialCalibration,
+                                            siteSource = siteSource,
+                                            latText = latText,
+                                            onLatChange = { latText = it },
+                                            lonText = lonText,
+                                            onLonChange = { lonText = it },
+                                            onLocate = { locateNow++ },
+                                            onRecalibrate = onRecalibrate,
+                                        )
+
+                                        SessionLogCard(
+                                            logBytes = logBytes,
+                                            visibleLines = LOG_LINES,
+                                            lines = logs,
+                                            onExport = {
+                                                val intent = sessionLog.shareIntent()
+                                                if (intent == null) {
+                                                    log("記録がまだ空", failed = true)
+                                                } else {
+                                                    context.startActivity(Intent.createChooser(intent, "記録を書き出す"))
+                                                }
+                                            },
+                                            onClear = {
+                                                sessionLog.clear()
+                                                logs.clear()
+                                                log("記録を消した。ここから計測しなおす")
+                                            },
+                                        )
+                                    }
+                                    if (showDetails) Spacer(Modifier.height(24.dp))
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -2571,6 +3207,61 @@ fun StarMapScreen(
 }
 
 /**
+ * 横画面の見出し。**上部バーの代わり**にタイトルを左ペインの頭へ置く。
+ *
+ * 横では全幅のバーが右半分を空けたまま 64dp を取り、そのぶん解説と設定が低くなる。
+ * 操作は [LandscapeActions] が右ペインの頭に置き、**この行と同じ高さで並ぶ**ので、
+ * 見た目は 1 本のバーのまま高さは 1 行ぶんで済む。
+ */
+@Composable
+private fun LandscapeHeader(title: String, onBack: (() -> Unit)?) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = LANDSCAPE_HEADER_HEIGHT),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onBack != null) {
+            TextButton(onClick = onBack) { Text("戻る", color = Color.White) }
+        }
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * 横画面の操作。**画面の右上**（右ペインの頭）に右寄せで置く。
+ *
+ * **止める手段はどの画面でも消さない**（縦のバーと同じ扱い）ので、設定を開いている間も出す。
+ * スクロールの外に置くこと — 中に入れると設定を送ったときに流れて消える。
+ */
+@Composable
+private fun LandscapeActions(stopLabel: String?, onStop: () -> Unit, onSettings: (() -> Unit)?) {
+    // **出すものが無い行に高さを取らせない。** 空でも min を効かせると、
+    // 設定を開いている間じゅう右の頭に 48dp の空き帯が残る
+    if (stopLabel == null && onSettings == null) return
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = LANDSCAPE_HEADER_HEIGHT),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (stopLabel != null) {
+            TextButton(onClick = onStop) { Text(stopLabel, color = Color.White) }
+        }
+        if (onSettings != null) {
+            TextButton(onClick = onSettings) { Text("設定", color = Color.White) }
+        }
+    }
+}
+
+/** 横画面の見出しと操作の行の高さ。**左右で揃えないと題と設定の高さがずれる** */
+private val LANDSCAPE_HEADER_HEIGHT = 48.dp
+
+/**
  * 200 バイト 1 パケットの見積り時間。
  *
  * **実測 8〜9ms**（Pixel 9a・2026-08-20 に 12 回）。10ms にしていたぶんは毎フレーム
@@ -2578,8 +3269,15 @@ fun StarMapScreen(
  */
 private const val PACKET_MS_DEFAULT = 9f
 
-/** 6DoFの到着間隔と揃え、矢印だけを滑らかに追従させる。 */
-private const val GUIDANCE_REFRESH_MS = 100L
+/**
+ * 矢印を差し替える間隔。6DoF の到着間隔（約10Hz）に近い値。
+ *
+ * **[POLL_MS] と同じ 100ms にしない。** 星図の描き直しは `sendGate.tryLock()` で
+ * 「塞がっていたら諦める」ので、追従の見張りと矢印の送信が同じ周期だと
+ * **位相が噛み合ったまま何秒も星図が描き直されない**（矢印だけ動いて空が古いままになる）。
+ * 周期をずらしておけば、噛み合っても 1 秒ほどで抜ける。
+ */
+private const val GUIDANCE_REFRESH_MS = 130L
 
 /** 転送見積りが1周期を超えても、連続送信で他の表示を塞がないための隙間。 */
 private const val GUIDANCE_REFRESH_MIN_DELAY_MS = 10L
@@ -2617,32 +3315,37 @@ private const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0
 private const val LOG_LINES = 40
 
 /**
- * 質問を待っている間の画面（#38）。**1 行目は案内、2 行目は音量、3 行目は送信操作。**
+ * 質問を待っている間の画面（#38）。**1 行目は状態、2 行目は音量、3 行目は送信操作。**
  *
  * 「聞いています」だけだと、**声が届いているのか黙って待たれているのか分からない**。
  * 文字起こしは録り終わってから 1 回なので、喋っている最中に返せるのは音の大きさだけ。
+ *
+ * **1 行目は声を拾えた時点で書き換える**（[heard]）。枠の増減だけでは
+ * 「動いてはいるが自分の声なのか」が分からなかった（2026-08-24 実機）。
+ * いちど拾えたら戻さない。**知りたいのは「届いたか」で、いま喋っているかではない。**
  */
-internal fun askPrompt(level: Float): String = "質問をどうぞ。\n" + micMeter(level) + "\nタップで送信"
+internal fun askPrompt(level: Float, heard: Boolean = false): String =
+    (if (heard) "聞こえています" else "質問をどうぞ。") + "\n" + micMeter(level) + "\nタップで送信"
 
 /**
- * 拾っている音の大きさを枠で描く。
+ * 拾っている音の大きさを星の点灯と数で描く。
  *
- * **グラスの字形は分からない**ので、JIS の記号（■□）だけで作る。
- * しきい値（[jp.jig.glasses.sample.kmp.voice.GlassMic] が暗騒音から決める）で 1 に届くので、
- * **枠が伸びていれば「声として拾えている」**ことになる。
+ * **グラスの字形は分からない**ので、JIS の丸（●○）を星の点に見立てる。
+ * **数字も添える**のはその保険で、丸が字形に無くても
+ * 「5/8」が動いていれば拾えていることは伝わる（星座名の「45°」は実機で出ている）。
  */
 private fun micMeter(level: Float): String {
     val filled = (level.coerceIn(0f, 1f) * MIC_METER_CELLS).roundToInt()
-    return "■".repeat(filled) + "□".repeat(MIC_METER_CELLS - filled)
+    return "●".repeat(filled) + "○".repeat(MIC_METER_CELLS - filled) + " $filled/$MIC_METER_CELLS"
 }
 
-/** 枠の数。1 行（17 文字）に収まる範囲で、伸び縮みが目で分かる長さ */
+/** 星の数。1 行（17 文字）に「●○×8 ＋ 5/8」が収まる長さ */
 private const val MIC_METER_CELLS = 8
 
 /**
  * 音の大きさを送り直す間隔。
  *
- * マイクは毎秒 32,000 バイトを同じ BLE に流しているので、**枠の更新でその帯域を食わない**。
+ * マイクは毎秒 32,000 バイトを同じ BLE に流しているので、**星の更新でその帯域を食わない**。
  * 0.4 秒あれば声の強弱は目で追える。
  */
 private const val MIC_METER_MS = 400L
@@ -2702,8 +3405,13 @@ private const val LOGGED_LABELS = 3
  */
 private const val NARRATION_CONSTELLATIONS = 3
 
+/** 音声・スマホで解釈した場所と日時を、星図へ切り替える前に読める時間 */
+private const val COMMAND_CONFIRM_MS = 1_500L
+
 /** 追従の見張り間隔 */
 private const val POLL_MS = 100L
+
+/** 再生停止と首の静止を見張る間隔。画像の更新頻度は2秒のまま */
 
 /**
  * どれだけ過去の視線で星座を決めるか。
@@ -2711,6 +3419,14 @@ private const val POLL_MS = 100L
  * **ツルをタップすると頭が動く。** タップ時点の視線で判定すると、押した反動で
  * 隣の星座に化けることがある（05_app-flow.md）。
  */
+/**
+ * 聞き返した条件を持ち越す時間。**2 分。**
+ *
+ * 「いつ頃の夜空でしょうか」に答えるまでの間だけ。長く持つと、**別の質問に混じった数字**が
+ * 前の都市と合流して、頼んでいない空が出る。
+ */
+private const val PENDING_SKY_REQUEST_MS = 120_000L
+
 private const val LATCH_MS = 500L
 
 /** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
