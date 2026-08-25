@@ -57,12 +57,16 @@
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `sky/CelestialGuidance.kt` | 案内対象と、案内要求を取り出す固定ルール（#46） |
 | `sky/GuidanceTracker.kt` | 左右→上下の段階、5°/8°のヒステリシス、到着と60秒の状態遷移（#46・#61） |
+| `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時刻のつまみの位置もここで出す**（#45） |
+| `sky/Timelapse.kt` | 時代を送る途中の空。**年だけを補間**し、月日と時刻は目的地に固定する（#45） |
+| `glass/TimelapseSender.kt` | 240×160 の窓を**画像 id 2 枚で交互に**送る。**置いてから消す**ので途中が空にならない（#45） |
+| `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
 | `alignment/MagneticQuality.kt` | 磁気の歪みの検証。OS の信頼度を信じない |
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
-| `narration/SkyTips.kt` | ダブルタップの一口メモ。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `narration/SkyTips.kt` | 読み込み画面の一言。**通信も生成も要らない**（時刻と場所から端末が組む） |
 | `guide/StarGuide.kt` | 台本の形と JSON。**方角は持たせない**（再生時に引き直す） |
 | `guide/GuidePlan.kt` | 台本をいまの空へ突き合わせる。**出ていない星座を飛ばす** |
 | `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |

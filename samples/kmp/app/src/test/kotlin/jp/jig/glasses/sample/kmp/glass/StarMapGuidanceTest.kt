@@ -27,6 +27,28 @@ class StarMapGuidanceTest {
         assertTrue(map.labels.any { it.text == "シリウス" })
     }
 
+    /**
+     * 案内中でも、再現中のラベルだけは先頭に残す（#45）。
+     *
+     * 並びは優先順位で、8 枠と 190 バイトの両方で打ち切られる。ここで押し出すと
+     * **作った空を本物と信じたまま実際の空を探す**ことになる。
+     */
+    @Test
+    fun `再現中のラベルは案内名より前に残る`() {
+        val map = StarMap(
+            width = 100,
+            height = 80,
+            gray = ByteArray(8_000),
+            labels = listOf(
+                Label("シドニー 8/24 20:30", 50, 70, LabelKind.STATUS),
+                Label("周囲座", 10, 10, LabelKind.CONSTELLATION),
+            ),
+        ).withGuidanceLabel(searching())
+
+        assertEquals(LabelKind.STATUS, map.labels.first().kind)
+        assertEquals(LabelKind.GUIDANCE, map.labels[1].kind)
+    }
+
     private fun map() = StarMap(width = 100, height = 80, gray = ByteArray(8_000), labels = emptyList())
 
     /**
