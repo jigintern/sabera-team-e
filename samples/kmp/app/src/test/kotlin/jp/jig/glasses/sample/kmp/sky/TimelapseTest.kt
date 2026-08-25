@@ -83,15 +83,15 @@ class TimelapseTest {
     }
 
     @Test
-    fun `1万年でも1枚あたりの回り込みが飛ばない`() {
-        // 空全体の回り込みは歳差の 1 周（25,772 年）ぶんなので、1 万年で約 140°。
-        // ease で真ん中がいちばん速くなるぶんも込みで、1 枚 6° を超えると飛んで見える
+    fun `年の刻みは飛びすぎない`() {
+        // 出すのは年号だけなので、**1 枚でどれだけ数字が動くか**がそのまま読みやすさになる。
+        // 1 万年を 72 枚に割ると平均 139 年、ease で真ん中が 1.5 倍。
+        // 1,000 年を超えて飛ぶと「めくれている」ではなく「飛んでいる」に見える
         val frames = Timelapse.frames(now, target(-7974), tokyo)
         val perFrameYears = (1 until frames.size)
             .maxOf { abs(frames[it].year - frames[it - 1].year) }
-        val turnDeg = 360.0 * perFrameYears / 25_772.0
-        println("1枚あたり $turnDeg°（$perFrameYears 年）")
-        assertTrue("1枚 $turnDeg°（$perFrameYears 年）", turnDeg < 6.0)
+        println("1枚あたり $perFrameYears 年")
+        assertTrue("1枚 $perFrameYears 年", perFrameYears < 1_000)
     }
 
     @Test

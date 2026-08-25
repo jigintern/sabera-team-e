@@ -59,6 +59,7 @@ import jp.jig.glasses.sample.kmp.glass.GUIDANCE_LABEL_SLOTS
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
 import jp.jig.glasses.sample.kmp.glass.GlassPage
+import jp.jig.glasses.sample.kmp.glass.GlassTextArt
 import jp.jig.glasses.sample.kmp.glass.GlassTextPage
 import jp.jig.glasses.sample.kmp.glass.GuidanceHighlight
 import jp.jig.glasses.sample.kmp.glass.GuidanceOverlaySender
@@ -307,6 +308,9 @@ fun StarMapScreen(
     var simulationEra by remember { mutableStateOf(SkyPresets.defaultEra) }
     var simulationTime by remember { mutableStateOf(SkyPresets.defaultTime) }
     var simulationDetailed by remember { mutableStateOf(false) }
+    // つまみの位置。**離すまで空へは反映しない**（1 枚 332〜390ms かかるので追いつかない）
+    var timeScrubHours by remember { mutableStateOf(0f) }
+    var scrubBaseMillis by remember { mutableStateOf<Long?>(null) }
     var simulationEraText by remember { mutableStateOf("") }
     var simulationDateText by remember { mutableStateOf("") }
     var simulationTimeText by remember { mutableStateOf("20:30") }
@@ -1960,7 +1964,10 @@ fun StarMapScreen(
                 runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
             }
         }
-        sendTextPage(GlassTextPage.explanation("", text))
+        // **戻し方をその場で書く。** 「2 回タップで戻る」と知らないと戻れない。
+        // 星図のテキスト枠には出さない（190 バイトを星座名と取り合っているので、
+        // 案内ラベルや星座名を押し出してしまう）
+        sendTextPage(GlassTextPage.explanation("", "$text\n2回タップで今の空へ"))
         delay(COMMAND_CONFIRM_MS)
     }
 
@@ -1975,16 +1982,11 @@ fun StarMapScreen(
      * バッファも星図（348,480）と窓 2 枚（153,600）は同居できない。
      */
     suspend fun playTimelapse(fromEpochMillis: Long, target: SkyCommand.ShowSky) {
-        val r = renderer ?: return
         val frames = Timelapse.frames(fromEpochMillis, target.epochMillis, target.place.zoneId)
         if (frames.isEmpty()) return
         // 前の打ち切りが残っていると、始まった瞬間に終わる
         while (timelapseSkips.tryReceive().isSuccess) Unit
         timelapsePlaying = true
-        // **視線は最初で固める。** 流れている間は「映画を見ている」ので、
-        // 首の動きまで混ぜると何が時間の動きなのか分からなくなる
-        val aim = look()
-        val roll = glassRoll
         log("タイムラプス開始 ${frames.size}枚 → ${SkyCommandParser.yearLabel(frames.last().year)}")
         try {
             sendGate.withLock {
@@ -1993,39 +1995,17 @@ fun StarMapScreen(
                         log("タップでタイムラプスを打ち切り")
                         break
                     }
+                    // **星は描かない。** 流れている間は誰も星を読めないので、
+                    // 年号だけを大きく出したほうが速く、しかも時代が飛んでいることは伝わる。
+                    // テキスト枠では字の大きさを変えられないので画像に焼く
                     val map = withContext(Dispatchers.Default) {
-                        r.render(
-                            site = target.place.site,
-                            epochMillis = frame.epochMillis,
-                            look = aim,
-                            fovDeg = fov.toDouble(),
-                            limitMagnitude = TimelapseWindow.LIMIT_MAGNITUDE,
-                            width = TimelapseWindow.WIDTH,
-                            height = TimelapseWindow.HEIGHT,
-                            drawLines = true,
-                            maxLabels = 0,
-                            drawStars = true,
-                            // 流れている間は誰も読めない。**読めないものに転送時間を使わない**
-                            drawFigures = false,
-                            drawFigureArt = false,
-                            drawAsterisms = false,
-                            drawMilkyWay = false,
-                            rollDeg = roll,
-                        )
-                    }
-                    val waitMs = withContext(NonCancellable) {
-                        val ms = timelapseSender.show(map)
-                        // **年号はテキストで回す。** 1 電文の差分更新なので、画像と違って点滅しない
-                        val page = GlassTextPage.explanation(
+                        GlassTextArt.bigLine(
                             SkyCommandParser.yearLabel(frame.year),
-                            "",
+                            TimelapseWindow.WIDTH,
+                            TimelapseWindow.HEIGHT,
                         )
-                        for (batch in page.elements.updatesFrom(shownElements)) {
-                            commandManager.sendCanvasElements(batch)
-                        }
-                        shownElements = page.elements
-                        ms
                     }
+                    val waitMs = withContext(NonCancellable) { timelapseSender.show(map) }
                     // **積まずに待つ。** 送信は呼び出し直後に返るので、待たないと
                     // 転送が追いつかず古い枚が順番待ちで残る
                     delay(waitMs)
@@ -2035,6 +2015,29 @@ fun StarMapScreen(
             withContext(NonCancellable) { timelapseSender.clear() }
             timelapsePlaying = false
         }
+    }
+
+    /**
+     * つまみを離したところの空へ移す。
+     *
+     * **起点はつまみ始めた瞬間の時刻。** 動かすたびに現在値へ足すと、
+     * 行ったり来たりで少しずつずれていく。
+     */
+    fun applyTimeScrub() {
+        val base = scrubBaseMillis ?: observationSnapshot().epochMillis
+        val target = base + (timeScrubHours * 3_600_000f).toLong()
+        val place = (observationMode as? ObservationMode.Simulation)?.let {
+            SkyPlace(it.site, it.zoneId, it.placeLabel)
+        } ?: livePlace()
+        timePlayback = timePlayback.stopPlayback()
+        observationMode = ObservationMode.Simulation.fromPlace(place, target)
+        observationRevision++
+        drawnLook = null
+        lastMap = null
+        lastMapLook = null
+        lastMapObservation = null
+        bodiesShown = emptyList()
+        simulationMessage = observationSnapshot().shortLabel()
     }
 
     /** 時代が大きく動くときだけ、送るところを見せてから切り替える。 */
@@ -2483,42 +2486,34 @@ fun StarMapScreen(
     }
 
     /**
-     * ダブルタップの**一口メモ**。いまの時刻とこの場所から言えることを 1 つ出す。
+     * **いま乗っているものを 1 段降りて星図へ帰る**（`DOUBLE_TAP`）。
      *
-     * **通信も生成も要らない**（[SkyTips]）。解説文を同梱してあるのと同じ理由で、
-     * 星を見に行く場所ほど電波が届かない。
+     * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
+     * 戻る口はここ 1 つだけにして、上から順に 1 つだけ効かせる。
      *
-     * **押すたびに次のメモへ進む。** 1 つしか言わないと、2 回目のダブルタップが
-     * 無反応と区別できない（**タップして無反応が一番よくない**・05_app-flow.md）。
+     * **順番は「かぶせた順」の逆。** タイムラプスは星図の上に出ているので先に降り、
+     * 再現（場所と時刻の入れ替え）はいちばん下なので最後に戻す。
      */
-    fun showTip() {
-        if (guidanceSession != null) stopGuidance("一口メモを出すため案内を終了")
-        narrationJob?.cancel()
-        narrator.stop()
-        narrator.reset()
-        // 見出しにはメモの題を出す（[Narrator.tip] の subject）。方角はメモと関係ない
-        explanationHeading = ""
-        explanationSpoke = false
-        explanationDropped = 0
-        explanationPaging = false
-        glassPage = GlassPage.EXPLANATION
-
-        narrationJob = launchNarration("一口メモ", "") {
-            val observation = lastMapObservation ?: observationSnapshot()
-            val scene = satellites
-            val pass = withContext(Dispatchers.Default) { risingPass(scene, observation) }
-            val tip = SkyTips.of(
-                tonightSky(
-                    context,
-                    observation.site,
-                    observation.epochMillis,
-                    observation.zoneId,
-                    pass,
-                ),
-                tipIndex,
-            )
-            tipIndex++
-            narrator.retell(tip.header, tip.text, what = "一口メモ")
+    fun goBack() {
+        when {
+            // 流れている途中は待たせずに即着地させる
+            timelapsePlaying -> {
+                timelapseSkips.trySend(Unit)
+            }
+            recordingVoice -> {
+                stopNarration()
+                log("2回タップで音声入力をやめる")
+            }
+            glassPage == GlassPage.EXPLANATION -> {
+                stopNarration()
+                leaveGlassExplanation("2回タップで星図へ戻る")
+            }
+            guidanceSession != null -> stopGuidance("2回タップで案内を終了")
+            guideProgress != null -> stopGuide("2回タップでガイドを終了")
+            observationMode is ObservationMode.Simulation ->
+                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+            // ふつうの星図がいちばん下。**無反応でよい**（降りる先が無い）
+            else -> log("2回タップ：戻る先が無い")
         }
     }
 
@@ -2561,11 +2556,8 @@ fun StarMapScreen(
 
     /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
     fun toggleNarration() {
-        // 案内中のシングルタップは解説を始めず、その案内だけを止める。
-        if (guidanceSession != null) {
-            stopGuidance("タップで案内を終了")
-            return
-        }
+        // **案内中でも解説は始められる。** 案内をやめたいだけなら 2 回タップ（[goBack]）。
+        // 1 つの空に案内と解説を同時に出せないので、始めるときは [startNarration] が案内を畳む
         // **解説画面を出している間のタップは「もう終わり」**（#40）。止めて星図へ戻す。
         // ここで新しい解説を始めると、根拠にするのは前に焼いた古い絵になってしまう
         if (glassPage == GlassPage.EXPLANATION) {
@@ -2677,29 +2669,16 @@ fun StarMapScreen(
                     // 送信だけは入れ替えない（録っている最中に送れなくなると質問が捨てられる）
                     // **`SINGLE_TAP` は「いま何が出ているか」だけで決まる**（05_app-flow.md）。
                     // 音声入力中は送信、星図なら音声解説、それ以外は元に戻る。
-                    // 送信を最優先にするのは、録っている最中に送れないと質問が捨てられるから
+                    // **1 回は進める、2 回は戻る。** 送信を最優先にするのは、
+                    // 録っている最中に送れないと質問が捨てられるから
                     GestureType.SINGLE_TAP -> when {
                         recordingVoice -> submitVoiceQuestion()
-                        // 流れている途中の「元に戻る」は、待たせずに即着地させること
-                        timelapsePlaying -> timelapseSkips.trySend(Unit).let { }
-                        // **ガイド中だけ例外。** 「次へ」をここから外すと、
-                        // ツアーを進める手段がグラスから消える（未決定事項）
                         guideProgress != null -> guideNext()
                         else -> toggleNarration()
                     }
 
-                    // **ダブルタップは一口メモ**。衛星の重ねはスマホの設定パネルへ戻した。
-                    // ガイド中は「聞き逃したのでもう一度」がいちばん要る
-                    GestureType.DOUBLE_TAP -> when {
-                        guideProgress != null -> guideRepeat()
-                        // **再現中は「現在の空へ戻る」に入れ替える**（#45）。
-                        // 一口メモは「今夜の空」の話なので再現中はそもそも成り立たず、枠が空いている。
-                        // シングルタップを戻るにしないのは、**解説がタップだけ・通信なしで
-                        // 動くのが設計の芯**で、再現中だけ声に寄せたくないため
-                        observationMode is ObservationMode.Simulation ->
-                            runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
-                        else -> showTip()
-                    }
+                    // **どの画面でも「戻る」。** 一口メモはここを譲ってやめた（3 枠しかない）
+                    GestureType.DOUBLE_TAP -> goBack()
 
                     // **長押しは声で聞く**（#38）。方位合わせはスマホのボタンに残してある
                     GestureType.HOLD -> askByVoice()
@@ -2829,9 +2808,22 @@ fun StarMapScreen(
                             playing = timePlayback.playing,
                             forward = timePlayback.forward,
                             status = when {
-                                !timePlayback.playing -> "時間送り"
+                                !timePlayback.playing -> observationSnapshot().shortLabel()
                                 timePlayback.forward -> "進めています"
                                 else -> "戻しています"
+                            },
+                            offsetHours = timeScrubHours,
+                            onScrub = {
+                                // つまみ始めの時刻を起点にする（行き来してもずれない）
+                                if (scrubBaseMillis == null) {
+                                    scrubBaseMillis = observationSnapshot().epochMillis
+                                }
+                                timeScrubHours = it
+                            },
+                            onScrubFinished = {
+                                applyTimeScrub()
+                                scrubBaseMillis = null
+                                timeScrubHours = 0f
                             },
                             onRewind = {
                                 runPhoneCommand(

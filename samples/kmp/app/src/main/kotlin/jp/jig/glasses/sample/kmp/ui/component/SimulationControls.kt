@@ -19,6 +19,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,41 +44,75 @@ internal fun TimePlaybackControls(
     playing: Boolean,
     forward: Boolean,
     status: String,
+    /** つまみの位置。**その夜の中を ±12 時間**（0 が指定した時刻） */
+    offsetHours: Float,
     onRewind: () -> Unit,
     onStop: () -> Unit,
     onForward: () -> Unit,
+    onScrub: (Float) -> Unit,
+    onScrubFinished: () -> Unit,
 ) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        TransportButton(
-            shape = TransportShape.REWIND,
-            active = playing && !forward,
-            description = "時間を戻す",
-            onClick = onRewind,
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            TransportButton(
+                shape = TransportShape.REWIND,
+                active = playing && !forward,
+                description = "時間を戻す",
+                onClick = onRewind,
+            )
+            TransportButton(
+                shape = TransportShape.PAUSE,
+                active = false,
+                enabled = playing,
+                description = "時間送りを止める",
+                onClick = onStop,
+            )
+            TransportButton(
+                shape = TransportShape.FORWARD,
+                active = playing && forward,
+                description = "時間を進める",
+                onClick = onForward,
+            )
+        }
+        // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
+        // 1 枚 332〜390ms かかるので転送が追いつかず、指の動きから遅れて出続ける
+        Slider(
+            value = offsetHours,
+            onValueChange = onScrub,
+            onValueChangeFinished = onScrubFinished,
+            valueRange = -TIME_SCRUB_HOURS..TIME_SCRUB_HOURS,
+            modifier = Modifier.fillMaxWidth(),
         )
-        TransportButton(
-            shape = TransportShape.PAUSE,
-            active = false,
-            enabled = playing,
-            description = "時間送りを止める",
-            onClick = onStop,
-        )
-        TransportButton(
-            shape = TransportShape.FORWARD,
-            active = playing && forward,
-            description = "時間を進める",
-            onClick = onForward,
-        )
-        Text(
-            status,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                "−12時間",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(status, style = MaterialTheme.typography.bodySmall)
+            Text(
+                "＋12時間",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
+
+/**
+ * つまみで動かせる幅。**その夜の中だけ。**
+ *
+ * 日をまたいで動かしたいなら「時代」の選択肢を使う。ここを広げると、
+ * **1 目盛りが粗くなって「もう少しだけ動かす」ができなくなる**。
+ */
+const val TIME_SCRUB_HOURS = 12f
 
 private enum class TransportShape { REWIND, PAUSE, FORWARD }
 

@@ -43,35 +43,28 @@ class TimelapseSenderTest {
         assertTrue(timelapseBufferUsageBytes() <= CANVAS_IMAGE_BUFFER_BYTES)
     }
 
+    /**
+     * 年号の枠が「めくれて見える速さ」に収まっているか。
+     *
+     * **中身は文字だけ**（Android の Canvas で焼くので JVM では作れない）。ここでは
+     * **背景の下限**＝面積 ÷ 32 で見る。文字の線は黒地にわずかしか乗らないので、
+     * 実際の 1 枚はこの下限に近くなる。
+     */
     @Test
-    fun `窓は全画面より一桁近く速い`() {
-        val renderer = StarMapRenderer(catalog())
-        fun frameAt(width: Int, height: Int, limit: Double) = renderer.render(
-            site = site,
-            epochMillis = epoch,
-            look = Look(180.0, 45.0),
-            fovDeg = 35.0,
-            limitMagnitude = limit,
-            width = width,
-            height = height,
-            maxLabels = 0,
-            drawFigures = false,
-            drawFigureArt = false,
-            drawAsterisms = false,
-            drawMilkyWay = false,
-        )
+    fun `年号の枠は10fpsより速い`() {
+        val floorBytes = TimelapseWindow.WIDTH * TimelapseWindow.HEIGHT / 32
+        val packets = (floorBytes + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
+        val ms = packets * TIMELAPSE_PACKET_MS
+        println("年号 ${TimelapseWindow.WIDTH}x${TimelapseWindow.HEIGHT} の下限 ${floorBytes}B / ${ms}ms")
+        assertTrue("1 枚 ${ms}ms では流れて見えない", ms <= 100)
+    }
 
-        val window = frameAt(
-            TimelapseWindow.WIDTH,
-            TimelapseWindow.HEIGHT,
-            TimelapseWindow.LIMIT_MAGNITUDE,
-        ).transferMillis()
-        val full = frameAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT, 5.0).transferMillis()
-
-        println("窓 ${window}ms / 全画面 ${full}ms")
-        // 10fps（100ms）を切れないと「流れている」には見えない
-        assertTrue("窓が ${window}ms かかる", window <= 100)
-        assertTrue("全画面 ${full}ms に対して窓 ${window}ms", full > window * 3)
+    /** 星図の窓（240×160）より速いこと。**星をやめたぶんが効いている** */
+    @Test
+    fun `星図の窓より速い`() {
+        val yearMs = TimelapseWindow.WIDTH * TimelapseWindow.HEIGHT / 32 / CANVAS_PACKET_BYTES
+        val starMapWindowMs = 240 * 160 / 32 / CANVAS_PACKET_BYTES
+        assertTrue("年号 $yearMs パケット / 星図の窓 $starMapWindowMs パケット", yearMs < starMapWindowMs)
     }
 
     @Test
