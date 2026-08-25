@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.sky
 
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
@@ -80,7 +81,7 @@ fun enu(azDeg: Double, altDeg: Double): Vec3 {
  * J2000.0 からの経過日数。
  * JD ≒ 2,460,000 を Double で持つと仮数部の上位が食われるので、差を直接組み立てる。
  */
-fun daysFromJ2000(epochMillis: Long): Double = epochMillis / 86_400_000.0 - 10957.5
+fun daysFromJ2000(epochMillis: Long): Double = epochMillis / DAY_MILLIS.toDouble() - 10957.5
 
 /** グリニッジ平均恒星時[時間]。係数が 24 でなく 24.0657 なのは恒星日が太陽日より約 4 分短いため */
 fun gmstHours(d: Double): Double {

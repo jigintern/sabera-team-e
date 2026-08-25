@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.openai
 
+import jp.jig.glasses.sample.kmp.support.NANOS_PER_MILLI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -190,6 +191,6 @@ class OpenAiSpeech(
             return body
         }
 
-        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
+        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / NANOS_PER_MILLI
     }
 }

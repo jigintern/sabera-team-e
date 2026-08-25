@@ -10,7 +10,7 @@ import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
 import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
-import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.glass.BundledData
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant

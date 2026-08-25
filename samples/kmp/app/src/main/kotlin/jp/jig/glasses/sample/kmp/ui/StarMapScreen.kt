@@ -165,7 +165,8 @@ import jp.jig.glasses.sample.kmp.sound.Bgm
 import jp.jig.glasses.sample.kmp.sound.BgmScene
 import jp.jig.glasses.sample.kmp.sound.SoundPrefs
 import jp.jig.glasses.sample.kmp.support.AskHistory
-import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.glass.BundledData
+import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
 import jp.jig.glasses.sample.kmp.support.NightRecord
 import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
@@ -1179,14 +1180,14 @@ fun StarMapScreen(
         while (true) {
             delay(DRIFT_LOG_MS)
             val now = System.currentTimeMillis()
-            val minutes = (now - previousAt) / 60_000.0
+            val minutes = (now - previousAt) / MINUTE_MILLIS.toDouble()
             val rate = normalizeDeg(glassYaw - previousYaw) / minutes
             val fusedRate = normalizeDeg(yawNow() - previousFused) / minutes
             log(
                 ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 方位=%.1f°(%+.1f°/分) " +
                     "止めた量=%.0f° 推定=%+.3f°/秒 静止=%s")
                     .format(
-                        (now - baseAt) / 60_000.0,
+                        (now - baseAt) / MINUTE_MILLIS.toDouble(),
                         glassYaw,
                         rate,
                         yawNow(),
