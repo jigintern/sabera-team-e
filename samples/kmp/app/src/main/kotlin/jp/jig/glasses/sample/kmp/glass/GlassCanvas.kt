@@ -55,11 +55,20 @@ internal fun StarMap.compressedSizeBytes(): Int {
 /** SDK が画像バッファの上限判定に使うサイズ。 */
 internal fun StarMap.canvasBufferUsageBytes(): Int = width * height * 2 + compressedSizeBytes()
 
-/** 星座名を、重なりを除いたキャンバスのテキスト要素へ変換する。 */
+/**
+ * 星座名を、重なりを除いたキャンバスのテキスト要素へ変換する。
+ *
+ * **枠の数（8）とバイト数（190）の両方で打ち切る。** 190 バイトは 1 電文の上限であると
+ * 同時に**画面に置ける合計でもある**（#40。分けて送ると先に置いたぶんが押し出されて消えた）。
+ * 数だけで打ち切っていたときは、日本語の名前 8 個で 200 バイトを超え、
+ * [batched] が 2 電文に割ったところで**先頭の枠から消えていた**。
+ * 先頭は案内のラベルなので、**案内中にいちばん消えてはいけない文字が消える**。
+ */
 internal fun StarMap.toCanvasElements(): List<CommandManager.CanvasElement> {
     val offsetX = (PANEL_WIDTH - width) / 2
     val offsetY = (PANEL_HEIGHT - height) / 2
     val shown = ArrayList<CommandManager.CanvasElement>(CANVAS_TEXT_SLOTS)
+    var used = 0
     for (label in labels) {
         if (shown.size >= CANVAS_TEXT_SLOTS) break
         val elementWidth = (label.text.length * LABEL_CHAR_WIDTH + LABEL_PADDING).coerceAtMost(PANEL_WIDTH)
@@ -72,6 +81,11 @@ internal fun StarMap.toCanvasElements(): List<CommandManager.CanvasElement> {
             text = label.text,
         )
         if (shown.any { it overlaps element }) continue
+        // 入らない名前は飛ばして次を見る。**並びは優先順位**（案内 → 衛星 → 月惑星 → …）なので、
+        // 打ち切らずに続けると、余ったバイトへ短い名前が入る
+        val bytes = element.byteSize()
+        if (used + bytes > CANVAS_TEXT_BUDGET_BYTES) continue
+        used += bytes
         shown += element
     }
     return shown
