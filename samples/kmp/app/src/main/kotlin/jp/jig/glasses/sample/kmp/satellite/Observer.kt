@@ -1,6 +1,9 @@
 package jp.jig.glasses.sample.kmp.satellite
 
-import kotlin.math.PI
+import jp.jig.glasses.sample.kmp.sky.DEG
+import jp.jig.glasses.sample.kmp.sky.EARTH_EQUATORIAL_RADIUS_KM
+import jp.jig.glasses.sample.kmp.sky.RAD
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import kotlin.math.abs
 import kotlin.math.asin
 import kotlin.math.atan2
@@ -8,11 +11,8 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private const val DEG = 180.0 / PI
-private const val RAD = PI / 180.0
-
 /** 地球の形。TLE は wgs72 で作られているが、地上の位置は wgs84 で持つ（測位がそちらのため） */
-private const val WGS84_A = 6378.137
+private const val WGS84_A = EARTH_EQUATORIAL_RADIUS_KM
 private const val WGS84_F = 1.0 / 298.257223563
 
 /** 観測地から見た衛星。星と違って**距離が効く**ので、視差を無視できない */
@@ -85,7 +85,7 @@ class Observer(val latDeg: Double, val lonDeg: Double, val heightKm: Double = 0.
 
     companion object {
         /** ミリ秒 → ユリウス日 */
-        fun julianDate(epochMillis: Long): Double = 2440587.5 + epochMillis / 86_400_000.0
+        fun julianDate(epochMillis: Long): Double = 2440587.5 + epochMillis / DAY_MILLIS.toDouble()
 
         /**
          * 衛星の真下の点と高度。緯度は扁平を考えて繰り返しで解く。

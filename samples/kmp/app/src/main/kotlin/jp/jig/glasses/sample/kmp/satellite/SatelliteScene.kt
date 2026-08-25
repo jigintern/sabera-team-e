@@ -6,6 +6,8 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.enu
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
+import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -31,7 +33,7 @@ class SatelliteScene(
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.parse(text)
         }.getOrNull() ?: return null
-        return (nowMillis - parsed.time) / 86_400_000.0
+        return (nowMillis - parsed.time) / DAY_MILLIS.toDouble()
     }
 
     /**
@@ -42,7 +44,7 @@ class SatelliteScene(
      */
     fun elementAgeDays(nowMillis: Long): Double? {
         if (named.isEmpty()) return null
-        val ages = named.map { (nowMillis - it.tle.epochUnixMillis) / 86_400_000.0 }.sorted()
+        val ages = named.map { (nowMillis - it.tle.epochUnixMillis) / DAY_MILLIS.toDouble() }.sorted()
         return ages[ages.size / 2]
     }
 
@@ -222,7 +224,7 @@ class SatelliteScene(
             get() = "最大 ${peakAltDeg.roundToInt()}°（${cardinalDirection16(peakAzDeg)}）"
 
         /** あと何分で上がってくるか。過ぎているぶんは 0 に丸めない（呼ぶ側で見分ける） */
-        fun risesInMinutes(nowMillis: Long): Double = (risesAtMillis - nowMillis) / 60_000.0
+        fun risesInMinutes(nowMillis: Long): Double = (risesAtMillis - nowMillis) / MINUTE_MILLIS.toDouble()
     }
 
     /**
@@ -260,7 +262,7 @@ class SatelliteScene(
             var peakRange = Double.MAX_VALUE
             var lastAz = 0.0
             for (i in 0..steps) {
-                val at = epochMillis + (i * PASS_STEP_MIN * 60_000.0).toLong()
+                val at = epochMillis + (i * PASS_STEP_MIN * MINUTE_MILLIS).toLong()
                 val state = sgp4.at(at) ?: break
                 val look = observer.look(state, at)
                 val up = look.altDeg > 0.0
@@ -375,7 +377,7 @@ class SatelliteScene(
         var azNext = Double.NaN
         for (i in 0..steps) {
             val minutes = APPROACH_BACK_MIN + i * APPROACH_STEP_MIN
-            val at = epochMillis + (minutes * 60_000.0).toLong()
+            val at = epochMillis + (minutes * MINUTE_MILLIS).toLong()
             val state = sgp4.at(at) ?: return null
             val look = observer.look(state, at)
             if (look.rangeKm < bestRange) {

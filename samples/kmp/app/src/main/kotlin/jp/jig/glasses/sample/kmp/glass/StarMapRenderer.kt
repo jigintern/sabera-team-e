@@ -291,10 +291,10 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 }
                 // 明るいほど大きく、明るく。8 階調では明るさだけだと潰れる
                 val t = ((limitMagnitude - star.magnitude) / (limitMagnitude + 1.5)).coerceIn(0.0, 1.0)
-                val value = (255.0 * (0.45 + 0.55 * t)).roundToInt()
+                val value = (INK_LIT * (0.45 + 0.55 * t)).roundToInt()
                 // 点の大きさは画素数に比例させる。576px で 1px にすると 0.06° になって実機で見えない
                 val base = if (t < 0.35) 1.0 else if (t < 0.7) 2.0 else 3.0
-                dot(gray, width, height, q[0], q[1], value, (base * width / 196.0).roundToInt(), round = true)
+                dot(gray, width, height, q[0], q[1], value, (base * width / DOT_BASE_WIDTH).roundToInt(), round = true)
             }
 
             // **月は満ち欠けを描く。** どの星見アプリも出している情報で、丸のままだと
@@ -319,12 +319,12 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                         sunwardOnScreen(body, it, basis, k, width, height, q)
                     }
                     if (sunward == null) {
-                        dot(gray, width, height, q[0], q[1], 255, radius.roundToInt(), round = true)
+                        dot(gray, width, height, q[0], q[1], INK_LIT, radius.roundToInt(), round = true)
                     } else {
                         moonDisc(gray, width, height, q, radius, moonLit, sunward)
                     }
                 } else {
-                    drawPlanet(gray, width, height, q, body.nameJa, width / 528.0)
+                    drawPlanet(gray, width, height, q, body.nameJa, width / STAR_MAP_WIDTH.toDouble())
                 }
             }
         }
@@ -334,7 +334,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         for (radiant in radiants) {
             val q = project(enu(radiant.azDeg, radiant.altDeg), basis, k, width, height) ?: continue
             if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
-            drawRadiant(gray, width, height, q, width / 528.0)
+            drawRadiant(gray, width, height, q, width / STAR_MAP_WIDTH.toDouble())
         }
 
         // **衛星は「大体どの辺にいるか」の点だけ。軌跡の線は描かない**（決定。09_satellite-drawing.md）。
@@ -342,8 +342,8 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         // ただし点を同じ大きさで並べると「点々」にしか見えないので、3 つ描き分ける。
         // **名前つき＝大きい点＋輪・スターリンク＝小さい点・動いているもの＝進行方向の矢印**
         // **星座に重ねるので、星より目立たせない**（#36）。輪で「星ではない」と分かる
-        val namedRadius = (2.0 * width / 196.0).roundToInt()
-        val crowdRadius = (1.5 * width / 196.0).roundToInt().coerceAtLeast(1)
+        val namedRadius = (2.0 * width / DOT_BASE_WIDTH).roundToInt()
+        val crowdRadius = (1.5 * width / DOT_BASE_WIDTH).roundToInt().coerceAtLeast(1)
         for (track in tracks) {
             val q = project(enu(track.nowAzDeg, track.nowAltDeg), basis, k, width, height) ?: continue
             if (q[0] < 0 || q[1] < 0 || q[0] > width || q[1] > height) continue
@@ -352,7 +352,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 dot(gray, width, height, q[0], q[1], CROWD_VALUE, crowdRadius, round = true)
                 continue
             }
-            dot(gray, width, height, q[0], q[1], 255, namedRadius, round = true)
+            dot(gray, width, height, q[0], q[1], INK_LIT, namedRadius, round = true)
             // 輪を回すと「主役」に見える。点だけだと星と同じ扱いに見えてしまう
             ring(gray, width, height, q, namedRadius + width * RING_GAP, RING_VALUE)
             // 30 秒後の位置へ向けた矢印。**静止軌道は動かないので矢印が出ない**（それも情報）
@@ -1067,7 +1067,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 val x = dx * sunward[0] + dy * sunward[1]
                 val y = -dx * sunward[1] + dy * sunward[0]
                 if (x < squash * sqrt(max(0.0, radius * radius - y * y))) continue
-                gray[py * width + px] = 255.toByte()
+                gray[py * width + px] = INK_LIT.toByte()
             }
         }
     }
@@ -1263,7 +1263,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
      * 528px で半径 1（3px・0.18°）だと、緑 8 階調の実機では**線が見えなかった**。
      * 星の半径は一番暗い星でも 3（7px）あるので、線だけが細すぎた。
      */
-    private fun lineRadius(width: Int): Int = (width / 264.0).roundToInt().coerceAtLeast(1)
+    private fun lineRadius(width: Int): Int = (width / LINE_BASE_WIDTH).roundToInt().coerceAtLeast(1)
 
     /**
      * 線分を打つ。[dash] を渡すと破線になる（0 なら実線）。
@@ -1301,7 +1301,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
      */
     private fun drawPlanet(gray: ByteArray, w: Int, h: Int, q: DoubleArray, nameJa: String, scale: Double) {
         val radius = (PLANET_RADIUS_PX[nameJa] ?: PLANET_DEFAULT_RADIUS_PX) * scale
-        ring(gray, w, h, q, radius, 255)
+        ring(gray, w, h, q, radius, INK_LIT)
         // 中心に小さな点を置くと、輪だけのときより「そこに何かある」と読める
         dot(gray, w, h, q[0], q[1], 150, 1, round = true)
         when (nameJa) {
@@ -1313,7 +1313,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                     gray, w, h,
                     doubleArrayOf(q[0] - arm, q[1] + tilt),
                     doubleArrayOf(q[0] + arm, q[1] - tilt),
-                    255, 0,
+                    INK_LIT, 0,
                 )
             }
             "木星" -> {
@@ -1381,10 +1381,19 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         /** 「ふつう」で点は出るが固有名ラベルの1.5等から外れる、案内に欠かせない星。 */
         val GUIDANCE_EXTRA_STAR_NAMES = mapOf(11767 to "北極星")
 
-        const val GUIDANCE_HIGHLIGHT_VALUE = 255
+        const val GUIDANCE_HIGHLIGHT_VALUE = INK_LIT
         const val GUIDANCE_FOCUS_VALUE = 210
         const val GUIDANCE_AREA_RADIUS = 0.10
         const val GUIDANCE_POINT_RADIUS = 0.045
+
+        /**
+         * 点の大きさの基準幅[px]。旧ファームの全画面画像（196×196）で合わせ込んだ値を、
+         * いまのパネルへは幅の比で広げる（数字を直すと点の太さが全部変わる）
+         */
+        const val DOT_BASE_WIDTH = 196.0
+
+        /** 線の半径の基準幅[px]。標準の星図幅 528px で半径 2px になる割り */
+        const val LINE_BASE_WIDTH = 264.0
 
         /** スターリンクの点。名前つきより暗くして、群れとして見せる */
         const val CROWD_VALUE = 170
@@ -1478,7 +1487,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         const val ARROW_MIN_MOVE = 3.0
 
         /** 輪郭の外形。いちばん明るくして「これは実景ではない」と分かるようにする */
-        const val FIGURE_VALUE = 255
+        const val FIGURE_VALUE = INK_LIT
 
         /** パネルの桟。外形と同じ明るさだと、96 画素では 1 枚の板に見える */
         const val FIGURE_INNER_VALUE = 120

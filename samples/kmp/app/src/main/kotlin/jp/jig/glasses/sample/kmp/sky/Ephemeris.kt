@@ -142,7 +142,7 @@ fun moonPosition(epochMillis: Long): BodyPosition {
     return BodyPosition(
         lonDeg = norm360(lon),
         latDeg = lat,
-        distanceAu = distance * EARTH_RADIUS_KM / AU_KM,
+        distanceAu = distance * EARTH_EQUATORIAL_RADIUS_KM / AU_KM,
         magnitude = moonMagnitude(norm360(lon) - sunLon),
     )
 }
@@ -254,7 +254,7 @@ fun bodyAltAz(body: SolarSystemBody, site: Site, epochMillis: Long): DoubleArray
     val lst = localSiderealDeg(daysFromJ2000(epochMillis), site.lonDeg)
     val horizontal = toAltAz(equatorial[0], equatorial[1], lst, site.latDeg)
     val parallax = asin(
-        (EARTH_RADIUS_KM / (position.distanceAu * AU_KM)).coerceIn(-1.0, 1.0),
+        (EARTH_EQUATORIAL_RADIUS_KM / (position.distanceAu * AU_KM)).coerceIn(-1.0, 1.0),
     ) * DEG
     // 視差は天体を地平線の方向へ押し下げる。方位は動かない（同じ垂直圏の上を動く）
     val geometric = horizontal[1] - parallax * cosD(horizontal[1])
@@ -513,5 +513,3 @@ const val NAKED_EYE_MAGNITUDE = 6.0
 private const val SYNODIC_MONTH_DAYS = 29.53059
 
 private const val KEPLER_ITERATIONS = 5
-private const val EARTH_RADIUS_KM = 6378.137
-private const val AU_KM = 149_597_870.7
