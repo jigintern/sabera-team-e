@@ -24,16 +24,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.BuildConfig
 import jp.jig.glasses.sample.kmp.alignment.Locator
@@ -57,7 +58,6 @@ import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -81,74 +81,43 @@ fun GuideScreen(
     onImport: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val store = remember(context) { GuideStore.of(context) }
 
-    var guides by remember { mutableStateOf<List<StarGuide>>(emptyList()) }
-    var making by remember { mutableStateOf(false) }
-    /** 直前に何が起きたか。**作ったのに何も言わないと、できたのか分からない** */
-    var notice by remember { mutableStateOf<String?>(null) }
-    /** 詳細エディタは畳んでおく。**ふだんは目に入らないが、探せば見つかる** */
-    var advanced by remember { mutableStateOf(false) }
-
-    fun reload() {
-        scope.launch { guides = withContext(Dispatchers.IO) { store.list() } }
-    }
-    LaunchedEffect(store) { reload() }
-
-    fun make(theme: GuideTheme) {
-        if (making) return
-        making = true
-        notice = null
-        scope.launch {
-            try {
-                val now = System.currentTimeMillis()
-                val renderer = BundledData.renderer(context)
-                val lore = BundledData.lore(context)
-                // **観測地は分かるものを使う。** 測位が無ければ既定の鯖江で組む。
-                // 数十 km ずれても、どの星座が空に出ているかはほとんど変わらない
-                val located = runCatching { Locator(context).lastKnown() }.getOrNull()
-                val site = located?.site ?: ObservationDefaults.site
-                val targets: List<GuidanceTarget> = withContext(Dispatchers.Default) {
-                    renderer.guidanceTargets(site, now, SkyDensity.STANDARD)
-                }
-                val maker = GuideMaker(
-                    lore = lore::of,
-                    brightestMagnitude = renderer::brightestMagnitude,
-                    writer = if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
-                        null
-                    } else {
-                        { guideTheme, picked, at, id ->
-                            withContext(Dispatchers.IO) {
-                                OpenAiGuide(
-                                    apiKey = BuildConfig.OPENAI_API_KEY,
-                                    model = BuildConfig.OPENAI_ANSWER_MODEL,
-                                ).write(guideTheme, picked, at, id)
-                            }
-                        }
-                    },
-                )
-                val draft = maker.make(theme, targets, now, GuideStore.newId(now))
-                if (draft == null) {
-                    notice = "いまの空には案内できる星座がありません。日が暮れてから試してください"
-                    return@launch
-                }
-                val saved = withContext(Dispatchers.IO) { store.save(draft.guide) }
-                notice = when {
-                    !saved -> "台本を保存できませんでした"
-                    draft.fellBackReason != null ->
-                        "「${draft.guide.title}」を作りました（${draft.fellBackReason}。同梱の解説で組みました）"
-                    else -> "「${draft.guide.title}」を作りました（AI が書きました）"
-                }
-                reload()
-            } catch (error: Throwable) {
-                // **落ちるより断って続ける**（05_app-flow.md）。星表が読めないこともある
-                notice = "台本を作れませんでした: ${error.message}"
-            } finally {
-                making = false
+    val appContext = context.applicationContext
+    val vm = viewModel {
+        GuideListViewModel(store, makeDraft = { theme ->
+            val now = System.currentTimeMillis()
+            val renderer = BundledData.renderer(appContext)
+            val lore = BundledData.lore(appContext)
+            // **観測地は分かるものを使う。** 測位が無ければ既定の鯖江で組む。
+            // 数十 km ずれても、どの星座が空に出ているかはほとんど変わらない
+            val located = runCatching { Locator(appContext).lastKnown() }.getOrNull()
+            val site = located?.site ?: ObservationDefaults.site
+            val targets: List<GuidanceTarget> = withContext(Dispatchers.Default) {
+                renderer.guidanceTargets(site, now, SkyDensity.STANDARD)
             }
-        }
+            val maker = GuideMaker(
+                lore = lore::of,
+                brightestMagnitude = renderer::brightestMagnitude,
+                writer = if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
+                    null
+                } else {
+                    { guideTheme, picked, at, id ->
+                        withContext(Dispatchers.IO) {
+                            OpenAiGuide(
+                                apiKey = BuildConfig.OPENAI_API_KEY,
+                                model = BuildConfig.OPENAI_ANSWER_MODEL,
+                            ).write(guideTheme, picked, at, id)
+                        }
+                    }
+                },
+            )
+            maker.make(theme, targets, now, GuideStore.newId(now))
+        })
     }
+    LaunchedEffect(Unit) { vm.reload() }
+    // 画面を出たら作りかけは打ち切り、表示も真っさら（remember のころと同じ見え方）
+    DisposableEffect(Unit) { onDispose { vm.leave() } }
 
     MaterialTheme(colorScheme = SaberaDarkColorScheme, typography = SaberaTypography) {
         Box(Modifier.fillMaxSize()) {
@@ -186,7 +155,7 @@ fun GuideScreen(
                         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                            if (making) {
+                            if (vm.making) {
                                 LoadingPanel(
                                     text = "台本を作っています",
                                     hint = "空に出ている星座を調べています",
@@ -207,7 +176,7 @@ fun GuideScreen(
                                             )
                                         }
                                         Button(
-                                            onClick = { make(theme) },
+                                            onClick = { vm.make(theme) },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = SaberaGreen,
                                                 contentColor = SaberaOnAccent,
@@ -232,7 +201,7 @@ fun GuideScreen(
                         }
                     }
 
-                    notice?.let {
+                    vm.notice?.let {
                         Spacer(Modifier.height(12.dp))
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaGreen)
                     }
@@ -240,23 +209,19 @@ fun GuideScreen(
                     Spacer(Modifier.height(20.dp))
                     Text("作った台本", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(4.dp))
-                    if (guides.isEmpty()) {
+                    if (vm.guides.isEmpty()) {
                         Text(
                             "まだありません",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    for (guide in guides) {
+                    for (guide in vm.guides) {
                         GuideCard(
                             guide = guide,
                             onEdit = { onAuthor(guide) },
                             onShare = { onShare(guide) },
-                            onDelete = {
-                                store.delete(guide.id)
-                                notice = "「${guide.title}」を消しました"
-                                reload()
-                            },
+                            onDelete = { vm.delete(guide) },
                         )
                         Spacer(Modifier.height(8.dp))
                     }
@@ -267,7 +232,7 @@ fun GuideScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
-                    AdvancedSection(expanded = advanced, onToggle = { advanced = !advanced }) {
+                    AdvancedSection(expanded = vm.advanced, onToggle = { vm.advanced = !vm.advanced }) {
                         Column(Modifier.fillMaxWidth()) {
                             Text(
                                 "星座と順番と文面を、ぜんぶ自分で決めます。" +
