@@ -90,22 +90,6 @@ class SkyCommandTest {
     }
 
     @Test
-    fun `許可した制御だけを返す`() {
-        assertTrue(
-            (SkyCommandParser.parse("時間を進めて", 0L) as SkyCommandResult.Accepted).command
-                is SkyCommand.StartPlayback,
-        )
-        assertTrue(
-            (SkyCommandParser.parse("時間を止めて", 0L) as SkyCommandResult.Accepted).command
-                is SkyCommand.StopPlayback,
-        )
-        assertTrue(
-            (SkyCommandParser.parse("現在の空に戻して", 0L) as SkyCommandResult.Accepted).command
-                is SkyCommand.ReturnToLive,
-        )
-    }
-
-    @Test
     fun `未登録都市は現在地として扱い、時刻が無ければ聞き返す`() {
         // 「火星」は都市表に無いので場所としては拾わない。**断らずに現在地で出す**
         assertTrue(

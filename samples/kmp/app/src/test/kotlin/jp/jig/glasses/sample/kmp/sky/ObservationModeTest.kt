@@ -37,50 +37,6 @@ class ObservationModeTest {
     }
 
     @Test
-    fun `二秒ごとに十分進む`() {
-        var playback = TimePlaybackState().startPlayback(1_000L)
-        assertEquals(0L, playback.tick(2_999L, settled = true).advanceMillis)
-
-        val tick = playback.tick(3_000L, settled = true)
-        playback = tick.playback
-        assertTrue(playback.playing)
-        assertEquals(10 * 60_000L, tick.advanceMillis)
-    }
-
-    @Test
-    fun `首が動いている時間を後からまとめて進めない`() {
-        var playback = TimePlaybackState().startPlayback(0L)
-        playback = playback.tick(6_000L, settled = false).playback
-
-        val settled = playback.tick(6_100L, settled = true)
-        assertEquals(0L, settled.advanceMillis)
-    }
-
-    @Test
-    fun `開始から三十秒で自動停止する`() {
-        val playback = TimePlaybackState().startPlayback(100L)
-        val result = playback.tick(30_100L, settled = true)
-
-        assertFalse(result.playback.playing)
-        assertEquals(0L, result.advanceMillis)
-    }
-
-    @Test
-    fun `時間再生は都市指定なしでも現在の観測条件を固定できる`() {
-        val site = Site(35.9432, 136.1846)
-        val simulation = ObservationMode.Live.freezeForPlayback(
-            liveSite = site,
-            nowMillis = epoch,
-            liveZoneId = ZoneId.of("Asia/Tokyo"),
-            livePlaceLabel = "鯖江",
-        )
-
-        assertEquals(site, simulation.site)
-        assertEquals(epoch, simulation.epochMillis)
-        assertEquals("鯖江", simulation.placeLabel)
-    }
-
-    @Test
     fun `シミュレーションでは元期から七日を超えた衛星を隠す`() {
         val simulation = ObservationMode.Simulation.fromPlace(SkyPlace.of(sydney), epoch).snapshot(Site(0.0, 0.0), 0L)
         assertTrue(simulation.allowsSatellites(7.0))

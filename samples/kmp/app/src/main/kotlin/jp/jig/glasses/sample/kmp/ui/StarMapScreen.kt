@@ -116,7 +116,6 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.ObservationMode
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
-import jp.jig.glasses.sample.kmp.sky.TimePlaybackState
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.PendingSkyRequest
@@ -132,7 +131,6 @@ import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
 import jp.jig.glasses.sample.kmp.sky.allowsSatellites
 import jp.jig.glasses.sample.kmp.sky.allowsSolarSystemBodies
-import jp.jig.glasses.sample.kmp.sky.advanceBy
 import jp.jig.glasses.sample.kmp.sky.bodiesInView
 import jp.jig.glasses.sample.kmp.sky.bodiesUp
 import jp.jig.glasses.sample.kmp.sky.bodyGuidanceTargets
@@ -144,12 +142,10 @@ import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
 import jp.jig.glasses.sample.kmp.sky.moonPhase
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import jp.jig.glasses.sample.kmp.sky.rollFromAccel
+import jp.jig.glasses.sample.kmp.sky.scrubOffsetHours
+import jp.jig.glasses.sample.kmp.sky.scrubTargetMillis
 import jp.jig.glasses.sample.kmp.sky.snapshot
-import jp.jig.glasses.sample.kmp.sky.startPlayback
-import jp.jig.glasses.sample.kmp.sky.stopPlayback
-import jp.jig.glasses.sample.kmp.sky.freezeForPlayback
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
-import jp.jig.glasses.sample.kmp.sky.tick
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.update
 import jp.jig.glasses.sample.kmp.sound.Bgm
@@ -178,7 +174,8 @@ import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
 import jp.jig.glasses.sample.kmp.ui.component.SkyConditionSettings
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
 import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
-import jp.jig.glasses.sample.kmp.ui.component.TimePlaybackControls
+import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
+import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
@@ -300,7 +297,6 @@ fun StarMapScreen(
 
     // 現在地の更新先と、表示に使う場所・時刻を分ける。GPSが届いてもシミュレーションを解除しない。
     var observationMode by remember { mutableStateOf<ObservationMode>(ObservationMode.Live) }
-    var timePlayback by remember { mutableStateOf(TimePlaybackState()) }
     var observationRevision by remember { mutableStateOf(0) }
     var simulationCityText by remember { mutableStateOf("シドニー") }
     // ふだんは選ぶだけ。数字の欄は「細かく指定する」を開いたときだけ
@@ -309,8 +305,15 @@ fun StarMapScreen(
     var simulationTime by remember { mutableStateOf(SkyPresets.defaultTime) }
     var simulationDetailed by remember { mutableStateOf(false) }
     // つまみの位置。**離すまで空へは反映しない**（1 枚 332〜390ms かかるので追いつかない）
-    var timeScrubHours by remember { mutableStateOf(0f) }
-    var scrubBaseMillis by remember { mutableStateOf<Long?>(null) }
+    /**
+     * つまみの基準時刻。**条件を切り替えたときの時刻**で、動かしても変わらない。
+     *
+     * ここが動くと、つまみの位置が毎回 0 に戻ってしまう（**動かしたのに戻る**）。
+     */
+    var scrubAnchorMillis by remember { mutableStateOf<Long?>(null) }
+
+    /** つまんでいる最中だけ入る値。離したら null に戻し、**実際の時刻から位置を出す** */
+    var scrubbingHours by remember { mutableStateOf<Float?>(null) }
     var simulationEraText by remember { mutableStateOf("") }
     var simulationDateText by remember { mutableStateOf("") }
     var simulationTimeText by remember { mutableStateOf("20:30") }
@@ -1121,27 +1124,6 @@ fun StarMapScreen(
         }
     }
 
-    // SABERAは動画転送に向かないため、時間だけを2秒刻みで進め、1枚ずつ既存の送信経路へ渡す。
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(PLAYBACK_POLL_MS)
-            if (!timePlayback.playing) continue
-            val tick = timePlayback.tick(SystemClock.elapsedRealtime(), settled)
-            if (tick.playback == timePlayback && tick.advanceMillis == 0L) continue
-            val wasPlaying = timePlayback.playing
-            timePlayback = tick.playback
-            if (tick.advanceMillis > 0L) {
-                val simulation = observationMode as? ObservationMode.Simulation ?: continue
-                observationMode = simulation.advanceBy(tick.advanceMillis)
-                observationRevision++
-                simulationMessage = "時間送り中：${observationSnapshot().shortLabel()}"
-            } else if (wasPlaying && !tick.playback.playing) {
-                simulationMessage = "30秒経過したため時間再生を停止しました"
-                log("時間再生を30秒で自動停止")
-            }
-        }
-    }
-
     /** 生のヨーと補正後の方位を定期記録し、補正が実機で効き続けているか確認できるようにする。 */
     LaunchedEffect(calibratedAt) {
         if (calibratedAt == null) return@LaunchedEffect
@@ -1898,11 +1880,13 @@ fun StarMapScreen(
         when (command) {
             is SkyCommand.ShowSky -> {
                 observationMode = ObservationMode.Simulation.fromPlace(command.place, command.epochMillis)
-                timePlayback = timePlayback.stopPlayback()
                 val local = Instant.ofEpochMilli(command.epochMillis).atZone(command.place.zoneId)
                 simulationCityText = command.place.nameJa
                 // 適用したら時代の欄は空にする。残すと、次に日付を直しても時代が勝ってしまう
                 simulationEraText = ""
+                // **つまみの基準はここで置き直す。** 条件を変えたら中央から始まってほしい
+                scrubAnchorMillis = command.epochMillis
+                scrubbingHours = null
                 simulationDateText = "%d/%d/%d".format(local.year, local.monthValue, local.dayOfMonth)
                 simulationTimeText = "%02d:%02d".format(local.hour, local.minute)
                 simulationMessage = buildString {
@@ -1918,34 +1902,10 @@ fun StarMapScreen(
                 log("シミュレーション開始 ${observationSnapshot().shortLabel()}")
             }
 
-            is SkyCommand.StartPlayback -> {
-                val wasLive = observationMode is ObservationMode.Live
-                observationMode = observationMode.freezeForPlayback(
-                    liveSite = site,
-                    nowMillis = System.currentTimeMillis(),
-                    liveZoneId = ZoneId.systemDefault(),
-                    livePlaceLabel = if (siteSource.startsWith("手入力")) "鯖江" else "現在地",
-                )
-                timePlayback = timePlayback.startPlayback(
-                    SystemClock.elapsedRealtime(),
-                    forward = command.forward,
-                )
-                if (wasLive) invalidateSky()
-                val way = if (command.forward) "進めて" else "戻して"
-                simulationMessage = "時間を${way}います。30秒で自動停止します"
-                log("時間送りを開始（${way}／2秒ごとに10分、30秒上限）")
-            }
-
-            SkyCommand.StopPlayback -> {
-                if (!timePlayback.playing) return "時間を送っていません。"
-                timePlayback = timePlayback.stopPlayback()
-                simulationMessage = "時間送りを止めました"
-                log("時間送りを停止")
-            }
-
             SkyCommand.ReturnToLive -> {
                 observationMode = ObservationMode.Live
-                timePlayback = timePlayback.stopPlayback()
+                scrubAnchorMillis = null
+                scrubbingHours = null
                 simulationMessage = "現在地・現在時刻へ戻りました"
                 satellitesSuppressedForSimulation = false
                 invalidateSky()
@@ -2018,18 +1978,26 @@ fun StarMapScreen(
     }
 
     /**
-     * つまみを離したところの空へ移す。
+     * いま出ている空が、基準時刻から何時間ずれているか。**つまみの位置はここから出す。**
      *
-     * **起点はつまみ始めた瞬間の時刻。** 動かすたびに現在値へ足すと、
-     * 行ったり来たりで少しずつずれていく。
+     * 別に持った値を離すたびに 0 へ戻していたときは、**動かしてもつまみが中央へ跳ね返って
+     * 「元に戻った」ように見えていた**。実際の時刻から引き直せば、置いた場所に留まるうえ、
+     * 時間送り中はつまみがひとりでに動いて進み具合が見える。
      */
-    fun applyTimeScrub() {
-        val base = scrubBaseMillis ?: observationSnapshot().epochMillis
-        val target = base + (timeScrubHours * 3_600_000f).toLong()
+    fun timeScrubHours(): Float {
+        val anchor = scrubAnchorMillis ?: return 0f
+        return scrubOffsetHours(anchor, observationSnapshot().epochMillis, TIME_SCRUB_HOURS)
+    }
+
+    /** つまみを離したところの空へ移す。**基準は動かさない。** */
+    fun applyTimeScrub(offsetHours: Float) {
+        val base = scrubAnchorMillis ?: observationSnapshot().epochMillis.also {
+            scrubAnchorMillis = it
+        }
+        val target = scrubTargetMillis(base, offsetHours)
         val place = (observationMode as? ObservationMode.Simulation)?.let {
             SkyPlace(it.site, it.zoneId, it.placeLabel)
         } ?: livePlace()
-        timePlayback = timePlayback.stopPlayback()
         observationMode = ObservationMode.Simulation.fromPlace(place, target)
         observationRevision++
         drawnLook = null
@@ -2804,41 +2772,19 @@ fun StarMapScreen(
                         }
 
                         Spacer(Modifier.height(8.dp))
-                        TimePlaybackControls(
-                            playing = timePlayback.playing,
-                            forward = timePlayback.forward,
-                            status = when {
-                                !timePlayback.playing -> observationSnapshot().shortLabel()
-                                timePlayback.forward -> "進めています"
-                                else -> "戻しています"
-                            },
-                            offsetHours = timeScrubHours,
+                        TimeScrubControls(
+                            status = observationSnapshot().shortLabel(),
+                            // つまんでいる間は指の値、離したら実際の時刻から引き直す
+                            offsetHours = scrubbingHours ?: timeScrubHours(),
                             onScrub = {
-                                // つまみ始めの時刻を起点にする（行き来してもずれない）
-                                if (scrubBaseMillis == null) {
-                                    scrubBaseMillis = observationSnapshot().epochMillis
+                                if (scrubAnchorMillis == null) {
+                                    scrubAnchorMillis = observationSnapshot().epochMillis
                                 }
-                                timeScrubHours = it
+                                scrubbingHours = it
                             },
                             onScrubFinished = {
-                                applyTimeScrub()
-                                scrubBaseMillis = null
-                                timeScrubHours = 0f
-                            },
-                            onRewind = {
-                                runPhoneCommand(
-                                    SkyCommand.StartPlayback(forward = false),
-                                    "時間を戻します",
-                                )
-                            },
-                            onStop = {
-                                runPhoneCommand(SkyCommand.StopPlayback, "時間送りを止めます")
-                            },
-                            onForward = {
-                                runPhoneCommand(
-                                    SkyCommand.StartPlayback(forward = true),
-                                    "時間を進めます",
-                                )
+                                scrubbingHours?.let { applyTimeScrub(it) }
+                                scrubbingHours = null
                             },
                         )
 
@@ -3216,7 +3162,6 @@ private const val COMMAND_CONFIRM_MS = 1_500L
 private const val POLL_MS = 100L
 
 /** 再生停止と首の静止を見張る間隔。画像の更新頻度は2秒のまま */
-private const val PLAYBACK_POLL_MS = 100L
 
 /**
  * どれだけ過去の視線で星座を決めるか。

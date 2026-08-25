@@ -26,15 +26,6 @@ sealed interface ObservationMode {
     }
 }
 
-/** 観測条件とは別に持つ、時間を送る機能の状態。 */
-data class TimePlaybackState(
-    val playing: Boolean = false,
-    /** 進む向き。**巻き戻しも同じ仕組みで、符号だけが違う** */
-    val forward: Boolean = true,
-    val startedElapsedMillis: Long? = null,
-    val lastStepElapsedMillis: Long? = null,
-)
-
 /** 1回の描画・解説が最後まで共有する場所と時刻。 */
 data class ObservationSnapshot(
     val site: Site,
@@ -64,11 +55,25 @@ data class ObservationSnapshot(
  * そこまで作られていない。**衛星と同じで、もっともらしい嘘を描かずに理由を出す。**
  */
 fun ObservationSnapshot.allowsSolarSystemBodies(): Boolean =
-    kotlin.math.abs(daysFromJ2000(epochMillis)) <= LONG_TERM_PRECESSION_DAYS
+    abs(daysFromJ2000(epochMillis)) <= LONG_TERM_PRECESSION_DAYS
 
 /** 恒星の形が信じられる範囲を出たか。**固有運動を持たないので星座の形が崩れる** */
 fun ObservationSnapshot.beyondStarShapes(): Boolean =
-    kotlin.math.abs(daysFromJ2000(epochMillis)) > LONG_TERM_PRECESSION_DAYS
+    abs(daysFromJ2000(epochMillis)) > LONG_TERM_PRECESSION_DAYS
+
+/**
+ * つまみの位置。**基準時刻からいまの空が何時間ずれているか**（#45）。
+ *
+ * **別に持った値を離すたびに 0 へ戻してはいけない。** そうすると、動かしても
+ * つまみが中央へ跳ね返って**「元に戻った」ように見える**（実際は空だけ変わっている）。
+ * いまの時刻から引き直せば、置いた場所に留まる。
+ */
+fun scrubOffsetHours(anchorMillis: Long, epochMillis: Long, limitHours: Float): Float =
+    ((epochMillis - anchorMillis) / 3_600_000f).coerceIn(-limitHours, limitHours)
+
+/** つまみを離した位置に対応する時刻。**基準は動かさない**（動かすと行き来でずれる） */
+fun scrubTargetMillis(anchorMillis: Long, offsetHours: Float): Long =
+    anchorMillis + (offsetHours * 3_600_000f).toLong()
 
 /** シミュレーション日時がTLE元期から離れすぎたときは、衛星だけをもっともらしく出さない。 */
 fun ObservationSnapshot.allowsSatellites(
@@ -86,73 +91,4 @@ fun ObservationMode.snapshot(
     is ObservationMode.Simulation -> ObservationSnapshot(site, epochMillis, zoneId, placeLabel, true)
 }
 
-/** 現在の空から再生するときは、その瞬間の条件を固定してから時間だけを進める。 */
-fun ObservationMode.freezeForPlayback(
-    liveSite: Site,
-    nowMillis: Long,
-    liveZoneId: ZoneId = ZoneId.systemDefault(),
-    livePlaceLabel: String = "現在地",
-): ObservationMode.Simulation = when (this) {
-    ObservationMode.Live -> ObservationMode.Simulation(liveSite, nowMillis, liveZoneId, livePlaceLabel)
-    is ObservationMode.Simulation -> this
-}
-
-fun ObservationMode.Simulation.advanceBy(millis: Long): ObservationMode.Simulation =
-    copy(epochMillis = epochMillis + millis)
-
-data class PlaybackTick(val playback: TimePlaybackState, val advanceMillis: Long)
-
-/**
- * 送りを始める。**同じ向きへ押し直しても起点を延長しない**（30 秒の上限が延びてしまう）。
- *
- * 向きを変えたときだけは入れ直す。逆を押したのに動き続けないのは操作として通じない。
- */
-fun TimePlaybackState.startPlayback(
-    elapsedMillis: Long,
-    forward: Boolean = true,
-): TimePlaybackState =
-    if (playing && this.forward == forward) {
-        this
-    } else {
-        copy(
-            playing = true,
-            forward = forward,
-            startedElapsedMillis = elapsedMillis,
-            lastStepElapsedMillis = elapsedMillis,
-        )
-    }
-
-fun TimePlaybackState.stopPlayback(): TimePlaybackState = copy(
-    playing = false,
-    startedElapsedMillis = null,
-    lastStepElapsedMillis = null,
-)
-
-/**
- * 実時間2秒ごとに10分進め、開始から30秒で止める。
- *
- * 首が動いている時間は捨てる。止まった瞬間に遅れたぶんをまとめて進めると、何枚も続けて送り
- * 点滅するため、移動中も次の刻みの起点だけは現在へ進める。
- */
-fun TimePlaybackState.tick(elapsedMillis: Long, settled: Boolean): PlaybackTick {
-    if (!playing) return PlaybackTick(this, 0L)
-    val started = startedElapsedMillis ?: elapsedMillis
-    if (elapsedMillis - started >= PLAYBACK_LIMIT_MS) {
-        return PlaybackTick(stopPlayback(), 0L)
-    }
-    val last = lastStepElapsedMillis ?: elapsedMillis
-    if (!settled) return PlaybackTick(copy(lastStepElapsedMillis = elapsedMillis), 0L)
-    val steps = ((elapsedMillis - last) / PLAYBACK_STEP_MS).toInt()
-    if (steps <= 0) return PlaybackTick(this, 0L)
-    return PlaybackTick(
-        copy(
-            lastStepElapsedMillis = last + steps * PLAYBACK_STEP_MS,
-        ),
-        advanceMillis = steps * SIMULATED_STEP_MS * if (forward) 1 else -1,
-    )
-}
-
-const val PLAYBACK_STEP_MS = 2_000L
-const val SIMULATED_STEP_MS = 10 * 60_000L
-const val PLAYBACK_LIMIT_MS = 30_000L
 const val MAX_RELIABLE_TLE_AGE_DAYS = 7.0

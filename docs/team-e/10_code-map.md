@@ -57,7 +57,7 @@
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `sky/CelestialGuidance.kt` | 案内対象と、案内要求を取り出す固定ルール（#46） |
 | `sky/GuidanceTracker.kt` | 左右→上下の段階、5°/8°のヒステリシス、到着と60秒の状態遷移（#46・#61） |
-| `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時間再生は観測条件と別の状態**で持つ（#45） |
+| `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時刻のつまみの位置もここで出す**（#45） |
 | `sky/Timelapse.kt` | 時代を送る途中の空。**年だけを補間**し、月日と時刻は目的地に固定する（#45） |
 | `glass/TimelapseSender.kt` | 240×160 の窓を**画像 id 2 枚で交互に**送る。**置いてから消す**ので途中が空にならない（#45） |
 | `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |

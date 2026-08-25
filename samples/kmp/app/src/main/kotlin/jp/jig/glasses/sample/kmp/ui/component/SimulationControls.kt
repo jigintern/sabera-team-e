@@ -1,21 +1,18 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,61 +20,31 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.SkyPreset
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
 
 /**
- * いま出ている星空の時間だけを送る。
+ * いま出ている星空の時刻だけを、**つまんで動かす**。
  *
- * **アイコン 1 行だけにしてある。** 見出しと説明文を置いた大きなカードは、
- * すぐ下にある星座解説の場所を食う。観測中にいちばん使うのは解説なので、そこを譲らない。
+ * **連続再生（2 秒ごとに 10 分ずつ送る）はやめた。** 1 枚 279〜390ms の全画面転送を
+ * 繰り返すことになり、**転送のたびにパネルが消えるので原理的に点滅する**
+ * （[docs/team-e/11_pitfalls.md] の「なめらかに追従させる」と同じ壁）。
+ * つまみなら**離したときの 1 回だけ**送るので、条件を切り替えるのと変わらない。
  */
 @Composable
-internal fun TimePlaybackControls(
-    playing: Boolean,
-    forward: Boolean,
+internal fun TimeScrubControls(
     status: String,
-    /** つまみの位置。**その夜の中を ±12 時間**（0 が指定した時刻） */
+    /** つまみの位置。**その夜の中を ±12 時間**（0 が条件で指定した時刻） */
     offsetHours: Float,
-    onRewind: () -> Unit,
-    onStop: () -> Unit,
-    onForward: () -> Unit,
     onScrub: (Float) -> Unit,
     onScrubFinished: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            TransportButton(
-                shape = TransportShape.REWIND,
-                active = playing && !forward,
-                description = "時間を戻す",
-                onClick = onRewind,
-            )
-            TransportButton(
-                shape = TransportShape.PAUSE,
-                active = false,
-                enabled = playing,
-                description = "時間送りを止める",
-                onClick = onStop,
-            )
-            TransportButton(
-                shape = TransportShape.FORWARD,
-                active = playing && forward,
-                description = "時間を進める",
-                onClick = onForward,
-            )
-        }
         // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
         // 1 枚 332〜390ms かかるので転送が追いつかず、指の動きから遅れて出続ける
         Slider(
@@ -114,79 +81,6 @@ internal fun TimePlaybackControls(
  */
 const val TIME_SCRUB_HOURS = 12f
 
-private enum class TransportShape { REWIND, PAUSE, FORWARD }
-
-/**
- * 三角と棒だけで描く。
- *
- * `material-icons` を足すと依存が増えるうえ、要るのは 3 つだけ。
- * **形はどれも三角か長方形なので、Canvas で描いたほうが持ち物が減る。**
- * 形だけでは何のボタンか分からないので、読み上げ用の名前は必ず付ける。
- */
-@Composable
-private fun TransportButton(
-    shape: TransportShape,
-    active: Boolean,
-    description: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    val tint = when {
-        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-        active -> MaterialTheme.colorScheme.primary
-        else -> Color.White
-    }
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.semantics { contentDescription = description },
-    ) {
-        Canvas(Modifier.size(18.dp)) {
-            val w = size.width
-            val h = size.height
-            when (shape) {
-                TransportShape.PAUSE -> {
-                    val bar = w * 0.3f
-                    drawPath(rectPath(0f, 0f, bar, h), tint)
-                    drawPath(rectPath(w - bar, 0f, w, h), tint)
-                }
-                // 三角を 2 つ並べる。1 つだけだと「送り続ける」と「1 コマ進める」が見分けられない
-                TransportShape.FORWARD -> {
-                    drawPath(trianglePath(0f, w / 2f, h, pointsRight = true), tint)
-                    drawPath(trianglePath(w / 2f, w, h, pointsRight = true), tint)
-                }
-                TransportShape.REWIND -> {
-                    drawPath(trianglePath(0f, w / 2f, h, pointsRight = false), tint)
-                    drawPath(trianglePath(w / 2f, w, h, pointsRight = false), tint)
-                }
-            }
-        }
-    }
-}
-
-private fun trianglePath(left: Float, right: Float, height: Float, pointsRight: Boolean): Path =
-    Path().apply {
-        if (pointsRight) {
-            moveTo(left, 0f)
-            lineTo(right, height / 2f)
-            lineTo(left, height)
-        } else {
-            moveTo(right, 0f)
-            lineTo(left, height / 2f)
-            lineTo(right, height)
-        }
-        close()
-    }
-
-private fun rectPath(left: Float, top: Float, right: Float, bottom: Float): Path =
-    Path().apply {
-        moveTo(left, top)
-        lineTo(right, top)
-        lineTo(right, bottom)
-        lineTo(left, bottom)
-        close()
-    }
-
 /**
  * 圏外でも場所と日時を指定できる、設定画面だけの観測条件。
  *
@@ -194,7 +88,6 @@ private fun rectPath(left: Float, top: Float, right: Float, bottom: Float): Path
  * 「紀元前 3000 年 8 月 24 日 20:30」を打ちたいわけではない。
  * 数字を打つ欄は「細かく指定する」を開いたときだけ出す。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun SkyConditionSettings(
     status: String,
@@ -304,7 +197,13 @@ internal fun SkyConditionSettings(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * 選択肢を**横一列のトグル**で出す。
+ *
+ * **折り返さず横スクロールにしてある。** 場所は 19 個あるので、折り返すと
+ * 画面の半分がチップの壁になり、**その下にある「この空を見る」まで届かない**。
+ * 3 つとも同じ形にしているのは、**選び方を 1 つだけ覚えれば済む**ようにするため。
+ */
 @Composable
 private fun PresetRow(
     title: String,
@@ -318,13 +217,33 @@ private fun PresetRow(
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Spacer(Modifier.height(2.dp))
+    val scroll = rememberScrollState()
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(scroll),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         for (option in options) {
+            val chosen = option.label == selected.label
             FilterChip(
-                selected = option.label == selected.label,
+                selected = chosen,
                 onClick = { onSelect(option) },
                 label = { Text(option.label) },
+                // **選んだものに印を付ける。** 色の差だけだと、屋外の明るさで見分けにくい
+                leadingIcon = if (chosen) {
+                    { Text("✓", style = MaterialTheme.typography.labelMedium) }
+                } else {
+                    null
+                },
             )
+        }
+    }
+    // **選んだものは端に隠れないよう先頭へ寄せ直す**（19 個あると流れて見えなくなる）
+    LaunchedEffect(selected.label, options.size) {
+        val index = options.indexOfFirst { it.label == selected.label }
+        if (index >= 0) {
+            scroll.animateScrollTo((scroll.maxValue * index / options.size.coerceAtLeast(1)))
         }
     }
 }

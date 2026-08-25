@@ -14,13 +14,15 @@ data class SkyPlace(val site: Site, val zoneId: ZoneId, val nameJa: String) {
     }
 }
 
-/** 音声から実行してよい操作。これ以外の設定を表す型を作らない。 */
+/**
+ * 音声から実行してよい操作。これ以外の設定を表す型を作らない。
+ *
+ * **時間の連続再生は入れていない。** 2 秒ごとに全画面を焼き直すことになり、
+ * 1 枚 279〜390ms の転送のたびにパネルが消えるので**原理的に点滅する**。
+ * 時刻はスマホのつまみで動かす（離したときの 1 回だけ送る）。
+ */
 sealed interface SkyCommand {
     data class ShowSky(val place: SkyPlace, val epochMillis: Long) : SkyCommand
-
-    /** 時間を送る。**巻き戻しも同じ操作で、向きだけが違う** */
-    data class StartPlayback(val forward: Boolean) : SkyCommand
-    data object StopPlayback : SkyCommand
     data object ReturnToLive : SkyCommand
 }
 
@@ -70,17 +72,6 @@ object SkyCommandParser {
 
         if (RETURN_PATTERNS.any { it in text }) {
             return SkyCommandResult.Accepted(SkyCommand.ReturnToLive, "現在の空に戻します")
-        }
-        if (STOP_PATTERNS.any { it in text }) {
-            return SkyCommandResult.Accepted(SkyCommand.StopPlayback, "時間再生を止めます")
-        }
-        // **巻き戻しを先に見る。**「時間を戻して」には「戻し」が入っていて、
-        // 進める側の言い回しと重なる書き方があるため
-        if (REWIND_PATTERNS.any { it in text }) {
-            return SkyCommandResult.Accepted(SkyCommand.StartPlayback(forward = false), "時間を戻します")
-        }
-        if (PLAY_PATTERNS.any { it in text }) {
-            return SkyCommandResult.Accepted(SkyCommand.StartPlayback(forward = true), "時間を進めます")
         }
 
         val city = CityCatalog.findIn(text)
@@ -263,9 +254,6 @@ object SkyCommandParser {
 
     private val SAME_TIME_PATTERNS = listOf("今と同じ時刻", "今と同じ", "今頃", "いまごろ", "現在時刻")
     private val RETURN_PATTERNS = listOf("現在の空に戻", "今の空に戻", "現在地に戻", "現在時刻に戻")
-    private val STOP_PATTERNS = listOf("時間を止め", "再生を止め", "時間再生を停止", "動きを止め")
-    private val PLAY_PATTERNS = listOf("時間を進め", "時間再生を開始", "再生して", "空を動かして")
-    private val REWIND_PATTERNS = listOf("時間を戻し", "時間を巻き戻", "巻き戻し", "逆に動かして")
     private val SHOW_PATTERNS = listOf("見せ", "みせ", "表示", "再現", "切り替", "見たい", "みたい")
 
     /**
