@@ -25,6 +25,7 @@
 
 | 知りたいこと | 読む先 |
 |---|---|
+| **言葉の定義**（用語集） | [CONTEXT.md](CONTEXT.md) |
 | **決まったこと / 未決定事項 / 実装状況** | [00_index.md](docs/team-e/00_index.md) |
 | **何ができないか**（SDK・ハードの制約） | [01_sdk.md](docs/team-e/01_sdk.md) |
 | 何をどれだけ出せるか（画像・テキスト・転送） | [02_glass-output.md](docs/team-e/02_glass-output.md) |
