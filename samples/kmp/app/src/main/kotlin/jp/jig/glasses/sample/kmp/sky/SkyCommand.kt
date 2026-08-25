@@ -17,7 +17,9 @@ data class SkyPlace(val site: Site, val zoneId: ZoneId, val nameJa: String) {
 /** 音声から実行してよい操作。これ以外の設定を表す型を作らない。 */
 sealed interface SkyCommand {
     data class ShowSky(val place: SkyPlace, val epochMillis: Long) : SkyCommand
-    data object StartPlayback : SkyCommand
+
+    /** 時間を送る。**巻き戻しも同じ操作で、向きだけが違う** */
+    data class StartPlayback(val forward: Boolean) : SkyCommand
     data object StopPlayback : SkyCommand
     data object ReturnToLive : SkyCommand
 }
@@ -72,8 +74,13 @@ object SkyCommandParser {
         if (STOP_PATTERNS.any { it in text }) {
             return SkyCommandResult.Accepted(SkyCommand.StopPlayback, "時間再生を止めます")
         }
+        // **巻き戻しを先に見る。**「時間を戻して」には「戻し」が入っていて、
+        // 進める側の言い回しと重なる書き方があるため
+        if (REWIND_PATTERNS.any { it in text }) {
+            return SkyCommandResult.Accepted(SkyCommand.StartPlayback(forward = false), "時間を戻します")
+        }
         if (PLAY_PATTERNS.any { it in text }) {
-            return SkyCommandResult.Accepted(SkyCommand.StartPlayback, "時間を進めます")
+            return SkyCommandResult.Accepted(SkyCommand.StartPlayback(forward = true), "時間を進めます")
         }
 
         val city = CityCatalog.findIn(text)
@@ -258,14 +265,19 @@ object SkyCommandParser {
     private val RETURN_PATTERNS = listOf("現在の空に戻", "今の空に戻", "現在地に戻", "現在時刻に戻")
     private val STOP_PATTERNS = listOf("時間を止め", "再生を止め", "時間再生を停止", "動きを止め")
     private val PLAY_PATTERNS = listOf("時間を進め", "時間再生を開始", "再生して", "空を動かして")
+    private val REWIND_PATTERNS = listOf("時間を戻し", "時間を巻き戻", "巻き戻し", "逆に動かして")
     private val SHOW_PATTERNS = listOf("見せ", "みせ", "表示", "再現", "切り替", "見たい", "みたい")
 
     /**
-     * 遡れる範囲。**長期歳差が受け持つのは ±200,000 年**あるが、
-     * 固有運動を持たないので星座の形はそれ以前に崩れる。1 万年で切る（[00_index](../../../../../../../../../docs/team-e/00_index.md)）。
+     * 動かせる範囲。**長期歳差が受け持つのは ±200,000 年**あるが、
+     * 固有運動の線形外挿がそれより先に崩れるので 1 万年で切る。
+     *
+     * 未来側を 13,000 年まで取ってあるのは、**「1 万年後」を選べるようにする**ため。
+     * いまが 2026 年なので 12,000 年で切ると、**押しても何も起きない選択肢**になる
+     * （`SkyPresetsTest` がそれを見ている）。
      */
     const val MIN_YEAR = -9_999
-    const val MAX_YEAR = 12_000
+    const val MAX_YEAR = 13_000
 
     private val DEFAULT_LIVE_PLACE = SkyPlace(
         ObservationDefaults.site,

@@ -26,9 +26,11 @@ sealed interface ObservationMode {
     }
 }
 
-/** 観測条件とは別に持つ、時間を進める機能の状態。 */
+/** 観測条件とは別に持つ、時間を送る機能の状態。 */
 data class TimePlaybackState(
     val playing: Boolean = false,
+    /** 進む向き。**巻き戻しも同じ仕組みで、符号だけが違う** */
+    val forward: Boolean = true,
     val startedElapsedMillis: Long? = null,
     val lastStepElapsedMillis: Long? = null,
 )
@@ -100,13 +102,21 @@ fun ObservationMode.Simulation.advanceBy(millis: Long): ObservationMode.Simulati
 
 data class PlaybackTick(val playback: TimePlaybackState, val advanceMillis: Long)
 
-/** 再生を始める。すでに再生中なら起点を延長しない。 */
-fun TimePlaybackState.startPlayback(elapsedMillis: Long): TimePlaybackState =
-    if (playing) {
+/**
+ * 送りを始める。**同じ向きへ押し直しても起点を延長しない**（30 秒の上限が延びてしまう）。
+ *
+ * 向きを変えたときだけは入れ直す。逆を押したのに動き続けないのは操作として通じない。
+ */
+fun TimePlaybackState.startPlayback(
+    elapsedMillis: Long,
+    forward: Boolean = true,
+): TimePlaybackState =
+    if (playing && this.forward == forward) {
         this
     } else {
         copy(
             playing = true,
+            forward = forward,
             startedElapsedMillis = elapsedMillis,
             lastStepElapsedMillis = elapsedMillis,
         )
@@ -138,7 +148,7 @@ fun TimePlaybackState.tick(elapsedMillis: Long, settled: Boolean): PlaybackTick 
         copy(
             lastStepElapsedMillis = last + steps * PLAYBACK_STEP_MS,
         ),
-        advanceMillis = steps * SIMULATED_STEP_MS,
+        advanceMillis = steps * SIMULATED_STEP_MS * if (forward) 1 else -1,
     )
 }
 
