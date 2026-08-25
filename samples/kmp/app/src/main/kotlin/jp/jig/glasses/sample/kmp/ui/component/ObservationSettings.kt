@@ -7,12 +7,42 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.MusicOff
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.SatelliteAlt
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -21,10 +51,16 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.glass.StarMapInk
@@ -51,34 +87,111 @@ import kotlin.math.roundToInt
  * 空を見ている人はスマホを見ないし、同伴者にとっても**触れない情報は読み飛ばす行**になって、
  * 触るはずの設定が下へ流れていくだけだった。
  *
+ * **屋外で触るのは空の濃さ・明るさ・音量の 3 つだけ。** 区画を 9 つとも開いておくと、
+ * いちばん効くものが画面の外へ流れる。それ以外は畳み（[CollapsibleSection]）、
+ * **畳んだ区画も見出しに要約を出す**ので、開かずに状態は読める。
+ * **畳むのであって消さない**（緯度経度もログも 13_field-check.md の手順が指す先）。
+ *
+ * **アイコンを添える。** 暗い屋外では文字より形のほうが速く見つかる。
+ * 出す／出さないの 3 つは 1 行の札にし（[IconToggle]）、音量は左のアイコンが入／切を兼ねる。
+ *
  * 星図そのものの表示（プレビュー・解説・ボタン 2 つ）はパネルを閉じた側に残す。
  */
 
 /** ログ 1 行。失敗だけ色を変えたいので持っておく */
 internal data class LogLine(val at: String, val text: String, val failed: Boolean)
 
-/** 設定パネルの 1 区画。**見出しと中身を必ず組にする**（見出しの外に設定を置かない） */
+/**
+ * 設定パネルの 1 区画。**見出しと中身を必ず組にする**（見出しの外に設定を置かない）。
+ *
+ * **見出しは 1 行に畳む。** 以前は見出し・説明・カードで 3 行使っていて、
+ * 区画が 9 つあると設定に辿り着く前に指が疲れた。アイコンを左に置くのは、
+ * **暗い屋外では文字より形のほうが速く見つかる**から。
+ */
 @Composable
 internal fun SettingsSection(
     title: String,
+    icon: ImageVector,
     hint: String? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Spacer(Modifier.height(16.dp))
-    Text(title, style = MaterialTheme.typography.titleMedium)
-    if (hint != null) {
-        Text(
-            hint,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    Spacer(Modifier.height(4.dp))
+    Spacer(Modifier.height(10.dp))
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), content = content)
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            SectionHeader(title, icon, hint)
+            content()
+        }
+    }
+}
+
+/**
+ * 開くまで中身を出さない区画。
+ *
+ * **普段は触らない設定を畳む。** 観測中に触るのは空の濃さ・明るさ・音量で、
+ * 緯度経度の手入力やログはトラブルのときにしか要らない。畳んでおけば、
+ * よく使うものが 1 画面に収まる。
+ *
+ * 開閉は覚えない（パネルを閉じたら畳んだ状態に戻る）。
+ * **次に開いたときもコンパクトなのが既定**でないと、畳んだ意味がなくなる。
+ */
+@Composable
+internal fun CollapsibleSection(
+    title: String,
+    icon: ImageVector,
+    hint: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Spacer(Modifier.height(10.dp))
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = SaberaSurface),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            SectionHeader(title, icon, hint, expanded, onToggle = { expanded = !expanded })
+            if (expanded) content()
+        }
+    }
+}
+
+/** 見出しの 1 行。アイコン・見出し・要約を横に並べる（開閉できるときは矢印も） */
+@Composable
+private fun SectionHeader(
+    title: String,
+    icon: ImageVector,
+    hint: String?,
+    expanded: Boolean? = null,
+    onToggle: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            // **要約は見出しの下に小さく。** 畳んでいる間は、開かずに中身が分かる唯一の手がかり
+            if (hint != null) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (expanded != null && onToggle != null) {
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (expanded) "畳む" else "開く",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
@@ -92,6 +205,89 @@ private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boo
             modifier = Modifier.weight(1f),
         )
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * 出す／出さないを 1 つのアイコンで表す札。
+ *
+ * **3 つのスイッチで 3 行使っていたものを 1 行にする。** 出しているかどうかは
+ * 色が付いているかで分かるので、「星座絵: 出す」という文まで要らない。
+ * 文字を消してしまうと何のアイコンか分からないので、**ラベルは小さく残す**。
+ */
+@Composable
+private fun IconToggle(
+    label: String,
+    icon: ImageVector,
+    checked: Boolean,
+    modifier: Modifier = Modifier,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (checked) SaberaSelected else Color.Transparent)
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val tint = if (checked) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+        Icon(icon, null, tint = tint, modifier = Modifier.size(22.dp))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = tint)
+    }
+}
+
+/**
+ * つまみ 1 本。**左のアイコンがそのまま入／切のボタン**になる。
+ *
+ * 「BGM」のスイッチと「BGM の音量」のつまみで 3 行使っていたが、
+ * **切りたい人はつまみを 0 にすればよい**わけではない（0 のまま鳴り続ける）ので、
+ * 入／切はアイコンに残して行を詰めた。
+ */
+@Composable
+private fun SliderRow(
+    label: String,
+    icon: ImageVector,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    enabled: Boolean = true,
+    onIconClick: (() -> Unit)? = null,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if (onIconClick != null) {
+            IconButton(onClick = onIconClick) {
+                Icon(icon, label, tint = MaterialTheme.colorScheme.primary)
+            }
+        } else {
+            Icon(
+                icon,
+                label,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 12.dp).size(22.dp),
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            "%d%%".format((value * 100).roundToInt()),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp).width(36.dp),
+        )
+    }
+}
+
+/** アイコンだけの操作。**言葉より短く、押せることは形で分かる** */
+@Composable
+private fun IconAction(label: String, icon: ImageVector, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(icon, label, tint = MaterialTheme.colorScheme.primary)
     }
 }
 
@@ -111,7 +307,11 @@ internal fun NightRecordCard(
     onClear: () -> Unit,
 ) {
     val clock = remember { SimpleDateFormat("HH:mm", Locale.JAPAN) }
-    SettingsSection("今夜見た星座", "%d 星座".format(entries.map { it.nameJa }.distinct().size)) {
+    CollapsibleSection(
+        "今夜見た星座",
+        Icons.Filled.Star,
+        "%d 星座".format(entries.map { it.nameJa }.distinct().size),
+    ) {
         // 新しいものが上。**下に伸びると、読みたい直前の解説がいちばん遠くなる**
         for (entry in entries.asReversed().take(SHOWN_RECORDS)) {
             Spacer(Modifier.height(4.dp))
@@ -121,7 +321,7 @@ internal fun NightRecordCard(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { onAgain(entry) }) { Text("もう一度") }
+                IconAction("もう一度", Icons.Filled.Replay) { onAgain(entry) }
             }
             Text(
                 entry.text,
@@ -138,9 +338,11 @@ internal fun NightRecordCard(
             )
         }
         if (entries.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
-                Text("今夜の記録を消す")
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Delete, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("今夜の記録を消す", style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -167,7 +369,7 @@ internal fun AskHistoryCard(
     onClear: () -> Unit,
 ) {
     val clock = remember { SimpleDateFormat("HH:mm", Locale.JAPAN) }
-    SettingsSection("声で聞いたこと", "%d 件".format(exchanges.size)) {
+    CollapsibleSection("声で聞いたこと", Icons.Filled.Mic, "%d 件".format(exchanges.size)) {
         // 新しいものが上。**下に伸びると、いちばん読みたい直前のやり取りが遠くなる**
         for (exchange in exchanges.asReversed().take(SHOWN_RECORDS)) {
             Spacer(Modifier.height(4.dp))
@@ -179,7 +381,7 @@ internal fun AskHistoryCard(
                 )
                 // 答えが返らなかったものは鳴らし直さない（断り文をもう一度聞いても何も進まない）
                 if (exchange.answered) {
-                    TextButton(onClick = { onAgain(exchange) }) { Text("もう一度") }
+                    IconAction("もう一度", Icons.Filled.Replay) { onAgain(exchange) }
                 }
             }
             Text(
@@ -196,9 +398,11 @@ internal fun AskHistoryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
-            Text("やり取りを消す")
+        Spacer(Modifier.height(4.dp))
+        TextButton(onClick = onClear, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Filled.Delete, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("やり取りを消す", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -207,6 +411,10 @@ internal fun AskHistoryCard(
  * グラスに何を描くか。
  *
  * **空の濃さがいちばん効く。** 見えていない星まで描くと、目の前の空と対応が取れなくなる。
+ *
+ * **出す／出さないの 3 つは 1 行に畳んだ**（星座絵・目印・人工衛星）。スイッチ 3 段だと
+ * いちばん効く空の濃さが画面の外へ流れていた。**下敷きの濃さは開くまで出さない**。
+ * 現地で追い込むためのもので、初めて開いた人が最初に触るものではない。
  */
 @Composable
 internal fun SkyViewSettings(
@@ -223,15 +431,17 @@ internal fun SkyViewSettings(
 ) {
     SettingsSection(
         "見え方",
+        Icons.Filled.Visibility,
         // **見えない星を描かないのがいちばん効く**（見えている星と対応が取れなくなる）
-        "${density.label}：${density.hint}（${"%.1f".format(density.limitMagnitude)} 等まで）",
+        "${density.label}・${"%.1f".format(density.limitMagnitude)} 等まで",
     ) {
-        Row(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             for (step in SkyDensity.entries) {
                 val selected = step == density
                 TextButton(
                     onClick = { onDensityChange(step) },
                     modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
                     colors = ButtonDefaults.textButtonColors(
                         containerColor = if (selected) SaberaSelected else Color.Transparent,
                     ),
@@ -244,41 +454,56 @@ internal fun SkyViewSettings(
                 }
             }
         }
-        SettingSwitch(
-            if (showArt) "星座絵: 出す（星より暗く敷く）" else "星座絵: 出さない",
-            showArt,
-            onArtChange,
-        )
-        // BGM と同じで、CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えない
-        if (showArt) {
-            Text(
-                "星座絵: The 88 Constellations by NOIRLab/NSF/AURA CC BY 4.0（改変あり）",
-                style = MaterialTheme.typography.bodySmall,
-                color = SaberaFinePrint,
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            IconToggle("星座絵", Icons.Filled.AutoAwesome, showArt, Modifier.weight(1f), onArtChange)
+            IconToggle("目印", Icons.Filled.Explore, showGuides, Modifier.weight(1f), onGuidesChange)
+            IconToggle(
+                "人工衛星",
+                Icons.Filled.SatelliteAlt,
+                showSatellites,
+                Modifier.weight(1f),
+                onSatellitesChange,
             )
         }
-        SettingSwitch(
-            if (showGuides) "目印: 地平線と方位（北東南西）を出す" else "目印: 出さない",
-            showGuides,
-            onGuidesChange,
+        InkRow(ink, onInkChange)
+    }
+}
+
+/**
+ * 下敷きの濃さ。**開くまで出さない。**
+ *
+ * **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる**ので現地で動かせるようにしてあるが、
+ * 初めて開いた人が最初に触るものではない。
+ */
+@Composable
+private fun InkRow(ink: StarMapInk, onInkChange: (StarMapInk) -> Unit) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Tune,
+            null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
         )
-        SettingSwitch(
-            if (showSatellites) "人工衛星: 星図に重ねる" else "人工衛星: 出さない",
-            showSatellites,
-            onSatellitesChange,
-        )
-        // **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる。** 現地で動かせるようにしておく
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.width(8.dp))
         Text(
-            "濃さ（緑 8 階調の段）",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            "星は等級を明るさで表しているので、ここでは動かさない",
+            "下敷きの濃さ",
             style = MaterialTheme.typography.bodySmall,
-            color = SaberaFinePrint,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
+        Icon(
+            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            if (expanded) "畳む" else "開く",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+    if (expanded) {
+        // 星はここに入れない（等級を明るさで表しているので、一律に動かすと差が潰れる）
         for (layer in StarMapLayer.entries) {
             InkStepper(layer, ink.level(layer)) { onInkChange(ink.with(layer, it)) }
         }
@@ -293,19 +518,20 @@ internal fun SkyViewSettings(
  */
 @Composable
 private fun InkStepper(layer: StarMapLayer, level: Int, onChange: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text("${layer.label}: 段 $level / ${StarMapLayer.MAX_LEVEL}", style = MaterialTheme.typography.bodyMedium)
-            Text(layer.hint, style = MaterialTheme.typography.bodySmall, color = SaberaFinePrint)
-        }
-        TextButton(
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "${layer.label} $level/${StarMapLayer.MAX_LEVEL}",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(
             onClick = { onChange(level - 1) },
             enabled = level > StarMapLayer.MIN_LEVEL,
-        ) { Text("薄く", style = MaterialTheme.typography.labelMedium) }
-        TextButton(
+        ) { Icon(Icons.Filled.Remove, "薄く") }
+        IconButton(
             onClick = { onChange(level + 1) },
             enabled = level < StarMapLayer.MAX_LEVEL,
-        ) { Text("濃く", style = MaterialTheme.typography.labelMedium) }
+        ) { Icon(Icons.Filled.Add, "濃く") }
     }
 }
 
@@ -313,6 +539,10 @@ private fun InkStepper(layer: StarMapLayer, level: Int, onChange: (Int) -> Unit)
  * 音。**グラスからは鳴らない**ので、ここで合わせるのはスマホのスピーカーの音量。
  *
  * 適正な音量は場所（屋外の暗騒音）と機種で変わるので、合わせた値は端末に覚えさせる。
+ *
+ * **屋外で触るのは音量だけ**なので、つまみ 2 本しか出さない。
+ * 入／切は左のアイコンが兼ねる。声を端末の読み上げに落とす・曲を指名するのは
+ * 一度決めたらそのままなので、開くまで出さない。
  */
 @Composable
 internal fun SoundSettings(
@@ -330,7 +560,64 @@ internal fun SoundSettings(
     bgmPinned: BgmTrack?,
     onBgmPinnedChange: (BgmTrack?) -> Unit,
 ) {
-    SettingsSection("音", "鳴るのはスマホのスピーカー。グラスにスピーカーは無い") {
+    SettingsSection(
+        "音",
+        Icons.Filled.VolumeUp,
+        "スマホのスピーカーから鳴る（グラスにスピーカーは無い）",
+    ) {
+        SliderRow(
+            "読み上げ",
+            if (voiceVolume > 0f) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+            voiceVolume,
+            onVoiceVolumeChange,
+            onVoiceVolumeCommit,
+        )
+        SliderRow(
+            "BGM",
+            if (bgmOn) Icons.Filled.MusicNote else Icons.Filled.MusicOff,
+            bgmVolume,
+            onBgmVolumeChange,
+            onBgmVolumeCommit,
+            enabled = bgmOn,
+            onIconClick = { onBgmChange(!bgmOn) },
+        )
+        Text(
+            if (bgmOn) "いま ${bgmPlaying?.title ?: "止まっている"}・解説中は自動で下がる" else "BGM なし",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SoundDetails(aiVoice, onAiVoiceChange, bgmOn, bgmPinned, onBgmPinnedChange)
+    }
+}
+
+/** 一度決めたらそのままの設定。**開くまで出さない** */
+@Composable
+private fun SoundDetails(
+    aiVoice: Boolean,
+    onAiVoiceChange: (Boolean) -> Unit,
+    bgmOn: Boolean,
+    bgmPinned: BgmTrack?,
+    onBgmPinnedChange: (BgmTrack?) -> Unit,
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "声と曲",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            if (expanded) "畳む" else "開く",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+    if (expanded) {
         // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
         // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
         SettingSwitch(
@@ -338,34 +625,27 @@ internal fun SoundSettings(
             aiVoice,
             onAiVoiceChange,
         )
-        Text(
-            "読み上げの音量 %d%%".format((voiceVolume * 100).roundToInt()),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Slider(
-            value = voiceVolume,
-            onValueChange = onVoiceVolumeChange,
-            onValueChangeFinished = onVoiceVolumeCommit,
-        )
-        SettingSwitch(
-            if (bgmOn) "BGM（いま ${bgmPlaying?.title ?: "止まっている"}）" else "BGM なし",
-            bgmOn,
-            onBgmChange,
-        )
-        Text(
-            "BGM の音量 %d%%（解説中は自動で下がる）".format((bgmVolume * 100).roundToInt()),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Slider(
-            value = bgmVolume,
-            onValueChange = onBgmVolumeChange,
-            onValueChangeFinished = onBgmVolumeCommit,
-            enabled = bgmOn,
-        )
         if (bgmOn) BgmPicker(bgmPinned, onBgmPinnedChange)
-        // CC BY 4.0 は帰属の表示が条件。NOTICE はアプリの利用者には見えないので、ここにも出しておく
+    }
+}
+
+/**
+ * 同梱物の出典。
+ *
+ * **CC BY 4.0 は帰属の表示が条件**で、`NOTICE` はアプリの利用者には見えない。
+ * 曲と星座絵で 2 か所に散らすと設定パネルが細字で埋まるので、1 つに集めて畳んでおく。
+ */
+@Composable
+internal fun CreditsCard() {
+    CollapsibleSection("出典", Icons.Filled.Info, "曲と星座絵のライセンス") {
         Text(
             "BGM: ${BgmTrack.credit}",
+            style = MaterialTheme.typography.bodySmall,
+            color = SaberaFinePrint,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "星座絵: The 88 Constellations by NOIRLab/NSF/AURA CC BY 4.0（改変あり）",
             style = MaterialTheme.typography.bodySmall,
             color = SaberaFinePrint,
         )
@@ -448,7 +728,13 @@ internal fun ObservationStatusCard(
     onLocate: () -> Unit,
     onRecalibrate: () -> Unit,
 ) {
-    SettingsSection("観測の状態") {
+    CollapsibleSection(
+        "観測の状態",
+        Icons.Filled.MyLocation,
+        // **畳んでいる間もここだけは読める。** 「出ない」と言われて最初に見るのが 6DoF
+        (if (imuStarted) "6DoF 受信中" else "6DoF 停止中") +
+            (calibration?.let { "・方位±%.1f°".format(it.headingStdDeg) } ?: "・方位合わせまだ"),
+    ) {
         StatusRow("6DoF", if (imuStarted) "受信中" else "停止中（グラスが 2.0.0 未満かも）")
         StatusRow(
             "方位合わせ",
@@ -463,27 +749,44 @@ internal fun ObservationStatusCard(
         )
         StatusRow("観測地", siteSource)
         Spacer(Modifier.height(8.dp))
-        CommandButton("方位を合わせる", onClick = onRecalibrate)
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onLocate, modifier = Modifier.fillMaxWidth()) {
-            Text("現在地を取り直す")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onRecalibrate, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Explore, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("方位を合わせる", style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onLocate, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.MyLocation, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("現在地", style = MaterialTheme.typography.labelMedium)
+            }
         }
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = latText,
-            onValueChange = onLatChange,
-            label = { Text("緯度") },
-            isError = latText.toDoubleOrNull() == null,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(4.dp))
-        OutlinedTextField(
-            value = lonText,
-            onValueChange = onLonChange,
-            label = { Text("経度") },
-            isError = lonText.toDoubleOrNull() == null,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // **緯度経度の手入力は、現在地が取れないときの逃げ道。** 普段は開かない
+        var manual by rememberSaveable { mutableStateOf(false) }
+        TextButton(onClick = { manual = !manual }, modifier = Modifier.fillMaxWidth()) {
+            Text(
+                if (manual) "緯度経度を畳む" else "緯度経度を手で入れる",
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        if (manual) {
+            OutlinedTextField(
+                value = latText,
+                onValueChange = onLatChange,
+                label = { Text("緯度") },
+                isError = latText.toDoubleOrNull() == null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = lonText,
+                onValueChange = onLonChange,
+                label = { Text("経度") },
+                isError = lonText.toDoubleOrNull() == null,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -501,13 +804,23 @@ internal fun SessionLogCard(
     onExport: () -> Unit,
     onClear: () -> Unit,
 ) {
-    SettingsSection("記録", "記録 %.1f KB（画面は直近 %d 行）".format(logBytes / 1024.0, visibleLines)) {
-        Row {
+    CollapsibleSection(
+        "記録",
+        Icons.Filled.Description,
+        "%.1f KB（画面は直近 %d 行）".format(logBytes / 1024.0, visibleLines),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) {
-                Text("記録を書き出す")
+                Icon(Icons.Filled.Share, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("書き出す", style = MaterialTheme.typography.labelMedium)
             }
-            Spacer(Modifier.padding(4.dp))
-            OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text("記録を消す") }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) {
+                Icon(Icons.Filled.Delete, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("消す", style = MaterialTheme.typography.labelMedium)
+            }
         }
         Spacer(Modifier.height(4.dp))
         Column(

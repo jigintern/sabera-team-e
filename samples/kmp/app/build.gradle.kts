@@ -98,6 +98,9 @@ dependencies {
     // Compose
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
     implementation("androidx.compose.material3:material3")
+    // 設定パネルのアイコン。**暗い屋外では文字より形のほうが速く見つかる**。
+    // core には音量・明るさ・衛星が無いので extended を入れる（未使用ぶんは R8 が落とす）
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")

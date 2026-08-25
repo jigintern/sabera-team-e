@@ -171,6 +171,7 @@ import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
+import jp.jig.glasses.sample.kmp.ui.component.CreditsCard
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
 import jp.jig.glasses.sample.kmp.ui.component.GuideMismatchDialog
@@ -3216,6 +3217,9 @@ fun StarMapScreen(
                                                 log("記録を消した。ここから計測しなおす")
                                             },
                                         )
+
+                                        // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
+                                        CreditsCard()
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
                                 }
