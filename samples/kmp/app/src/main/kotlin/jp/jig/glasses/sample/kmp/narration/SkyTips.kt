@@ -1,13 +1,8 @@
 package jp.jig.glasses.sample.kmp.narration
 
-import jp.jig.glasses.sample.kmp.satellite.Observer
-import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.sky.MoonPhase
-import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.Site
-import jp.jig.glasses.sample.kmp.sky.TIP_PASS_WINDOW_MIN
-import jp.jig.glasses.sample.kmp.sky.allowsSatellites
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -274,41 +269,4 @@ object SkyTips {
                     "星は一時間にその一つ半ぶん、東から西へ動きます。",
             )
         }
-}
-
-/**
- * まもなく上がってくる 1 機（[SkyTips.RisingPass]）。無ければ null。
- *
- * **まだどこからも呼ばれていない**（d354284 で作られたが tonightSky へ渡す配線が無い）。
- * つなぐと一口メモを押すたび nextPasses の軌道計算が走るので、配線は速さと合わせて判断する。
- *
- * **絞るのは肉眼で追えるものだけ。** `nextPasses` は静止軌道と測位衛星を既に落として
- * いるので、ここでは**日が当たっているか**だけを見る（影に入る機体を案内しても、
- * 出てきた空に何も見えない）。
- *
- * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
- * そのとき何をしているか分からないので待つ判断ができない。
- */
-fun risingPassTip(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
-    if (scene == null || !scene.loaded) return null
-    if (
-        observation.simulation &&
-        !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
-    ) {
-        return null
-    }
-    val pass = scene.nextPasses(
-        observer = Observer(observation.site.latDeg, observation.site.lonDeg),
-        epochMillis = observation.epochMillis,
-        withinMinutes = TIP_PASS_WINDOW_MIN,
-    ).firstOrNull { it.sunlitAtPeak } ?: return null
-    return SkyTips.RisingPass(
-        nameJa = pass.name,
-        inMinutes = pass.risesInMinutes(observation.epochMillis),
-        riseDirection = cardinalDirection16(pass.riseAzDeg),
-        setDirection = cardinalDirection16(pass.setAzDeg),
-        peakAltDeg = pass.peakAltDeg.roundToInt(),
-        peakDirection = cardinalDirection16(pass.peakAzDeg),
-        sunlit = pass.sunlitAtPeak,
-    )
 }
