@@ -521,8 +521,11 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val lst = localSiderealDeg(d, site.lonDeg)
         val precessed = precessed(d)
         val target = enu(look.azDeg, look.altDeg)
-        return catalog.stars.indices.asSequence().mapNotNull { index ->
-            val name = catalog.brightNames[catalog.stars[index].hip] ?: return@mapNotNull null
+        // **名前のある星の側から引く。** 星表を頭から走ると数千件を当たることになるが、
+        // 固有名を持つのは 25 件ほどしかない（結びと同じ HIP の索引を使う）
+        val byHip = hipIndex()
+        return catalog.brightNames.entries.asSequence().mapNotNull { (hip, name) ->
+            val index = byHip[hip] ?: return@mapNotNull null
             val position = precessed.stars[index]
             val aa = toApparentAltAz(position[0], position[1], lst, site.latDeg)
             val distance = acos((enu(aa[0], aa[1]) dot target).coerceIn(-1.0, 1.0)) * DEG
