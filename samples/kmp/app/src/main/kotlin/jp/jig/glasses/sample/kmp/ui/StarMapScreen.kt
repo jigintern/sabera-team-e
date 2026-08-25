@@ -65,6 +65,14 @@ import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_LINGER_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_READ_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN_MAX
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SEND_DEBOUNCE_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SOUND_WAIT_MS
 import jp.jig.glasses.sample.kmp.glass.GUIDANCE_LABEL_SLOTS
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import jp.jig.glasses.sample.kmp.glass.GlassBrightnessPrefs
@@ -75,9 +83,19 @@ import jp.jig.glasses.sample.kmp.glass.GuidanceHighlight
 import jp.jig.glasses.sample.kmp.glass.GuidanceOverlaySender
 import jp.jig.glasses.sample.kmp.glass.MeteorRadiantMark
 import jp.jig.glasses.sample.kmp.glass.LabelKind
+import jp.jig.glasses.sample.kmp.glass.PACKET_MS_DEFAULT
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
+import jp.jig.glasses.sample.kmp.glass.PREDICT_COOLDOWN_MS
+import jp.jig.glasses.sample.kmp.glass.PREDICT_DAMPING
+import jp.jig.glasses.sample.kmp.glass.REDRAW_DEG
+import jp.jig.glasses.sample.kmp.glass.REDRAW_ROLL_DEG
+import jp.jig.glasses.sample.kmp.glass.ROLL_SMOOTHING
+import jp.jig.glasses.sample.kmp.glass.SETTLE_MS
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.STILL_DEG
+import jp.jig.glasses.sample.kmp.glass.STILL_MS
+import jp.jig.glasses.sample.kmp.glass.SUBTITLE_LAST_HOLD_MS
 import jp.jig.glasses.sample.kmp.glass.StarMapInk
 import jp.jig.glasses.sample.kmp.glass.StarMapLayer
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
@@ -94,6 +112,7 @@ import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
 import jp.jig.glasses.sample.kmp.glass.clearedCanvasText
 import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
 import jp.jig.glasses.sample.kmp.glass.constellationNames
+import jp.jig.glasses.sample.kmp.glass.explanationDwellMs
 import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
@@ -117,6 +136,10 @@ import jp.jig.glasses.sample.kmp.openai.OpenAiRequestTrace
 import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
+import jp.jig.glasses.sample.kmp.sky.GUIDANCE_CONFIRMATION_MS
+import jp.jig.glasses.sample.kmp.sky.GUIDANCE_LOW_ALTITUDE_DEG
+import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MIN_DELAY_MS
+import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MS
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceEvent
 import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
@@ -125,10 +148,15 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceRequestParser
 import jp.jig.glasses.sample.kmp.sky.GuidanceSession
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import jp.jig.glasses.sample.kmp.sky.MARKER_INTERVAL_MS
+import jp.jig.glasses.sample.kmp.sky.MAX_SATELLITES_IN_VIEW
+import jp.jig.glasses.sample.kmp.sky.NARRATION_CONSTELLATIONS
+import jp.jig.glasses.sample.kmp.sky.NOTABLE_SATELLITES
 import jp.jig.glasses.sample.kmp.sky.ObservationMode
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
+import jp.jig.glasses.sample.kmp.sky.SKY_DARKNESS_REFRESH_MS
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.PendingSkyRequest
 import jp.jig.glasses.sample.kmp.sky.SkyCommand
@@ -137,6 +165,7 @@ import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import jp.jig.glasses.sample.kmp.sky.SkyPlace
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
+import jp.jig.glasses.sample.kmp.sky.TIP_PASS_WINDOW_MIN
 import jp.jig.glasses.sample.kmp.sky.Timelapse
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
@@ -452,7 +481,6 @@ fun StarMapScreen(
 
     /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
     var tipIndex by remember { mutableStateOf(0) }
-
 
     /**
      * 字幕を手で送る合図（[HeadFlickDetector]）。
@@ -3316,30 +3344,6 @@ private fun LandscapeActions(stopLabel: String?, onStop: () -> Unit, onSettings:
 private val LANDSCAPE_HEADER_HEIGHT = 48.dp
 
 /**
- * 200 バイト 1 パケットの見積り時間。
- *
- * **実測 8〜9ms**（Pixel 9a・2026-08-20 に 12 回）。10ms にしていたぶんは毎フレーム
- * 数十 ms の待ちすぎになっていた。**多く見積もるほど次の絵が遅れる**ので実測の上端に合わせる。
- */
-private const val PACKET_MS_DEFAULT = 9f
-
-/**
- * 矢印を差し替える間隔。6DoF の到着間隔（約10Hz）に近い値。
- *
- * **[POLL_MS] と同じ 100ms にしない。** 星図の描き直しは `sendGate.tryLock()` で
- * 「塞がっていたら諦める」ので、追従の見張りと矢印の送信が同じ周期だと
- * **位相が噛み合ったまま何秒も星図が描き直されない**（矢印だけ動いて空が古いままになる）。
- * 周期をずらしておけば、噛み合っても 1 秒ほどで抜ける。
- */
-private const val GUIDANCE_REFRESH_MS = 130L
-
-/** 転送見積りが1周期を超えても、連続送信で他の表示を塞がないための隙間。 */
-private const val GUIDANCE_REFRESH_MIN_DELAY_MS = 10L
-
-/** 音声で対象を復唱し、見間違いならタップで止められる時間。 */
-private const val GUIDANCE_CONFIRMATION_MS = 1_000L
-
-/**
  * ガイドが「喋り始めた」と諦めるまで。**合成に 1〜3 秒かかる**ので短くしすぎない。
  *
  * 鳴らないまま次の段へ進むより、少し待って次を出すほうがよい。
@@ -3361,9 +3365,6 @@ private const val SPEECH_END_TIMEOUT_MS = 90_000L
  * ここに掛かるのは何かが詰まったときだけ。
  */
 private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
-
-/** 地平線すれすれは遮蔽物や大気で見つけにくいため、案内前に断りを入れる。 */
-private const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0
 
 /** ログはこの行数だけ持つ */
 private const val LOG_LINES = 40
@@ -3436,28 +3437,8 @@ private fun OpenAiRequestTrace.logLine(): String = buildString {
     requestId?.let { append(" requestId=").append(it) }
 }
 
-/**
- * 星図に重ねる衛星。**名前で「なにか」が分かるものだけ**に絞る。
- *
- * 名前つき 24 機のうち、だいち・いぶき・しきさい・しずく・テラ・アクア・ランドサット・NOAA は
- * **初心者には名前が手がかりにならない**（見えているのは同じ点なので、名前が読めないと情報が無い）。
- * 測位衛星（GPS・みちびき・ガリレオ）と、名前を知っている ISS・天宮・ひまわり・ハッブルを残す。
- */
-private val NOTABLE_SATELLITES = listOf("ISS", "天宮", "みちびき", "GPS", "ガリレオ", "ひまわり", "ハッブル")
-
-/** 一度に重ねる機体の数。**星座の邪魔をしない**ための上限（#36） */
-private const val MAX_SATELLITES_IN_VIEW = 3
-
 /** 送信ログに出す星座ラベルの数。主役（先頭）と、その次までが分かれば突き合わせられる */
 private const val LOGGED_LABELS = 3
-
-/**
- * AI へ渡す星座の数。
- *
- * **先頭が主役で、残りは「同じ視野にも入っている」だけ。** 並べるほどモデルが主役を
- * 選び直す余地が増えるので、4 つから減らした（AGENTS.md の「箇条書きを増やすほど薄まる」）。
- */
-private const val NARRATION_CONSTELLATIONS = 3
 
 /** 音声・スマホで解釈した場所と日時を、星図へ切り替える前に読める時間 */
 private const val COMMAND_CONFIRM_MS = 1_500L
@@ -3486,109 +3467,7 @@ private const val LATCH_MS = 500L
 /** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
 private const val HISTORY_MS = 3_000L
 
-/**
- * 衛星の印を動かす間隔。
- *
- * 天頂を通る衛星は 1 秒に 1°（画面では 15 画素）動く。
- * 1.5 秒ごとなら 20 画素ほどの遅れで、テキストは 1 パケットなので転送も邪魔しない。
- */
-private const val MARKER_INTERVAL_MS = 1_500L
-
-/** 空の暗さを測り直す間隔。薄暮から夜へ移るのは数十分かかる */
-private const val SKY_DARKNESS_REFRESH_MS = 15_000L
-
-/** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
-private const val STILL_DEG = 1.0
-
-/**
- * 動きが止まってからこれだけ待って送る。
- *
- * **短いほど早く出る。** 400ms から詰めた。長くすると「止めたのに出てこない」時間がそのまま伸び、
- * 短くしすぎると首を動かしている途中で送り始めて、転送のあいだ真っ暗になる回数が増える。
- */
-private const val STILL_MS = 180L
-
 private const val TAG = "StarMap"
-
-/**
- * 前に送った絵からこれだけ視線がずれたら描き直す。
- *
- * 送り直すたびグラスは転送中の約 0.4 秒黙るので、少し動いたくらいでは送らない。
- * 画角 35° に対しておよそ 1/6。
- */
-private const val REDRAW_DEG = 6.0
-
-/**
- * 最後のパケットを送ってからグラスが展開して描き終わるまでの余裕。
- *
- * 0.5.0 までは送信が重なるとどの画像も組み立てられなかったので厚めに取っていたが、
- * 0.6.0 で SDK が直列化したため、次のフレームのパケットは後ろに並ぶだけになった。
- * **待っている間は次の絵を作らない**ので、ここはそのまま体感の遅さになる。200ms から詰めた。
- */
-private const val SETTLE_MS = 80L
-
-/**
- * 首の傾きがこれだけ変わったら描き直す。
- *
- * 傾きは方位も高度も変えないので、[REDRAW_DEG] では引っかからない。
- * 画角 35° の端で 6° 回すと 1.8° ずれるので、**方位のしきい値より小さくする**。
- */
-private const val REDRAW_ROLL_DEG = 5.0
-
-/**
- * 先出しの外挿をどれだけ割り引くか（0..1）。
- *
- * **行き過ぎるより届かないほうが安全。** 足りない分は止まったあとの描き直しが埋めるが、
- * 行き過ぎた絵は「合っていない星図」として出たままになる。
- */
-private const val PREDICT_DAMPING = 0.6
-
-/**
- * 先出しを繰り返さない間隔。
- *
- * 首を振り続けている間に何枚も先出しすると、**転送のたびに画面が消えて点滅になる**
- * （動きに追従させない理由そのもの）。転送 1 枚が 0.4 秒なので、その 3 倍を空ける。
- */
-private const val PREDICT_COOLDOWN_MS = 1_200L
-
-/**
- * 首の傾きを寄せる速さ（0..1）。
- *
- * 加速度は 1 サンプルごとに揺れるので、そのまま使うと絵がぱたぱた回る。
- * 10Hz で 0.2 なら、傾けてから 1 秒ほどで追いつく。
- */
-private const val ROLL_SMOOTHING = 0.2
-
-/**
- * 一口メモでパスを案内する窓[分]。
- *
- * **待てる長さだけを出す。** 3 時間後のパスを言われても、そのとき何をしているか
- * 分からないので待つ判断ができない。ISS の 1 周は 90 分なので、この窓なら
- * 「いま出ていないが、そのうち来る」を取りこぼしても次の押し直しで拾える。
- */
-private const val TIP_PASS_WINDOW_MIN = 30.0
-
-/** 読み上げが終わってから星図へ戻すまでの余韻 */
-private const val EXPLANATION_LINGER_MS = 5_000L
-
-/**
- * 音が鳴らなかったときに解説を出したままにしておく時間。
- *
- * **騒がしい場所やイヤホンが無いときは文字が主役**（#40 の動機そのもの）なので、
- * 読み終わる前に消えるのがいちばん悪い。140 文字の黙読に 16〜23 秒かかる。
- */
-private const val EXPLANATION_READ_MS = 25_000L
-
-/** 話が切り替わってから最初の 1 枚を送るまで。畳まれた古い本文を出さないための間 */
-private const val EXPLANATION_SEND_DEBOUNCE_MS = 150L
-
-/**
- * 1 枚目を出したあと、音が出るのを待つ上限。
- *
- * AI 音声の合成は 1〜2 秒。**待ちすぎるより先へ進むほうが害が小さい**（字幕だけで読む人が
- * 主役の場面もある）ので、鳴らなければ黙読の速さでめくる。
- */
-private const val EXPLANATION_SOUND_WAIT_MS = 3_000L
 
 /**
  * ロード画面を出すまでの猶予。
@@ -3622,53 +3501,3 @@ private const val LOADING_TIP_FRAMES = 15
  */
 private const val LOADING_STAGE = "星表を読んでいます"
 
-/**
- * 最後の 1 枚を出しておく時間。
- *
- * **読み終わってからでも戻せるようにする**（[HeadFlickDetector]）。読み逃しに気づくのは
- * たいてい流れ切ったあとで、そこで戻せないと**もう読む手立てが無い**
- * （タップは「もう終わり」なので、止まって星図へ戻ってしまう）。
- * この間も自動で星図へ戻す時計は動いているので、放っておけば今までどおり畳まれる。
- */
-private const val SUBTITLE_LAST_HOLD_MS = 6_000L
-
-/**
- * 字幕を 1 枚出しておく最短の時間。
- *
- * 1 行ずつ流すようになったので、**下限も 1 行ぶん**。最後のほうに短い行が来たときに、
- * 目に入る前に流れていくのを止めるためだけの値で、埋まった行（17 文字）では効かない。
- */
-private const val EXPLANATION_PAGE_MIN_MS = 1_600L
-
-/** 1 文字あたりの送り時間。読み上げはおよそ 7 文字／秒 */
-private const val EXPLANATION_PAGE_PER_CHAR_MS = 150L
-
-/**
- * 1 行流すごとに、次まで置く時間を何割ずつ延ばすか。
- *
- * **読み上げは文の切れ目で息が入る**が、字幕は 1 文字あたり一定で数えているので、
- * **流すほど字幕が声より先へ出ていく**。1 行ごとに少しずつ長く置けば、そのぶんを取り返せる。
- * 読む側から見ても、後ろの行ほど前の行を思い出しながら読むので、同じ速さでは追いつかない。
- * **実機未確認**（読む速さは人と明るさで変わるので、合わなければここだけ直す）。
- */
-private const val EXPLANATION_SCROLL_SLOWDOWN = 0.06
-
-/**
- * 遅くする頭打ち。
- *
- * 際限なく遅くすると、**声が終わったあと字幕だけが延々と残る**。
- * いちばん長い解説（16 行）でも、最後の行は 1.4 倍で頭打ちになる。
- */
-private const val EXPLANATION_SCROLL_SLOWDOWN_MAX = 1.4
-
-/**
- * 字幕を次の 1 行へ送るまでの時間。
- *
- * [revealed] はその 1 枚で新しく出た文字数（1 枚目だけ 2 行ぶん）、[step] は何枚目か。
- * **Android に触らないので JVM テストで固定できる。**
- */
-internal fun explanationDwellMs(revealed: Int, step: Int): Long {
-    val read = max(EXPLANATION_PAGE_MIN_MS, revealed * EXPLANATION_PAGE_PER_CHAR_MS)
-    val slowdown = min(1.0 + step * EXPLANATION_SCROLL_SLOWDOWN, EXPLANATION_SCROLL_SLOWDOWN_MAX)
-    return (read * slowdown).toLong()
-}
