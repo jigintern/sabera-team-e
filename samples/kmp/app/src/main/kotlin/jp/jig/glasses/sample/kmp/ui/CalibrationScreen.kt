@@ -60,6 +60,7 @@ import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimator
 import jp.jig.glasses.sample.kmp.alignment.CalibrationMarker
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.alignment.Compass
+import jp.jig.glasses.sample.kmp.alignment.CompassGate
 import jp.jig.glasses.sample.kmp.alignment.Locator
 import jp.jig.glasses.sample.kmp.alignment.MagneticQuality
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
@@ -123,6 +124,8 @@ fun CalibrationScreen(
     var phoneHeading by remember { mutableStateOf<Double?>(null) }
     var phonePitch by remember { mutableStateOf<Double?>(null) }
     var compassAccuracy by remember { mutableIntStateOf(SensorManager.SENSOR_STATUS_UNRELIABLE) }
+    // 8 の字を出したまま待たせすぎていないか。**止めきると較正が上がらない端末で詰む**
+    var compassGate by remember { mutableStateOf(CompassGate()) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var lastEstimatedImuAt by remember { mutableLongStateOf(0L) }
     var estimate by remember { mutableStateOf<CalibrationEstimate?>(null) }
@@ -232,6 +235,13 @@ fun CalibrationScreen(
             phoneHeading = compass.trueHeadingDeg(site, now)
             phonePitch = compass.pitchDeg
             compassAccuracy = compass.accuracy
+            // すでに 100ms で回っているので、逃がすためのタイマーを別に立てない
+            compassGate = compassGate.advance(
+                nowMillis = now,
+                accurate = compassAccuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM,
+                // **正対は条件に入れない。** 一瞬崩れるたびに待ち時間が 0 に戻り、上限に届かない
+                prompting = imuStarted && now - lastImuAt < IMU_FRESH_MS && phoneHeading != null,
+            )
             if (now - lastMagneticAt > MAGNETIC_POLL_MS) {
                 magnetic = compass.quality(site, now)
                 lastMagneticAt = now
@@ -258,7 +268,10 @@ fun CalibrationScreen(
     }
     val imuFresh = imuStarted && now - lastImuAt < IMU_FRESH_MS
     val headingReady = phoneHeading != null
-    val compassReady = compassAccuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM
+    // **生の信頼度と、進んでよいかを分ける。** 逃がしたときに「磁気精度は足りている」と
+    // 見せてしまうと、ずれた方位で合わせたことが誰にも分からなくなる
+    val compassAccurate = compassAccuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM
+    val compassReady = compassGate.ready(compassAccurate)
     val facingReady = tiltDifference != null && tiltDifference <= MAX_TILT_DIFFERENCE_DEG
     val stabilityReady = estimate?.stable == true
     // OS の「磁気精度は高い」はキャリブレーションが済んだかしか言わない。
@@ -452,6 +465,23 @@ fun CalibrationScreen(
                             )
                         }
                     }
+                    // 較正が上がらない端末で止めきると、方位合わせから先へ進めなくなる。
+                    // **通すが、黙っては通さない**（歪みの警告と同じ扱い）
+                    if (compassGate.bypassed && !compassAccurate) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "磁気精度が上がりません",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SaberaWarning,
+                            textAlign = TextAlign.Center,
+                        )
+                        Text(
+                            text = "このまま進めますが、方位が大きくずれることがあります",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SaberaWarning.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                     // 歪んでいても押せる。**ただし黙って通さない。**
                     // ここで合わせた方位には歪みぶんの誤差が丸ごと乗る
                     magnetic?.takeIf { it.distorted }?.reason?.let { reason ->
@@ -516,7 +546,8 @@ fun CalibrationScreen(
                                 facingReady,
                             )
                             PrecisionRow("6DoF", if (imuFresh) "受信中" else "待機中", imuFresh)
-                            PrecisionRow("磁気精度", compassAccuracyLabel(compassAccuracy), compassReady)
+                            // 逃がしても緑にしない。**進めたことと、精度が足りたことは別**
+                            PrecisionRow("磁気精度", compassAccuracyLabel(compassAccuracy), compassAccurate)
                             PrecisionRow(
                                 "磁気の歪み",
                                 magnetic?.let { "%.2f倍 / 伏角%.0f°差".format(it.strengthRatio, it.inclinationDiffDeg) }

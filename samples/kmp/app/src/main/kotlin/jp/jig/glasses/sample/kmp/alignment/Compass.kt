@@ -65,6 +65,9 @@ class Compass(context: Context) : SensorEventListener {
         private set
 
     fun start() {
+        // **登録し直しでは古い信頼度を持ち越さない。** 磁力計が初期値を配るまでは
+        // 「信用できない」から始める（配られなければ [CompassGate] が時間で逃がす）
+        accuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
         rotationVector?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
         magnetometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
@@ -115,7 +118,15 @@ class Compass(context: Context) : SensorEventListener {
         }
     }
 
+    /**
+     * **3 つのセンサーを 1 つのリスナーで購読している**ので、種別を見ないと取り違える。
+     *
+     * 加速度計はたいてい `SENSOR_STATUS_ACCURACY_HIGH` を返すので、それが磁力計の低い値を
+     * 上書きすると「8 の字に振ってください」が素通りする。しかも初期値を配る順は
+     * 登録のたびに変わるので、**画面に入り直すたびに挙動が変わった**（#65）。
+     */
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        if (sensor?.type != Sensor.TYPE_MAGNETIC_FIELD) return
         this.accuracy = accuracy
     }
 
