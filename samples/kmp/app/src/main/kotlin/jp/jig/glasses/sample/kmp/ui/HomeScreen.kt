@@ -4,7 +4,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,31 +41,26 @@ fun HomeScreen(
         )
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 48.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
-            Spacer(Modifier.weight(1f))
-
+            // 間隔と中央寄せは Column の arrangement が持つ（横で weight の空きを積まない）
             Image(
                 painter = painterResource(R.drawable.hoshishirube_logo),
                 contentDescription = "星しるべ",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(96.dp),
             )
-            Spacer(Modifier.height(16.dp))
             Text(
                 text = "星空を、もっと身近に。",
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.82f),
                 textAlign = TextAlign.Center,
             )
-
-            Spacer(Modifier.weight(1f))
-
             Button(
                 onClick = onStart,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SaberaGreen,
                     contentColor = SaberaOnAccent,
@@ -77,10 +71,9 @@ fun HomeScreen(
 
             // **ガイドを作るのはここ。** グラスが要らないので、出かける前に用意できる
             // （現地が圏外でも、作った台本は端末に残る）
-            Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = onGuides,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
             ) {
                 Text("ガイドを作る", color = Color.White)
             }

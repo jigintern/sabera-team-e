@@ -1,5 +1,7 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.hardware.SensorManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,6 +91,7 @@ fun CalibrationScreen(
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = context as Activity
     // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
     // ここから launch / async したものが 1 つ失敗すると兄弟が全部キャンセルされる。
     // 実機では TTS の先読みが圏外で失敗したとき、6DoF の購読とログまで道連れになった
@@ -101,6 +104,12 @@ fun CalibrationScreen(
     val compass = remember { Compass(context) }
     val locator = remember { Locator(context) }
     val estimator = remember { CalibrationEstimator() }
+
+    DisposableEffect(activity) {
+        val previousOrientation = activity.requestedOrientation
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose { activity.requestedOrientation = previousOrientation }
+    }
 
     var magnetic by remember { mutableStateOf<MagneticQuality?>(null) }
     var lastMagneticAt by remember { mutableLongStateOf(0L) }
@@ -361,9 +370,7 @@ fun CalibrationScreen(
             modifier = Modifier.fillMaxSize(),
         )
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 32.dp)
+            modifier = Modifier.fillMaxSize().padding(top = 32.dp)
                 .padding(horizontal = 20.dp, vertical = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -377,7 +384,7 @@ fun CalibrationScreen(
 
             Spacer(Modifier.height(20.dp))
             Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 380.dp),
+                modifier = Modifier.widthIn(max = 380.dp).fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xED0C151D)),
             ) {
                 Column(
@@ -467,7 +474,7 @@ fun CalibrationScreen(
 
             Spacer(Modifier.height(12.dp))
             Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 380.dp),
+                modifier = Modifier.widthIn(max = 380.dp).fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xED152028)),
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp)) {
