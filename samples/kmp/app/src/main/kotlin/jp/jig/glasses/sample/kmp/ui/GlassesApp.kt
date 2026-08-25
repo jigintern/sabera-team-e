@@ -194,15 +194,9 @@ fun GlassesApp(manager: GlassManager) {
             return@LaunchedEffect
         }
         val client = observingClient ?: return@LaunchedEffect
-        var disconnectedAt: Long? = null
+        val watch = ConnectionWatch()
         while (true) {
-            if (client.connected.value) {
-                disconnectedAt = null
-            } else {
-                val now = SystemClock.elapsedRealtime()
-                val startedAt = disconnectedAt ?: now.also { disconnectedAt = it }
-                if (now - startedAt >= CONNECTION_LOST_GRACE_MS) connectionLost = true
-            }
+            if (watch.sample(client.connected.value, SystemClock.elapsedRealtime())) connectionLost = true
             delay(CONNECTION_CHECK_INTERVAL_MS)
         }
     }
@@ -523,4 +517,4 @@ private val GUIDE_SCREENS = setOf(
 private const val SPLASH_TIP_SPREAD = 1_000
 
 private const val CONNECTION_CHECK_INTERVAL_MS = 1_000L
-private const val CONNECTION_LOST_GRACE_MS = 2_000L
+internal const val CONNECTION_LOST_GRACE_MS = 2_000L
