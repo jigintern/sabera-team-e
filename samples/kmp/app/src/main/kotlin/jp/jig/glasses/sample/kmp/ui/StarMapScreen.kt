@@ -166,7 +166,6 @@ import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import jp.jig.glasses.sample.kmp.sky.SkyPlace
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
-import jp.jig.glasses.sample.kmp.sky.TIP_PASS_WINDOW_MIN
 import jp.jig.glasses.sample.kmp.sky.Timelapse
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
@@ -482,7 +481,7 @@ fun StarMapScreen(
     // （ダブルタップは一口メモへ譲った）
     var showSatellites by remember { mutableStateOf(true) }
 
-    /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
+    /** 次に出す一口メモ（[SkyTips]）。読み込み画面で 1 つ使うたびに進める */
     var tipIndex by remember { mutableStateOf(0) }
 
     /**
@@ -1497,7 +1496,6 @@ fun StarMapScreen(
         delay(LOADING_GRACE_MS)
 
         val observation = observationSnapshot()
-        // 衛星のパスは渡さない。**軌道要素はまだ読んでいる最中**なので待たせられない
         val tip = SkyTips.of(
             tonightSky(context, observation.site, observation.epochMillis, observation.zoneId),
             tipIndex,
@@ -2526,40 +2524,6 @@ fun StarMapScreen(
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
         narrator.again(entry.nameJa, entry.text)
-    }
-
-    /**
-     * まもなく上がってくる 1 機（[SkyTips.RisingPass]）。無ければ null。
-     *
-     * **絞るのは肉眼で追えるものだけ。** `nextPasses` は静止軌道と測位衛星を既に落として
-     * いるので、ここでは**日が当たっているか**だけを見る（影に入る機体を案内しても、
-     * 出てきた空に何も見えない）。
-     *
-     * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
-     * そのとき何をしているか分からないので待つ判断ができない。
-     */
-    fun risingPass(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
-        if (scene == null || !scene.loaded) return null
-        if (
-            observation.simulation &&
-            !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
-        ) {
-            return null
-        }
-        val pass = scene.nextPasses(
-            observer = Observer(observation.site.latDeg, observation.site.lonDeg),
-            epochMillis = observation.epochMillis,
-            withinMinutes = TIP_PASS_WINDOW_MIN,
-        ).firstOrNull { it.sunlitAtPeak } ?: return null
-        return SkyTips.RisingPass(
-            nameJa = pass.name,
-            inMinutes = pass.risesInMinutes(observation.epochMillis),
-            riseDirection = cardinalDirection16(pass.riseAzDeg),
-            setDirection = cardinalDirection16(pass.setAzDeg),
-            peakAltDeg = pass.peakAltDeg.roundToInt(),
-            peakDirection = cardinalDirection16(pass.peakAzDeg),
-            sunlit = pass.sunlitAtPeak,
-        )
     }
 
     /**
