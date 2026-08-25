@@ -22,7 +22,7 @@ import java.time.ZoneId
  * **Android に触るのはここまで。** 文面を組むのは [SkyTips] で、そちらは Android に触らないので
  * JVM テストで固定できる。同梱データを読むのと時計を見るのがここの仕事。
  *
- * **同じ材料をいくつもの画面が要る**（起動直後のグラス表示・読み込み中・ダブルタップ）ので、
+ * **同じ材料をいくつもの画面が要る**（起動直後のグラス表示・スマホのホーム・読み込み中）ので、
  * 作り方を 1 か所に置く。散らばると、画面ごとに違うことを言い始める。
  *
  * **星表は要らない。** 中身は時刻と場所の計算と、2KB の流星群だけなので、
@@ -33,11 +33,6 @@ suspend fun tonightSky(
     site: Site,
     atMillis: Long,
     zoneId: ZoneId = ZoneId.systemDefault(),
-    /**
-     * まもなく上がってくる衛星。**軌道要素（10,748 機・1.8MB）はここでは読まない**ので、
-     * 出せる画面が呼ぶ側で用意して渡す。
-     */
-    risingPass: SkyTips.RisingPass? = null,
 ): SkyTips.Sky {
     val showers = BundledData.showers(context)
     return withContext(Dispatchers.Default) {
@@ -66,7 +61,6 @@ suspend fun tonightSky(
             moon = moonPhase(atMillis),
             moonAltDeg = bodyAltAz(SolarSystemBody.MOON, site, atMillis)[1],
             bodiesUp = bodiesUp(site, atMillis),
-            risingPass = risingPass,
             shower = shower,
         )
     }
