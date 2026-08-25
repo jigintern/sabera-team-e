@@ -56,6 +56,8 @@
 | `sky/ObservationDefaults.kt` / `Directions.kt` | 観測の既定値と方位表現 |
 | `sky/CelestialGuidance.kt` | 案内要求の固定ルール、5°/8°の到着ヒステリシス、60秒の状態遷移（#46） |
 | `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時間再生は観測条件と別の状態**で持つ（#45） |
+| `sky/Timelapse.kt` | 時代を送る途中の空。**年だけを補間**し、月日と時刻は目的地に固定する（#45） |
+| `glass/TimelapseSender.kt` | 240×160 の窓を**画像 id 2 枚で交互に**送る。**置いてから消す**ので途中が空にならない（#45） |
 | `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
