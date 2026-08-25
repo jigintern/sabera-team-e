@@ -230,6 +230,8 @@ import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
 import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
 import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
+import jp.jig.glasses.sample.kmp.ui.starmap.LOG_LINES
+import jp.jig.glasses.sample.kmp.ui.starmap.ScreenLog
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
 import jp.jig.glasses.sample.kmp.voice.GlassMic
@@ -298,24 +300,21 @@ fun StarMapScreen(
      * ここが入ったらクルクルを止めて理由を出す。
      */
     var loadingError by remember { mutableStateOf<String?>(null) }
-    val logs = remember { mutableStateListOf<LogLine>() }
-    val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
-
-    // 画面のログは 40 行で、画面を出ると消える。ドリフト率のような長い計測が取れないので
-    // 同じ行をファイルにも残す（docs/team-e/03_coordinate-system.md の「実測しないと決められないこと」）
     val sessionLog = remember { SessionLog(context, scope) }
+    val screenLog = remember {
+        ScreenLog(
+            append = sessionLog::append,
+            // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
+            // 書き出しは屋外用で、机の上では logcat のほうが早い
+            logcat = { text, failed -> if (failed) Log.w(TAG, text) else Log.d(TAG, text) },
+        )
+    }
+    val logs = screenLog.lines
 
     // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
     var logBytes by remember { mutableStateOf(0L) }
 
-    fun log(text: String, failed: Boolean = false) {
-        logs.add(0, LogLine(clock.format(Date()), text, failed))
-        while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
-        sessionLog.append(if (failed) "失敗  " + text else text)
-        // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
-        // 書き出しは屋外用で、机の上では logcat のほうが早い
-        if (failed) Log.w(TAG, text) else Log.d(TAG, text)
-    }
+    fun log(text: String, failed: Boolean = false) = screenLog.log(text, failed)
 
     // **アプリの生きている間 1 回だけ読む**（[BundledData]）。方位を合わせ直すたびに
     // 星表を読み直し、星座ごとの最輝星を全星と突き合わせ直していた
@@ -3351,9 +3350,6 @@ private const val SPEECH_END_TIMEOUT_MS = 90_000L
  * ここに掛かるのは何かが詰まったときだけ。
  */
 private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
-
-/** ログはこの行数だけ持つ */
-private const val LOG_LINES = 40
 
 /**
  * 質問を待っている間の画面（#38）。**1 行目は状態、2 行目は音量、3 行目は送信操作。**
