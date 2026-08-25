@@ -49,4 +49,5 @@ class CalibrationEstimatorTest {
 
         assertFalse(checkNotNull(estimate).stable)
     }
+
 }

@@ -2,7 +2,7 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.app.Activity
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,26 +60,29 @@ fun ConnectionCheckScreen(
         if (client != null) error = null
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val landscape = maxWidth > maxHeight
+        val outerPadding = if (landscape) 12.dp else 24.dp
+        val sectionGap = if (landscape) 12.dp else 24.dp
         SeasonalConstellationBackground(
             constellation = constellation,
             modifier = Modifier.fillMaxSize(),
         )
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(outerPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
             Text("接続確認", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(sectionGap))
 
             Card(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+                modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = SaberaSurface),
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(if (landscape) 16.dp else 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
@@ -115,7 +118,7 @@ fun ConnectionCheckScreen(
             error?.let { message ->
                 Spacer(Modifier.height(16.dp))
                 Card(
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 360.dp),
+                    modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xE65A2026)),
                 ) {
                     Text(
@@ -127,11 +130,11 @@ fun ConnectionCheckScreen(
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(sectionGap))
             if (connected) {
                 Button(
                     onClick = onContinue,
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                     colors = connectionButtonColors(),
                 ) {
                     Text("星図へ進む")
@@ -157,7 +160,7 @@ fun ConnectionCheckScreen(
                         }
                     },
                     enabled = !scanning,
-                    modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp).height(52.dp),
+                    modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
                     colors = connectionButtonColors(),
                 ) {
                     Text(if (scanning) "接続中…" else "SABERAを接続する")
