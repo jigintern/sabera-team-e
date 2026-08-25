@@ -108,6 +108,35 @@ class LongTermPrecessionTest {
         }
     }
 
+    @Test
+    fun `固有運動でアークトゥルスは1万年に約6度動く`() {
+        // ここが 0 に近いと「向きだけ違ういまの星空」にしかならない。
+        // 数字は data/stars.json の HIP 69673（μα·cos δ = −1093.45 / μδ = −1999.40 mas/年）から
+        val d = -10_000.0 * yearDays
+        val withMotion = precessWithProperMotion(213.9153, 19.1824, -1093.45, -1999.40, d)
+        val withoutMotion = precess(213.9153, 19.1824, d)
+        val moved = separationDeg(withMotion[0], withMotion[1], withoutMotion[0], withoutMotion[1])
+        assertTrue("$moved° しか動いていない", abs(moved - 6.4) < 0.3)
+    }
+
+    @Test
+    fun `固有運動が0なら歳差だけと同じ`() {
+        val d = -10_000.0 * yearDays
+        val a = precessWithProperMotion(101.2872, -16.7161, 0.0, 0.0, d)
+        val b = precess(101.2872, -16.7161, d)
+        assertEquals(a[0], b[0], 1e-9)
+        assertEquals(a[1], b[1], 1e-9)
+    }
+
+    @Test
+    fun `固有運動は天の極のそばでも壊れない`() {
+        // 赤経へ度を足す実装だと cos δ で割るところが発散する。大円で動かしていれば有限に収まる
+        val d = 10_000.0 * yearDays
+        val moved = precessWithProperMotion(0.0, 89.99, 3000.0, 0.0, d)
+        assertTrue(moved[0].isFinite() && moved[1].isFinite())
+        assertTrue(moved[1] in -90.0..90.0)
+    }
+
     /** 切り替え前の式そのもの。[precess] は境目の外で長期歳差へ渡してしまうので、ここに写しを置く */
     private fun precessIau1976(raDeg: Double, decDeg: Double, d: Double): DoubleArray {
         val t = d / 36525.0

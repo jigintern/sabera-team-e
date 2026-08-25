@@ -806,15 +806,22 @@ fun StarMapScreen(
             } else {
                 emptyList()
             }
-            val bodies = withContext(Dispatchers.Default) {
-                bodiesInView(observation.site, observation.epochMillis, target, fov.toDouble()).map {
-                    SkyBodyMark(
-                        nameJa = it.nameJa,
-                        azDeg = it.azDeg,
-                        altDeg = it.altDeg,
-                        magnitude = it.magnitude,
-                        moon = it.nameJa == SolarSystemBody.MOON.nameJa,
-                    )
+            // **数世紀より前後は月惑星を描かない。** 恒星は長期歳差で 1 万年まで持つが、
+            // Ephemeris の摂動の級数はそこまで作られていない。衛星と同じ扱いで、
+            // もっともらしい嘘の月を空に置かない（#45）
+            val bodies = if (!observation.allowsSolarSystemBodies()) {
+                emptyList()
+            } else {
+                withContext(Dispatchers.Default) {
+                    bodiesInView(observation.site, observation.epochMillis, target, fov.toDouble()).map {
+                        SkyBodyMark(
+                            nameJa = it.nameJa,
+                            azDeg = it.azDeg,
+                            altDeg = it.altDeg,
+                            magnitude = it.magnitude,
+                            moon = it.nameJa == SolarSystemBody.MOON.nameJa,
+                        )
+                    }
                 }
             }
             // 放射点の印。**その日に活動している群があるときだけ**（無い日は何も増えない）
@@ -1565,20 +1572,34 @@ fun StarMapScreen(
         }
     }
 
-    /** 「ふつう」の星図で名前を持つものだけを、現在地・現在時刻の案内候補にする。 */
-    suspend fun guidanceTargetsAt(epochMillis: Long): List<GuidanceTarget> = withContext(Dispatchers.Default) {
-        val observer = Observer(site.latDeg, site.lonDeg)
+    /**
+     * 「ふつう」の星図で名前を持つものだけを案内候補にする。
+     *
+     * **候補はいま描いている空から採る。** 再現中に現在地・現在時刻で引くと、
+     * グラスには 1 万年前のシドニーの空が出ているのに「いまの鯖江ではそこ」と案内してしまう
+     * （絵と根拠を別々に計算する・#37 と同じ壊れ方）。
+     */
+    suspend fun guidanceTargetsAt(
+        observation: ObservationSnapshot,
+    ): List<GuidanceTarget> = withContext(Dispatchers.Default) {
+        val where = observation.site
+        val epochMillis = observation.epochMillis
+        val observer = Observer(where.latDeg, where.lonDeg)
         buildList {
-            renderer?.let { addAll(it.guidanceTargets(site, epochMillis, SkyDensity.STANDARD)) }
-            addAll(bodyGuidanceTargets(site, epochMillis))
-            if (showSatellites) {
-                satellites?.let { scene ->
-                    addAll(
-                        scene.guidanceTargets(observer, epochMillis) { name ->
-                            NOTABLE_SATELLITES.any { name.startsWith(it) }
-                        },
-                    )
-                }
+            renderer?.let { addAll(it.guidanceTargets(where, epochMillis, SkyDensity.STANDARD)) }
+            // 描いていない月惑星・衛星へ案内しない。**矢印の先に何も無い**ことになる
+            if (observation.allowsSolarSystemBodies()) {
+                addAll(bodyGuidanceTargets(where, epochMillis))
+            }
+            val scene = satellites
+            if (showSatellites && scene != null &&
+                observation.allowsSatellites(scene.elementAgeDays(epochMillis))
+            ) {
+                addAll(
+                    scene.guidanceTargets(observer, epochMillis) { name ->
+                        NOTABLE_SATELLITES.any { name.startsWith(it) }
+                    },
+                )
             }
         }
     }
@@ -1742,9 +1763,8 @@ fun StarMapScreen(
         stopGuide("前のガイドを終了")
         guideIndex = 0
         guideJob = launchNarration("ガイド", guide.title) {
-            val observedAt = System.currentTimeMillis()
             // **台本は星座名しか持っていない。** どちらに何度で見えるかはいま引き直す
-            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observedAt))
+            val resolved = GuidePlan.resolveSteps(guide, guidanceTargetsAt(observationSnapshot()))
             for (skipped in resolved.filterNot { it.playable }) {
                 log("ガイド: ${skipped.step.targetName}を飛ばす（${skipped.skipReason}）")
             }
@@ -2183,10 +2203,9 @@ fun StarMapScreen(
 
                 val observation = lastMapObservation ?: observationSnapshot()
 
-                val observedAt = System.currentTimeMillis()
                 val guidanceRequest = GuidanceRequestParser.parse(
                     question,
-                    guidanceTargetsAt(observedAt),
+                    guidanceTargetsAt(observation),
                 )
                 when (guidanceRequest) {
                     is GuidanceRequest.Start -> {

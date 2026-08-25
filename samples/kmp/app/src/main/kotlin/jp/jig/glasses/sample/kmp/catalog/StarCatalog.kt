@@ -10,10 +10,29 @@ import org.json.JSONObject
  * 実体は data/ にあり、build.gradle.kts で assets に足している。
  */
 
-/** 星表の 1 行。座標は J2000.0 なので、使う前に歳差をかける */
-class Star(val hip: Int, val raDeg: Double, val decDeg: Double, val magnitude: Double)
+/**
+ * 星表の 1 行。座標は J2000.0 なので、使う前に歳差をかける。
+ *
+ * **固有運動を持たせているのは深い時代のため**（#45）。1 万年遡ると
+ * アークトゥルスは 6.4° 動き、**星座の形そのものが変わる**。
+ * 数世紀の範囲では 1 分角にも満たないので、ふだんは効かない。
+ */
+class Star(
+    val hip: Int,
+    val raDeg: Double,
+    val decDeg: Double,
+    val magnitude: Double,
+    /** μα·cos δ [mas/年]。**すでに cos δ が掛かっている** */
+    val pmRaMasPerYear: Double = 0.0,
+    val pmDecMasPerYear: Double = 0.0,
+)
 
-/** 星座線は折れ線の集まり。1 頂点は [赤経, 赤緯] */
+/**
+ * 星座線は折れ線の集まり。1 頂点は **[赤経, 赤緯, μα·cos δ, μδ]**。
+ *
+ * **頂点にも固有運動を持たせる。** 頂点は星の位置そのもの（893 個中 891 個に
+ * 固有運動が付いた）なので、これが無いと**星だけ動いて線が置き去りになる**（#45）。
+ */
 class Constellation(val abbr: String, val nameJa: String, val lines: List<List<DoubleArray>>)
 
 /**
@@ -59,7 +78,15 @@ class StarCatalog(
             JSONObject(readAsset("stars.json")).getJSONArray("stars").let { arr ->
                 for (i in 0 until arr.length()) {
                     val s = arr.getJSONArray(i)
-                    stars += Star(s.getInt(0), s.getDouble(1), s.getDouble(2), s.getDouble(3))
+                    // 固有運動の列は #45 で足した。**古い星表でも読めるようにしておく**
+                    stars += Star(
+                        hip = s.getInt(0),
+                        raDeg = s.getDouble(1),
+                        decDeg = s.getDouble(2),
+                        magnitude = s.getDouble(3),
+                        pmRaMasPerYear = if (s.length() > 4) s.getDouble(4) else 0.0,
+                        pmDecMasPerYear = if (s.length() > 5) s.getDouble(5) else 0.0,
+                    )
                 }
             }
 
@@ -74,7 +101,12 @@ class StarCatalog(
                         val pts = ArrayList<DoubleArray>(seg.length())
                         for (k in 0 until seg.length()) {
                             val p = seg.getJSONArray(k)
-                            pts += doubleArrayOf(p.getDouble(0), p.getDouble(1))
+                            pts += doubleArrayOf(
+                                p.getDouble(0),
+                                p.getDouble(1),
+                                if (p.length() > 2) p.getDouble(2) else 0.0,
+                                if (p.length() > 3) p.getDouble(3) else 0.0,
+                            )
                         }
                         polylines += pts
                     }

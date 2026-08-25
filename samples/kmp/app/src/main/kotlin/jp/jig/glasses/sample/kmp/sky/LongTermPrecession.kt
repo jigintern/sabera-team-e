@@ -183,3 +183,52 @@ internal fun equatorialDegrees(v: Vec3): DoubleArray {
  * 近い時代で式を変えると、これまでに実機で確かめた星図が動いてしまうので切り替えない。
  */
 const val LONG_TERM_PRECESSION_DAYS = 3.0 * 36_525.0
+
+/**
+ * 固有運動を [d] 日ぶん進めてから歳差をかける。
+ *
+ * **1 万年前の空の見どころは、星座の形が変わること。** アークトゥルスは 2,310 mas/年 ＝
+ * 1 万年で **6.4°** 動くので、歳差だけ入れて固有運動を入れないと「向きだけ違う今の星空」に
+ * しかならない。
+ *
+ * 動かし方は接平面での大円移動（[raDeg] に度をそのまま足さない）。足し算だと
+ * **天の極の近くで破綻する**し、数度動かすと形も歪む。
+ *
+ * 視線速度を持っていないので**見かけの固有運動が変わっていく効果は入らない**。
+ * 近い星ほど誤差が出るが、星座の同定（±20°）には十分な近似。
+ *
+ * @param pmRaMasPerYear μα·cos δ [mas/年]。**すでに cos δ が掛かっている**ので割り戻さない
+ */
+fun precessWithProperMotion(
+    raDeg: Double,
+    decDeg: Double,
+    pmRaMasPerYear: Double,
+    pmDecMasPerYear: Double,
+    d: Double,
+): DoubleArray {
+    if (pmRaMasPerYear == 0.0 && pmDecMasPerYear == 0.0) return precess(raDeg, decDeg, d)
+
+    val years = d / 365.25
+    val perYearToRad = ARCSEC_PER_MAS * ARCSEC_TO_RAD
+    val eastRad = pmRaMasPerYear * perYearToRad * years
+    val northRad = pmDecMasPerYear * perYearToRad * years
+    val theta = Math.hypot(eastRad, northRad)
+    if (theta < 1e-12) return precess(raDeg, decDeg, d)
+
+    val ra = raDeg * RAD
+    val dec = decDeg * RAD
+    val sinRa = sin(ra)
+    val cosRa = cos(ra)
+    val sinDec = sin(dec)
+    val cosDec = cos(dec)
+    val here = Vec3(cosDec * cosRa, cosDec * sinRa, sinDec)
+    val east = Vec3(-sinRa, cosRa, 0.0)
+    val north = Vec3(-sinDec * cosRa, -sinDec * sinRa, cosDec)
+    val direction = (east * (eastRad / theta) + north * (northRad / theta))
+    val moved = here * cos(theta) + direction * sin(theta)
+
+    val angles = equatorialDegrees(moved)
+    return precess(angles[0], angles[1], d)
+}
+
+private const val ARCSEC_PER_MAS = 1.0 / 1000.0
