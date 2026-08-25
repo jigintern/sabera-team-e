@@ -2269,32 +2269,6 @@ fun StarMapScreen(
             // **横縦の判定はここで 1 回だけ。** 上部バーを出すかどうかも横縦で変わるので、
             // Scaffold の中身側で測っていては間に合わない
             val landscape = maxWidth > maxHeight
-            // **止める文言は 1 か所で決める。** バー・右上・主ボタンで別々に書くと、
-            // 案内中なのに「解説を止める」と出るようなずれ方をする。null = 止めるものが無い
-            val stopLabel = when {
-                recordingVoice -> "質問を送信"
-                guideProgress != null -> "ガイドを止める"
-                guidanceSession != null -> "案内を終了"
-                narrator.busy || speaking -> "解説を止める"
-                else -> null
-            }
-            // 質問を処理している間も止めさせる（主ボタンは「解説する」に戻しておく）
-            val barStopLabel = if (
-                guideProgress != null || guidanceSession != null || narrator.busy || speaking || asking
-            ) {
-                stopLabel ?: "解説を止める"
-            } else {
-                null
-            }
-            // 押したときの動きも 1 か所に置く。**文言と動きが別々に散ると、
-            // 「ガイドを止める」が解説だけ止めるような食い違いが出る**
-            val onStopAction: () -> Unit = {
-                when {
-                    recordingVoice -> submitVoiceQuestion()
-                    guideProgress != null -> stopGuide("スマホからガイドを終了", "ガイドを終わります。")
-                    else -> toggleNarration()
-                }
-            }
             SeasonalConstellationBackground(
                 constellation = constellation,
                 modifier = Modifier.fillMaxSize(),
@@ -2329,9 +2303,28 @@ fun StarMapScreen(
                                 // **止める手段はどの画面でも消さない。** 解説と設定は同じ画面の
                                 // 表と裏なので、設定を開いている間だけ「解説を止める」が消えていた
                                 // （戻るキーを知らないと止められない）
-                                if (barStopLabel != null) {
-                                    TextButton(onClick = onStopAction) {
-                                        Text(barStopLabel, color = Color.White)
+                                if (guideProgress != null || guidanceSession != null ||
+                                    narrator.busy || speaking || asking
+                                ) {
+                                    TextButton(
+                                        onClick = {
+                                            when {
+                                                recordingVoice -> submitVoiceQuestion()
+                                                guideProgress != null ->
+                                                    stopGuide("上のバーからガイドを終了", "ガイドを終わります。")
+                                                else -> toggleNarration()
+                                            }
+                                        },
+                                    ) {
+                                        Text(
+                                            when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                else -> "解説を止める"
+                                            },
+                                            color = Color.White,
+                                        )
                                     }
                                 }
                                 // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
@@ -2428,8 +2421,27 @@ fun StarMapScreen(
                                 // 見た目は 1 本のバーのまま高さは 1 行ぶんで済む
                                 if (landscape) {
                                     LandscapeActions(
-                                        stopLabel = barStopLabel,
-                                        onStop = onStopAction,
+                                        stopLabel = if (
+                                            guideProgress != null || guidanceSession != null ||
+                                            narrator.busy || speaking || asking
+                                        ) {
+                                            when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                else -> "解説を止める"
+                                            }
+                                        } else {
+                                            null
+                                        },
+                                        onStop = {
+                                            when {
+                                                recordingVoice -> submitVoiceQuestion()
+                                                guideProgress != null ->
+                                                    stopGuide("右上からガイドを終了", "ガイドを終わります。")
+                                                else -> toggleNarration()
+                                            }
+                                        },
                                         onSettings = if (!showDetails) ({ showDetails = true }) else null,
                                     )
                                 }
@@ -2452,13 +2464,7 @@ fun StarMapScreen(
 
                                             Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
                                             Spacer(Modifier.height(4.dp))
-                                            ObservationPreview(
-                                                preview,
-                                                sending,
-                                                transferMs,
-                                                Modifier.fillMaxWidth(),
-                                                guidance = guidanceFrame,
-                                            )
+                                            ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
                                             Text(
                                                 "グラスの向きを止めると、その方角の星図に更新します",
                                                 style = MaterialTheme.typography.bodySmall,
@@ -2498,8 +2504,21 @@ fun StarMapScreen(
                                             maxTextHeight = if (landscape) null else 160.dp,
                                         )
                                         ObservationActions(
-                                            primaryLabel = stopLabel ?: "この星空を解説する",
-                                            onPrimary = onStopAction,
+                                            primaryLabel = when {
+                                                recordingVoice -> "質問を送信"
+                                                guideProgress != null -> "ガイドを止める"
+                                                guidanceSession != null -> "案内を終了"
+                                                narrator.busy || speaking -> "解説を止める"
+                                                else -> "この星空を解説する"
+                                            },
+                                            onPrimary = {
+                                                when {
+                                                    recordingVoice -> submitVoiceQuestion()
+                                                    guideProgress != null ->
+                                                        stopGuide("スマホからガイドを終了", "ガイドを終わります。")
+                                                    else -> toggleNarration()
+                                                }
+                                            },
                                             onRecalibrate = onRecalibrate,
                                             // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
                                             // 作るのはホーム画面の「ガイドを作る」から。
