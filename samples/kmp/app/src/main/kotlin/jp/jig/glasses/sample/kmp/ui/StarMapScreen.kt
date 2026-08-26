@@ -124,6 +124,7 @@ import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
 import jp.jig.glasses.sample.kmp.glass.constellationNames
 import jp.jig.glasses.sample.kmp.glass.explanationDwellMs
 import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
+import jp.jig.glasses.sample.kmp.glass.overlayFits
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
 import jp.jig.glasses.sample.kmp.glass.withGuidanceLabel
@@ -734,6 +735,15 @@ fun StarMapScreen(
     }
 
     /**
+     * 星図と同居できず矢印を外したか。**外している間は追従ループにも送らせない。**
+     *
+     * 矢印は 130ms ごとに送り直すので、焼くときに外すだけでは
+     * **0.13 秒後に戻ってきて点滅になる**。次に星図を描き直したとき（首を振って
+     * 星の少ない空へ向いたときなど）に入れば、そこで false に戻して復帰させる。
+     */
+    var overlaySuppressed by remember { mutableStateOf(false) }
+
+    /**
      * 入ってきた時点でグラスを白紙に戻す。
      *
      * **記憶と実物が食い違うと、消し残りは以降どのフレームでも取れない。**
@@ -1016,14 +1026,15 @@ fun StarMapScreen(
             val compressed = map.compressedSizeBytes()
             val imageUsage = map.canvasBufferUsageBytes(compressed)
             var overlayUsage = guidanceFrame?.let { guidanceOverlay(it).bufferUsageBytes } ?: 0
-            // **溢れるなら星図より矢印を捨てる。** 矢印が消えても文字の案内（「左へ 32°」）は
-            // 残るが、星図が出なければ何も分からない。星が多い空ほど圧縮後が膨らむので、
-            // ここに来るのは案内中のいちばん濃い空だけ
-            if (overlayUsage > 0 && imageUsage + overlayUsage > CANVAS_IMAGE_BUFFER_BYTES) {
+            // **溢れるなら星図より矢印を捨てる。** 判定は glass/CanvasBudget.kt に置いてあり、
+            // 追従ループの送信もこの結果に従う（外した直後に送り直すと点滅になる）
+            val fits = overlayFits(imageUsage, overlayUsage)
+            if (!fits) {
                 log("バッファが足りないので案内表示を外して星図を通す")
                 runCatching { guidanceOverlaySender.removeWhileLocked() }
                 overlayUsage = 0
             }
+            overlaySuppressed = !fits
             val used = imageUsage + overlayUsage
             transferMs = ((compressed + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES) * packetMs.toLong()
             if (used > CANVAS_IMAGE_BUFFER_BYTES) {
@@ -1706,6 +1717,8 @@ fun StarMapScreen(
         val active = guidanceSession != null || guidanceFrame != null
         guidanceSession = null
         guidanceFrame = null
+        // 次の案内を、前の空の混み具合で止めない（焼き直せば入るかどうかを見直す）
+        overlaySuppressed = false
         if (active) {
             guidanceRevision++
             drawnLook = null
@@ -2557,6 +2570,8 @@ fun StarMapScreen(
     /** 星図本体は止まったときだけ描き、64pxの矢印だけを短い電文で追従させる。 */
     suspend fun sendGuidanceOverlay(frame: GuidanceFrame) {
         if (glassPage != GlassPage.STAR_MAP) return
+        // 焼くときに「入らない」と決めた空では送らない。次に入る絵を焼いたら解ける
+        if (overlaySuppressed) return
         try {
             guidanceOverlaySender.send(frame)
         } catch (e: CancellationException) {
@@ -2573,11 +2588,16 @@ fun StarMapScreen(
             val cycleStarted = System.currentTimeMillis()
             val current = guidanceSession ?: break
             val now = System.currentTimeMillis()
+            // **空の時刻と場所は、いま描いている空から採る。** 実測位・実時刻で引き直すと、
+            // 再現中はグラスに出ている衛星と矢印の指す先が食い違う
+            // （候補を作る guidanceTargetsAt は既に観測条件から採っている・#37 と同型）。
+            // 進行の時刻（60 秒の打ち切りと update の nowMillis）は実時刻のままにする
+            val sky = observationSnapshot(now)
             val target = if (current.target.kind == GuidanceTargetKind.SATELLITE) {
                 if (!showSatellites) null else satellites?.refreshGuidanceTarget(
                     current.target,
-                    Observer(site.latDeg, site.lonDeg),
-                    now,
+                    Observer(sky.site.latDeg, sky.site.lonDeg),
+                    sky.epochMillis,
                 )
             } else {
                 current.target
