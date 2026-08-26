@@ -77,10 +77,8 @@ import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
-import jp.jig.glasses.sample.kmp.glass.EXPLANATION_LINGER_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
-import jp.jig.glasses.sample.kmp.glass.EXPLANATION_READ_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN_MAX
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SEND_DEBOUNCE_MS
