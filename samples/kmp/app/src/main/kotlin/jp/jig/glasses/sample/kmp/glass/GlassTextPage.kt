@@ -200,6 +200,19 @@ object GlassTextPage {
         return screens
     }
 
+    /**
+     * 最後の本文2行を残し、3行目だけを自動復帰のカウント表示へ差し替える。
+     * 4行目は文字数上限を超えるため、最後の行が届いてからこのページへ移る。
+     */
+    fun ending(body: String, notice: String): Page {
+        val lines = wrap(body).take(MAX_LINES)
+        return Page(
+            elements = rows(lines.takeLast(ROWS - 1) + notice),
+            dropped = 0,
+            revealed = 0,
+        )
+    }
+
     /** 上から順に行を置く。空の行は置かない（枠だけが残ると前の文字が消えない） */
     private fun rows(texts: List<String>): List<CommandManager.CanvasElement> =
         texts.take(ROWS).mapIndexedNotNull { index, text ->

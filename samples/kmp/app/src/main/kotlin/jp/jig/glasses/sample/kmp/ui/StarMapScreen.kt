@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -260,6 +261,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -512,8 +514,7 @@ fun StarMapScreen(
 
     // **衛星は星座のおまけ**（#36）。モードで分けず、同じ星図に重ねる。
     // 衛星だけを見たい人は少数で、狙っているのは天文の初心者なので、
-    // **星座＋αで衛星も見える**形にする。切り替えはスマホの設定パネル
-    // （ダブルタップは一口メモへ譲った）
+    // **星座＋αで衛星も見える**形にする。切り替えはスマホの設定パネルだけに置く
     var showSatellites by remember { mutableStateOf(true) }
 
     /** 次に出す一口メモ（[SkyTips]）。読み込み画面で 1 つ使うたびに進める */
@@ -526,7 +527,7 @@ fun StarMapScreen(
      * 溜まったぶんだけ何行も飛ぶと**どこを読んでいたか分からなくなる**。
      */
     val subtitleNudges = remember { Channel<HeadFlick>(Channel.CONFLATED) }
-    /** `HOLD`で開いたマイクを、次の`SINGLE_TAP`で確定する合図。古いタップは溜めない。 */
+    /** `HOLD`で開いたマイクを、次の`HOLD`で確定する合図。古い長押しは溜めない。 */
     val voiceSubmits = remember { Channel<Unit>(Channel.CONFLATED) }
     val headFlick = remember { HeadFlickDetector() }
     var satellites by remember { mutableStateOf<SatelliteScene?>(null) }
@@ -794,18 +795,18 @@ fun StarMapScreen(
     /** 見出しに出す方角。解説の途中で首を動かしても書き換えない（根拠は入った時点の絵） */
     var explanationHeading by remember { mutableStateOf("") }
 
-    /** この解説で一度でも音が鳴ったか。鳴っていないなら読む時間をたっぷり残す */
-    var explanationSpoke by remember { mutableStateOf(false) }
-
     /** めくり切れず捨てた文字数。**実機で切れているかはログでしか分からない** */
     var explanationDropped by remember { mutableStateOf(0) }
 
     /** 字幕をめくっている最中か。**めくり終わる前に星図へ戻さない** */
     var explanationPaging by remember { mutableStateOf(false) }
 
+    /** 字幕を手送りするたび増やし、自動復帰の5秒を最初から数え直す。 */
+    var subtitleNudgeRevision by remember { mutableIntStateOf(0) }
+
     /** 声で聞いている最中か。**重ねて始めない**（マイクは 1 本しかない） */
     var asking by remember { mutableStateOf(false) }
-    /** `SINGLE_TAP`を送信として扱うのは、マイクが実際に開いている間だけ。 */
+    /** 2 回目の `HOLD` を送信として扱うのは、マイクが実際に開いている間だけ。 */
     var recordingVoice by remember { mutableStateOf(false) }
 
     /** マイクの音の大きさ（0..1）。スマホ側に出して「聞こえている」ことを見せる */
@@ -1135,6 +1136,7 @@ fun StarMapScreen(
      */
     fun leaveGlassExplanation(reason: String) {
         if (glassPage != GlassPage.EXPLANATION) return
+        subtitleNudgeRevision = 0
         glassPage = GlassPage.STAR_MAP
         if (explanationDropped > 0) {
             log("解説の末尾${explanationDropped}文字はグラスに入らなかった", failed = true)
@@ -1417,7 +1419,7 @@ fun StarMapScreen(
                 runCatching { guidanceOverlaySender.removeWhileLocked() }
             }
         }
-        narrator.state.collectLatest { state ->
+        narrator.state.distinctUntilChangedBy { it.text to it.constellation }.collectLatest { state ->
             // 話が切り替わってすぐ送らない。畳まれた古い本文を 1 枚出してしまう
             delay(EXPLANATION_SEND_DEBOUNCE_MS)
             val header = listOf(state.constellation, explanationHeading)
@@ -1427,6 +1429,7 @@ fun StarMapScreen(
             val pages = GlassTextPage.pages(header, state.text)
             // 前の話の合図が残っていると、出した瞬間に 1 行飛ぶ
             while (subtitleNudges.tryReceive().isSuccess) Unit
+            subtitleNudgeRevision = 0
             var index = 0
             var shown = -1
             var waitedForSound = false
@@ -1460,7 +1463,10 @@ fun StarMapScreen(
                     last -> break
                     else -> index + 1
                 }
-                if (nudge != null) log("字幕を手送り: ${index + 1}/${pages.size}")
+                if (nudge != null) {
+                    subtitleNudgeRevision++
+                    log("字幕を手送り: ${index + 1}/${pages.size}")
+                }
             }
             explanationPaging = false
         }
@@ -1505,7 +1511,7 @@ fun StarMapScreen(
      *
      * ひとことは [SkyTips] をそのまま使う。**星表を待たずに作れる**
      * （中身は時刻と場所の計算だけで、同梱データが要るのは流星群と衛星のパスだけ）。
-     * ここで 1 つ使ったら [tipIndex] を進めるので、**最初のダブルタップでは次のメモが出る**。
+     * ここで 1 つ使ったら [tipIndex] を進めるので、次の読み込み画面では次のメモが出る。
      */
     LaunchedEffect(glassPage) {
         if (glassPage != GlassPage.LOADING) return@LaunchedEffect
@@ -1562,27 +1568,31 @@ fun StarMapScreen(
         }
     }
 
-    LaunchedEffect(speaking) { if (speaking) explanationSpoke = true }
-
     /**
      * 何もしなくても星図へ戻す（#40）。
      *
-     * **起点はタップではなく読み上げの終わり。** タップから数えると、合成が遅れたときに
-     * 読み始める前に消える。音が鳴らなかったときは、読む時間として長めに取る
-     * （騒がしい場所やイヤホンが無いときは**文字が主役**）。
+     * **起点は最後の字幕行と読み上げの終わり。** 読む時間は字幕の送り速度が持つので、
+     * 音が鳴らなくても流し切る前には数え始めない。
      *
      * `narration.phase` は本文では見ないが、**話が切り替わったら数え直す**ために鍵に入れている。
      *
-     * **声で聞いている間は数えない**（#38）。聞き取りと回答は喋らないので [speaking] は false のまま、
-     * 途中経過はどれも `SPEAKING` なので鍵も変わらない。つまり「聞いています」から一度も
-     * 数え直さずに 25 秒が過ぎる。録音は最大30秒で、文字起こし＋回答まで含めると超えるため、
-     * **答えが届く前に星図へ戻り、字幕の組版ごと畳まれて答えが声だけになる。**
+     * **声で聞いている間は数えない**（#38）。録音・文字起こし・回答待ちは [asking] で止める。
      */
-    LaunchedEffect(glassPage, speaking, narration.phase, explanationPaging, asking) {
+    LaunchedEffect(
+        glassPage,
+        speaking,
+        narration.phase,
+        explanationPaging,
+        asking,
+        subtitleNudgeRevision,
+    ) {
         if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
-        // 読み上げが終わっても、字幕がまだ残っているうちは戻さない
+        // 最後の行が届く前や読み上げ中には数えない。首操作で状態が変われば、この処理ごと数え直す。
         if (speaking || explanationPaging || asking) return@LaunchedEffect
-        delay(if (explanationSpoke) EXPLANATION_LINGER_MS else EXPLANATION_READ_MS)
+        for (left in RETURN_COUNTDOWN_SEC downTo 1) {
+            sendTextPage(GlassTextPage.ending(narration.text, returnCountdown(left)))
+            delay(1_000L)
+        }
         leaveGlassExplanation("解説が終わったので星図へ戻る")
     }
 
@@ -1864,8 +1874,7 @@ fun StarMapScreen(
      * 畳む条件（字幕・読み上げ・声の質問・5 秒の余韻）はワンタップ解説がすでに持っている。
      * ここは「解説画面から出た」ことだけを待ち、**待ち方の規則を 2 か所に置かない**。
      * 首の上下フリックで読み直せば向こうが数え直すので、**そのぶんツアーも待つ**。
-     *
-     * **手で送られたら待たない**（1 回タップの反応が鈍る）。
+     * 首で手送りした場合も最後の操作から5秒を数え直して畳むので、ツアーを永久には止めない。
      */
     suspend fun awaitExplanationClosed(index: Int) {
         if (guideIndex != index) return
@@ -1954,7 +1963,6 @@ fun StarMapScreen(
                 // **後ろにある進み具合から先に消える**。着いたあとに要るのは度数より、
                 // ツアーのどこにいるかのほう
                 explanationHeading = "${cardinalDirection16(target.aim.azDeg)} ${narrating?.counter.orEmpty()}"
-                explanationSpoke = false
                 explanationDropped = 0
                 explanationPaging = false
                 narrator.reset()
@@ -2058,10 +2066,10 @@ fun StarMapScreen(
                 runCatching { commandManager.removeCanvasImage(STAR_MAP_IMAGE_ID) }
             }
         }
-        // **戻し方をその場で書く。** 「2 回タップで戻る」と知らないと戻れない。
+        // **戻し方をその場で書く。** 「タップで戻る」と知らないと戻れない。
         // 星図のテキスト枠には出さない（190 バイトを星座名と取り合っているので、
         // 案内ラベルや星座名を押し出してしまう）
-        sendTextPage(GlassTextPage.explanation("", "$text\n2回タップで今の空へ"))
+        sendTextPage(GlassTextPage.explanation("", "$text\nタップで今の空へ"))
         delay(COMMAND_CONFIRM_MS)
     }
 
@@ -2110,7 +2118,6 @@ fun StarMapScreen(
         narrator.stop()
         narrator.reset()
         explanationHeading = ""
-        explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
@@ -2179,7 +2186,6 @@ fun StarMapScreen(
         // 見出しの方角は「絵を焼いた視線」から取る。解説の途中で首を動かしても書き換えない
         narrator.reset()
         explanationHeading = "%s %d°".format(cardinalDirection16(basis.azDeg), basis.altDeg.roundToInt())
-        explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
@@ -2237,9 +2243,9 @@ fun StarMapScreen(
     }
 
     /**
-     * 声で聞く（#38）。**ホールドで始めて、シングルタップで送る。**
+     * 声で聞く（#38）。**ホールドで始めて、もう一度ホールドして送る。**
      *
-     * ジェスチャーは 1 回のイベントなので「離したら終わり」にはできない。次のタップを終了合図にする。
+     * ジェスチャーは 1 回のイベントなので「離したら終わり」にはできない。次の長押しを終了合図にする。
      * 聞き取りと回答は数秒かかるため、**その間じゅう解説画面に途中経過を出す**。
      * ここだけは通信が要る（同梱の解説と違い、自由な質問はその場で作るしかない）。
      */
@@ -2259,13 +2265,12 @@ fun StarMapScreen(
         narrator.stop()
         narrator.reset()
         explanationHeading = ""
-        explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
 
         asking = true
-        // 前回の時間切れ直後に届いたタップを、次の質問の送信として使わない。
+        // 前回の時間切れ直後に届いた長押しを、次の質問の送信として使わない。
         while (voiceSubmits.tryReceive().isSuccess) Unit
         // **マイクと通信はいちばん落ちやすい経路。** startMicStreaming が投げただけで
         // アプリが終わっては、質問どころではなくなる（[launchNarration] が受け止める）
@@ -2309,7 +2314,7 @@ fun StarMapScreen(
                         recording.speechMs,
                         recording.noiseFloorRms,
                         recording.thresholdRms,
-                        if (recording.submitted) "タップ送信" else "時間切れ",
+                        if (recording.submitted) "長押しで送信" else "時間切れ",
                     ),
                 )
                 if (!recording.submitted) {
@@ -2323,7 +2328,7 @@ fun StarMapScreen(
                     return@launchNarration
                 }
                 // **声を 0ms しか数えられなくても文字起こしへ送る。** しきい値はその場の
-                // 暗騒音からの推測で、風の夜は上限に張り付く。**タップは「これを送る」という
+                // 暗騒音からの推測で、風の夜は上限に張り付く。**長押しは「これを送る」という
                 // 意思表示**なので、端末の推測で質問を捨てない（2026-08-24 実機）
                 if (recording.speechMs == 0L) log("声として数えた時間は 0ms（しきい値が高い可能性）")
                 narrator.progress(subject, "聞き取っています。")
@@ -2469,11 +2474,11 @@ fun StarMapScreen(
         }
     }
 
-    fun stopNarration() {
+    fun stopNarration(logText: String = "解説を止めた") {
         narrationJob?.cancel()
         narrationJob = null
         narrator.stop()
-        log("解説を止めた")
+        log(logText)
     }
 
     /**
@@ -2489,37 +2494,23 @@ fun StarMapScreen(
         narrator.reset()
         // 見出しの方角は出さない。**いま向いている方向とは関係ない**（記録は過去の視線）
         explanationHeading = ""
-        explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
         narrator.again(entry.nameJa, entry.text)
     }
 
-    /**
-     * **いま乗っているものを 1 段降りて星図へ帰る**（`DOUBLE_TAP`）。
-     *
-     * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
-     * 戻る口はここ 1 つだけにして、上から順に 1 つだけ効かせる。
-     *
-     * **順番は「かぶせた順」の逆。** 再現（場所と時刻の入れ替え）はいちばん下なので最後に戻す。
-     */
-    fun goBack() {
+    /** 音声入力または回答待ちを取り消し、星図へ戻る。 */
+    fun cancelVoice() {
         when {
             recordingVoice -> {
-                stopNarration()
-                log("2回タップで音声入力をやめる")
+                stopNarration("タップで録音をやめた")
+                leaveGlassExplanation("タップで録音を捨てて星図へ戻る")
             }
-            glassPage == GlassPage.EXPLANATION -> {
-                stopNarration()
-                leaveGlassExplanation("2回タップで星図へ戻る")
+            asking -> {
+                stopNarration("タップで質問処理を打ち切った")
+                leaveGlassExplanation("タップで質問処理をやめて星図へ戻る")
             }
-            guidanceSession != null -> stopGuidance("2回タップで案内を終了")
-            guideProgress != null -> stopGuide("2回タップでガイドを終了")
-            observationMode is ObservationMode.Simulation ->
-                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
-            // ふつうの星図がいちばん下。**無反応でよい**（降りる先が無い）
-            else -> log("2回タップ：戻る先が無い")
         }
     }
 
@@ -2534,7 +2525,6 @@ fun StarMapScreen(
         narrationJob = null
         narrator.reset()
         explanationHeading = ""
-        explanationSpoke = false
         explanationDropped = 0
         explanationPaging = false
         glassPage = GlassPage.EXPLANATION
@@ -2560,9 +2550,9 @@ fun StarMapScreen(
         log(if (showSatellites) "人工衛星を重ねる" else "人工衛星を隠す")
     }
 
-    /** SINGLE_TAP はトグル。ツルは触れやすく、かけ直しただけで発火するので、押すたび開始では困る */
+    /** スマホのボタン用トグル。グラスの操作とは分け、既存の停止ボタンを保つ。 */
     fun toggleNarration() {
-        // **案内中でも解説は始められる。** 案内をやめたいだけなら 2 回タップ（[goBack]）。
+        // **案内中でも解説は始められる。** 案内をやめたいだけならシングルタップ（[goBack]）。
         // 1 つの空に案内と解説を同時に出せないので、始めるときは [startNarration] が案内を畳む
         // **解説画面を出している間のタップは「もう終わり」**（#40）。止めて星図へ戻す。
         // ここで新しい解説を始めると、根拠にするのは前に焼いた古い絵になってしまう
@@ -2574,12 +2564,21 @@ fun StarMapScreen(
         if (narrator.busy || speaking) stopNarration() else startNarration()
     }
 
-    /** 録音中のタップは解説の停止ではなく、ここまでの音声を送る。 */
+    /** ダブルタップは解説の開始専用。すでに解説中なら古い星図を根拠に始め直さない。 */
+    fun startNarrationFromGlass() {
+        if (glassPage == GlassPage.EXPLANATION || narrator.busy || speaking) {
+            log("ダブルタップ：解説中のため受け付けない")
+            return
+        }
+        startNarration()
+    }
+
+    /** 録音中の長押しは、ここまでの音声を送る。 */
     fun submitVoiceQuestion() {
         if (!recordingVoice) return
         if (voiceSubmits.trySend(Unit).isSuccess) {
             narrator.progress("", "送信しています。")
-            log("タップで音声入力を送信")
+            log("長押しで音声入力を送信")
         }
     }
 
@@ -2677,24 +2676,36 @@ fun StarMapScreen(
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
             commandManager.gestureEvents.collect { gesture ->
-                when (gesture) {
-                    // **ガイド中だけ意味を入れ替える。** 終われば元の割り当てに戻る。
-                    // 送信だけは入れ替えない（録っている最中に送れなくなると質問が捨てられる）
-                    // **`SINGLE_TAP` は「いま何が出ているか」だけで決まる**（05_app-flow.md）。
-                    // 音声入力中は送信、星図なら音声解説、それ以外は元に戻る。
-                    // **1 回は進める、2 回は戻る。** 送信を最優先にするのは、
-                    // 録っている最中に送れないと質問が捨てられるから
-                    GestureType.SINGLE_TAP -> when {
-                        recordingVoice -> submitVoiceQuestion()
-                        guideProgress != null -> guideNext()
-                        else -> toggleNarration()
+                val action = glassAction(
+                    gesture,
+                    GlassGestureState(
+                        page = glassPage,
+                        recordingVoice = recordingVoice,
+                        asking = asking,
+                        guidanceActive = guidanceSession != null,
+                        guideRunning = guideProgress != null,
+                        simulating = observationMode is ObservationMode.Simulation,
+                    ),
+                )
+                when (action) {
+                    GlassAction.NONE -> when {
+                        glassPage == GlassPage.STAR_MAP && gesture == GestureType.SINGLE_TAP ->
+                            log("タップ：戻る先が無い")
+                        else -> log("$gesture：現在の状態では無反応")
                     }
-
-                    // **どの画面でも「戻る」。** 一口メモはここを譲ってやめた（3 枠しかない）
-                    GestureType.DOUBLE_TAP -> goBack()
-
-                    // **長押しは声で聞く**（#38）。方位合わせはスマホのボタンに残してある
-                    GestureType.HOLD -> askByVoice()
+                    GlassAction.CANCEL_VOICE -> cancelVoice()
+                    GlassAction.LEAVE_EXPLANATION -> {
+                        stopNarration()
+                        leaveGlassExplanation("タップで星図へ戻る")
+                    }
+                    GlassAction.STOP_GUIDE -> stopGuide("タップでガイドを終了")
+                    GlassAction.STOP_GUIDANCE -> stopGuidance("タップで案内を終了")
+                    GlassAction.RETURN_TO_LIVE ->
+                        runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+                    GlassAction.START_EXPLANATION -> startNarrationFromGlass()
+                    GlassAction.GUIDE_NEXT -> guideNext()
+                    GlassAction.START_VOICE -> askByVoice()
+                    GlassAction.SUBMIT_VOICE -> submitVoiceQuestion()
                 }
             }
         }
@@ -2800,15 +2811,15 @@ fun StarMapScreen(
                         // 枠はグラスに出しているものと同じ（どちらを見ても同じ強さが見える）
                         recordingVoice ->
                             (if (micHeard) "声を拾えています。" else "まだ声を拾えていません。") +
-                                "1回タップで送信 ${micMeter(micLevel)}"
+                                "もう一度長押しで送信 ${micMeter(micLevel)}"
                         asking -> "質問を処理しています"
                         guideProgress != null ->
-                            "ガイド中です。1回タップで次へ、2回タップでもう一度"
+                            "ガイド中です。ダブルタップで次へ、シングルタップで終了"
                         speaking || narration.phase == NarrationPhase.SPEAKING -> "解説を読み上げています"
                         // 解説文は端末が持っているのでキーが無くても喋る。変わるのは声だけ
                         BuildConfig.OPENAI_API_KEY.isEmpty() ->
-                            "グラスのツルを1回タップすると解説します。読み上げは端末の音声です"
-                        else -> "グラスのツルを1回タップすると解説します"
+                            "グラスのツルをダブルタップすると解説します。読み上げは端末の音声です"
+                        else -> "グラスのツルをダブルタップすると解説します"
                     }
                     Row(
                         Modifier.fillMaxSize().padding(
@@ -3354,7 +3365,7 @@ private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
  * いちど拾えたら戻さない。**知りたいのは「届いたか」で、いま喋っているかではない。**
  */
 internal fun askPrompt(level: Float, heard: Boolean = false): String =
-    (if (heard) "聞こえています" else "質問をどうぞ。") + "\n" + micMeter(level) + "\nタップで送信"
+    (if (heard) "聞こえています" else "質問をどうぞ。") + "\n" + micMeter(level) + "\n長押しで送信"
 
 /**
  * 拾っている音の大きさを星の点灯と数で描く。
@@ -3465,6 +3476,12 @@ internal fun notableTracks(tracks: List<SkyTrack>): List<SkyTrack> =
 
 private const val TAG = "StarMap"
 
+/** 最後の字幕行と読み上げが終わってから、星図へ戻るまでを秒表示する。 */
+private const val RETURN_COUNTDOWN_SEC = 5
+
+/** 自動復帰までの残り。1行17文字以内に収め、毎秒同じ枠だけを書き換える。 */
+internal fun returnCountdown(secondsLeft: Int): String = "${secondsLeft}秒後に星図へ戻ります"
+
 /**
  * ロード画面を出すまでの猶予。
  *
@@ -3496,4 +3513,3 @@ private const val LOADING_TIP_FRAMES = 15
  * （軌道要素は星図が出たあとも裏で読み続けている）。
  */
 private const val LOADING_STAGE = "星表を読んでいます"
-

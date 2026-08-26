@@ -164,6 +164,23 @@ class GlassTextPageTest {
         }
     }
 
+    @Test
+    fun `終了表示は最後の本文2行を残して3行目だけを書き換える`() {
+        val body = "あ".repeat(GlassTextPage.lineChars * 4)
+        val notice = "5秒後に星図へ戻ります"
+
+        val page = GlassTextPage.ending(body, notice)
+
+        assertEquals(GlassTextPage.ROWS, page.elements.size)
+        assertEquals(notice, page.elements.last().text)
+        assertEquals(
+            GlassTextPage.wrap(body).takeLast(2),
+            page.elements.dropLast(1).map { it.text },
+        )
+        assertEquals(0, page.revealed)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
+    }
+
     /**
      * **文字が届いても前の行は動かない。**
      *
