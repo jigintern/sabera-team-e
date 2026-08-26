@@ -11,9 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -234,18 +234,10 @@ internal fun SkyConditionSettings(
     onApply: () -> Unit,
     onReturnLive: () -> Unit,
 ) {
-    Card(
-        Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = SaberaSurface),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text("星空の条件", style = MaterialTheme.typography.titleMedium)
-            Text(
-                status,
-                color = if (simulation) MaterialTheme.colorScheme.primary else Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
+    // **普段は「いまの空」で足りる。** 見出しに状態を出したうえで畳んでおき、
+    // 場所や時代を変えたい人だけが開く（開閉は覚えない＝次に開いたときは畳んである）
+    CollapsibleSection("星空の条件", Icons.Filled.Schedule, status) {
+        Column(Modifier.fillMaxWidth()) {
             PresetRow("場所", SkyPresets.places, place, onPlaceChange)
             PresetRow("時代", SkyPresets.eras, era, onEraChange)
             PresetRow("時刻", SkyPresets.times, time, onTimeChange)

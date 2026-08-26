@@ -1,11 +1,22 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.glass.GlassBrightness
 import kotlin.math.roundToInt
 
@@ -30,25 +41,38 @@ internal fun BrightnessSettings(
 ) {
     SettingsSection(
         "グラスの明るさ",
+        Icons.Filled.Brightness6,
         when {
-            auto -> "空の暗さに合わせています（${GlassBrightness.label(level)}）。" +
-                "スライダーを動かすと手動になります"
-
+            auto -> "空の暗さに合わせている（${GlassBrightness.label(level)}）"
             configured -> "手動 ${level + 1}/${GlassBrightness.levelRange.count()}・${GlassBrightness.label(level)}"
-
-            else -> "現在値は取得できません。スライダーを動かすと反映します"
+            else -> "動かすと反映する（現在値は読み戻せない）"
         },
     ) {
-        Slider(
-            value = level.toFloat(),
-            onValueChange = { onLevelChange(it.roundToInt()) },
-            valueRange = GlassBrightness.MIN_LEVEL.toFloat()..GlassBrightness.MAX_LEVEL.toFloat(),
-            steps = GlassBrightness.levelRange.count() - 2,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Brightness6,
+                "明るさ",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 12.dp).size(22.dp),
+            )
+            Slider(
+                value = level.toFloat(),
+                onValueChange = { onLevelChange(it.roundToInt()) },
+                valueRange = GlassBrightness.MIN_LEVEL.toFloat()..GlassBrightness.MAX_LEVEL.toFloat(),
+                steps = GlassBrightness.levelRange.count() - 2,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${level + 1}/${GlassBrightness.levelRange.count()}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         // 手動にしたあと戻す道。**戻せないと、一度触っただけでその夜ずっと手動になる**
         if (!auto) {
             OutlinedButton(onClick = onAutoRestore, modifier = Modifier.fillMaxWidth()) {
-                Text("空の暗さに合わせる")
+                Text("空の暗さに合わせる", style = MaterialTheme.typography.labelMedium)
             }
         }
     }

@@ -47,6 +47,7 @@ import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.clearedCanvasText
 import jp.jig.glasses.sample.kmp.guide.StarGuide
+import jp.jig.glasses.sample.kmp.narration.SkyTip
 import jp.jig.glasses.sample.kmp.narration.SkyTips
 import jp.jig.glasses.sample.kmp.narration.tonightSky
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
@@ -102,6 +103,22 @@ fun GlassesApp(manager: GlassManager) {
      * `SkyTips` 側で件数の剰余を取るので、大きい数でよい。
      */
     val splashTip = remember { Random.nextInt(SPLASH_TIP_SPREAD) }
+
+    /**
+     * 今日のひとこと。**グラスとスマホで同じものを出す。**
+     *
+     * 別々に作ると、かけている人と覗いている人で違うことが書いてある画面になる
+     * （絵と根拠を別に計算して食い違った #37 と同じ形）。ここで 1 回だけ作って両方へ渡す。
+     *
+     * **グラスがつながっていなくても作る。** ホームはつなぐ前に開く画面なので、
+     * つながるまで空欄だと、スマホ側にはほとんど出ないことになる。
+     */
+    var splashTipText by remember { mutableStateOf<SkyTip?>(null) }
+    LaunchedEffect(splashTip) {
+        // 観測地は既定値（**まだ測位していない**）。場所で変わるメモは少しずれるが、ここは挨拶
+        val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
+        splashTipText = SkyTips.of(sky, splashTip)
+    }
 
     /**
      * 起動直後の表示を送る口。**画面が変わるたびに作り直さない。**
@@ -206,22 +223,17 @@ fun GlassesApp(manager: GlassManager) {
      * 採用ロゴとひとことを 1 枚の画像に焼く。ロゴの専用字形と本文の大きさを両立するには、
      * フォントを指定できないテキスト枠では組めない。
      *
-     * ひとことは**起動ごとに違うものから始める**（[splashTip]）。毎回同じ文が出ると、
-     * 出ていること自体に気づかなくなる。
-     *
-     * 観測地は既定値（[ObservationDefaults]）。**まだ測位していない**ので、
-     * 場所によって変わるメモは少しずれるが、ここは挨拶なので追わない。
+     * ひとことは [splashTipText]（**スマホのホームに出しているものと同じ**）。
      */
-    LaunchedEffect(screen, connectedClient) {
+    LaunchedEffect(screen, connectedClient, splashTipText) {
         val client = connectedClient
         // ガイドを作っている間もグラスは挨拶のまま。**ここではグラスを使わない**ので、
         // 真っ暗にしてしまうと、つながっているのか分からなくなる
         val greeting = screen == AppScreen.HOME || screen == AppScreen.CONNECTION ||
             screen in GUIDE_SCREENS
         val commands = splashCommands
-        if (client == null || commands == null || !greeting) return@LaunchedEffect
-        val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
-        val tip = SkyTips.of(sky, splashTip)
+        val tip = splashTipText
+        if (client == null || commands == null || !greeting || tip == null) return@LaunchedEffect
         // **画像に焼く。** テキスト枠では字の大きさを変えられないので、
         // 専用ロゴと本文を中央に揃える組み方ができない
         val art = withContext(Dispatchers.Default) {
@@ -253,6 +265,7 @@ fun GlassesApp(manager: GlassManager) {
     when (screen) {
         AppScreen.HOME -> HomeScreen(
             constellation = constellation,
+            tip = splashTipText,
             onStart = { screen = AppScreen.CONNECTION },
             onGuides = { screen = AppScreen.GUIDES },
         )

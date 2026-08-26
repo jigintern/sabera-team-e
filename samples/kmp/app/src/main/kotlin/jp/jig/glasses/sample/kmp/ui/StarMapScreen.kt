@@ -78,6 +78,8 @@ import jp.jig.glasses.sample.kmp.glass.LabelKind
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.StarMapInk
+import jp.jig.glasses.sample.kmp.glass.StarMapLayer
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.TimelapseWindow
 import jp.jig.glasses.sample.kmp.glass.TimelapseSender
@@ -169,6 +171,7 @@ import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
+import jp.jig.glasses.sample.kmp.ui.component.CreditsCard
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
 import jp.jig.glasses.sample.kmp.ui.component.GuideMismatchDialog
@@ -433,6 +436,10 @@ fun StarMapScreen(
     // 地平線・方位の文字・視野中心の印。**星図らしく読ませるための下敷き**
     var showGuides by remember { mutableStateOf(true) }
 
+    // 下敷きの濃さ（星座絵・星座線・結び・天の川）。
+    // **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる**ので、その場で動かせるようにする
+    var ink by remember { mutableStateOf(StarMapInk()) }
+
     /** 設定パネルを開いているか。開いている間は上のバーの見出しも変える */
     var showDetails by remember { mutableStateOf(false) }
 
@@ -442,7 +449,7 @@ fun StarMapScreen(
     // （ダブルタップは一口メモへ譲った）
     var showSatellites by remember { mutableStateOf(true) }
 
-    /** 次に出す一口メモ（[SkyTips]）。**ダブルタップのたびに 1 つ進める** */
+    /** 次に出す一口メモ（[SkyTips]）。読み込み画面で 1 つ使うたびに進める */
     var tipIndex by remember { mutableStateOf(0) }
 
 
@@ -691,6 +698,8 @@ fun StarMapScreen(
      * 入るかどうかは**空の濃さと向き**で変わる。1 度でも溢れたらその設定では諦めて標準へ落とし、
      * 設定が変わったらまた上限から試す（毎フレーム 2 回描くのは無駄なので覚えておく）。
      */
+    // **濃さ（[ink]）はここに入れない。** 同じ値が続くので RLE の走長が変わらず、
+    // 段を動かしても転送バイトは動かない
     var useMaxSize by remember(
         density, showArt, showGuides, showSatellites, guidanceSession?.target?.id,
     ) { mutableStateOf(guidanceSession == null) }
@@ -913,6 +922,7 @@ fun StarMapScreen(
                     drawStars = true,
                     drawFigures = showFigures,
                     drawFigureArt = showArt,
+                    ink = ink,
                     constellationMagnitude = density.constellationMagnitude,
                     drawGuides = showGuides,
                     bodies = bodies,
@@ -1096,7 +1106,7 @@ fun StarMapScreen(
      */
     var settled by remember { mutableStateOf(true) }
     val headMotion = remember { HeadMotion() }
-    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, guidanceRevision) {
+    LaunchedEffect(renderer, showSatellites, showFigures, showArt, showGuides, density, ink, guidanceRevision) {
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var renderedObservationRevision = -1
@@ -1453,7 +1463,6 @@ fun StarMapScreen(
         delay(LOADING_GRACE_MS)
 
         val observation = observationSnapshot()
-        // 衛星のパスは渡さない。**軌道要素はまだ読んでいる最中**なので待たせられない
         val tip = SkyTips.of(
             tonightSky(context, observation.site, observation.epochMillis, observation.zoneId),
             tipIndex,
@@ -2485,40 +2494,6 @@ fun StarMapScreen(
     }
 
     /**
-     * まもなく上がってくる 1 機（[SkyTips.RisingPass]）。無ければ null。
-     *
-     * **絞るのは肉眼で追えるものだけ。** `nextPasses` は静止軌道と測位衛星を既に落として
-     * いるので、ここでは**日が当たっているか**だけを見る（影に入る機体を案内しても、
-     * 出てきた空に何も見えない）。
-     *
-     * **時間の近いものしか出さない。** 3 時間後のパスを一口メモで言われても、
-     * そのとき何をしているか分からないので待つ判断ができない。
-     */
-    fun risingPass(scene: SatelliteScene?, observation: ObservationSnapshot): SkyTips.RisingPass? {
-        if (scene == null || !scene.loaded) return null
-        if (
-            observation.simulation &&
-            !observation.allowsSatellites(scene.elementAgeDays(observation.epochMillis))
-        ) {
-            return null
-        }
-        val pass = scene.nextPasses(
-            observer = Observer(observation.site.latDeg, observation.site.lonDeg),
-            epochMillis = observation.epochMillis,
-            withinMinutes = TIP_PASS_WINDOW_MIN,
-        ).firstOrNull { it.sunlitAtPeak } ?: return null
-        return SkyTips.RisingPass(
-            nameJa = pass.name,
-            inMinutes = pass.risesInMinutes(observation.epochMillis),
-            riseDirection = cardinalDirection16(pass.riseAzDeg),
-            setDirection = cardinalDirection16(pass.setAzDeg),
-            peakAltDeg = pass.peakAltDeg.roundToInt(),
-            peakDirection = cardinalDirection16(pass.peakAzDeg),
-            sunlit = pass.sunlitAtPeak,
-        )
-    }
-
-    /**
      * **いま乗っているものを 1 段降りて星図へ帰る**（`DOUBLE_TAP`）。
      *
      * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
@@ -3124,6 +3099,14 @@ fun StarMapScreen(
                                                 drawnLook = null
                                                 log(if (it) "目印を出す" else "目印を消す")
                                             },
+                                            ink = ink,
+                                            onInkChange = { next ->
+                                                val changed = StarMapLayer.entries
+                                                    .firstOrNull { next.level(it) != ink.level(it) }
+                                                ink = next
+                                                drawnLook = null
+                                                changed?.let { log("${it.label}の濃さ: 段 ${next.level(it)}") }
+                                            },
                                         )
 
                                         BrightnessSettings(
@@ -3199,6 +3182,9 @@ fun StarMapScreen(
                                                 log("記録を消した。ここから計測しなおす")
                                             },
                                         )
+
+                                        // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
+                                        CreditsCard()
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
                                 }
@@ -3534,15 +3520,6 @@ private const val PREDICT_COOLDOWN_MS = 1_200L
  * 10Hz で 0.2 なら、傾けてから 1 秒ほどで追いつく。
  */
 private const val ROLL_SMOOTHING = 0.2
-
-/**
- * 一口メモでパスを案内する窓[分]。
- *
- * **待てる長さだけを出す。** 3 時間後のパスを言われても、そのとき何をしているか
- * 分からないので待つ判断ができない。ISS の 1 周は 90 分なので、この窓なら
- * 「いま出ていないが、そのうち来る」を取りこぼしても次の押し直しで拾える。
- */
-private const val TIP_PASS_WINDOW_MIN = 30.0
 
 /** 読み上げが終わってから星図へ戻すまでの余韻 */
 private const val EXPLANATION_LINGER_MS = 5_000L

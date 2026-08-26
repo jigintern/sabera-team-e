@@ -1,7 +1,7 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
 }
 
 /**
@@ -92,32 +92,35 @@ android {
 
 dependencies {
     // Sabera App SDK
-    implementation("jp.jig.sabera.app.sdk:sabera-app-core:0.6.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation(libs.sabera.app.core)
+    implementation(libs.kotlinx.coroutines.android)
 
     // Compose
-    implementation(platform("androidx.compose:compose-bom:2025.01.01"))
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.material3)
+    // 設定パネルのアイコン。**暗い屋外では文字より形のほうが速く見つかる**。
+    // core には音量・明るさ・衛星が無いので extended を入れる（未使用ぶんは R8 が落とす）
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.ui.tooling.preview)
+    debugImplementation(libs.compose.ui.tooling)
 
     // AndroidX
-    implementation("androidx.activity:activity-compose:1.10.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation(libs.activity.compose)
+    implementation(libs.lifecycle.runtime.compose)
 
     // 台本を QR で配る（toB）。core は純 Java なので生成も解読も同じ 1 個で足りる。
     // **ZXing Android Embedded は使わない**（独自 Activity を持ち込み、画面の向きの
     // 縦固定と衝突する）。**ML Kit も使わない**（Play Services をその場で落とすので、
     // オフラインで完結するという土台が崩れる）
-    implementation("com.google.zxing:core:3.5.3")
-    implementation("androidx.camera:camera-core:1.4.1")
-    implementation("androidx.camera:camera-camera2:1.4.1")
-    implementation("androidx.camera:camera-lifecycle:1.4.1")
-    implementation("androidx.camera:camera-view:1.4.1")
+    implementation(libs.zxing.core)
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
 
     // 座標変換は実機に載せる前に手元で検算する
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit)
     // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
-    testImplementation("org.json:json:20240303")
+    testImplementation(libs.org.json)
 }

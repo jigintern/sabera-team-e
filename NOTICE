@@ -62,6 +62,22 @@ data/constellation-boundaries.json
 
 --------------------------------------------------------------------------------
 
+data/constellation-figures.json, tools/lineart/*.svg
+
+これらは NSF NOIRLab が公開している 88 星座の線画（outline drawing）です。
+tools/lineart/ は取得したままの SVG で、data/constellation-figures.json は
+そこから輪郭を取り出し、同じ図に入っている星の位置を手がかりに赤道座標へ載せ替え、
+点を間引いたものです（改変あり）。生成手順は tools/build-constellation-figures.py にあります。
+
+  The 88 Constellations
+  NSF NOIRLab
+  https://noirlab.edu/public/education/constellations/
+  Credit: NOIRLab/NSF/AURA
+  Licensed under Creative Commons: By Attribution 4.0 License
+  https://creativecommons.org/licenses/by/4.0/
+
+--------------------------------------------------------------------------------
+
 data/ に同梱する人工衛星の軌道要素（TLE）
 
 これらは CelesTrak から取得したものです。
