@@ -250,9 +250,10 @@ internal fun NarrationPanel(
                         if (maxTextHeight == null) {
                             Modifier.weight(1f)
                         } else {
-                            // **高さを決め打つ。** 短い解説で枠が縮むと、次の 1 文が届くたびに
-                            // 下のボタンが動く。流す場所は最初から同じ大きさで空けておく
-                            Modifier.heightIn(min = maxTextHeight, max = maxTextHeight)
+                            // **上限だけ決める。** 押すものは画面の下に貼り付けてあるので、
+                            // 枠が縮んでもボタンは動かない。数文しかない解説で
+                            // 高さを決め打つと、本文の下に空の帯が残る
+                            Modifier.heightIn(max = maxTextHeight)
                         },
                     )
                     .verticalScroll(rememberScrollState()),

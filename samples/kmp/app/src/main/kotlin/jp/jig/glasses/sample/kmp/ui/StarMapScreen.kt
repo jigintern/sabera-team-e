@@ -2936,7 +2936,10 @@ fun StarMapScreen(
                                     )
                                 }
                                 Column(
-                                    Modifier.fillMaxWidth().weight(1f)
+                                    // **中身が短いときは伸ばさない。** 伸ばすと、
+                                    // 解説と下のボタンのあいだに空の帯が残る（横は解説が
+                                    // weight で高さを吸うので、こちらは伸ばしたままにする）
+                                    Modifier.fillMaxWidth().weight(1f, fill = landscape)
                                         .then(
                                             // **縦はメインも流す。** 星空の条件を開くと 1 画面に収まらない。
                                             // 横は解説が weight で高さを吸うので、流すと測れなくなる

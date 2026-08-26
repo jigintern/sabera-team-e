@@ -148,13 +148,29 @@ internal fun CollapsibleSection(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    CollapsibleSection(title, icon, hint, expanded, { expanded = !expanded }, content)
+}
+
+/**
+ * 開閉を呼ぶ側が持つ版。**用が済んだら閉じたい区画**に使う
+ * （星空の条件は「この空を見る」を押した時点で用が済む）。
+ */
+@Composable
+internal fun CollapsibleSection(
+    title: String,
+    icon: ImageVector,
+    hint: String? = null,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Spacer(Modifier.height(10.dp))
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            SectionHeader(title, icon, hint, expanded, onToggle = { expanded = !expanded })
+            SectionHeader(title, icon, hint, expanded, onToggle = onToggle)
             if (expanded) content()
         }
     }

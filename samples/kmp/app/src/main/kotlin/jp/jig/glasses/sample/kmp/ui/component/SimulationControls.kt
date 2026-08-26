@@ -1,5 +1,8 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -9,7 +12,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
@@ -22,13 +27,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.SkyPreset
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
@@ -157,15 +165,22 @@ internal fun SkyConditionSettings(
 ) {
     // **普段は「いまの空」で足りる。** 見出しに状態を出したうえで畳んでおき、
     // 場所や時代を変えたい人だけが開く（開閉は覚えない＝次に開いたときは畳んである）
-    CollapsibleSection("星空の条件", Icons.Filled.Schedule, status) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    CollapsibleSection("星空の条件", Icons.Filled.Schedule, status, open, { open = !open }) {
         Column(Modifier.fillMaxWidth()) {
             header()
-            PresetRow("場所", SkyPresets.places, place, onPlaceChange)
-            PresetRow("時代", SkyPresets.eras, era, onEraChange)
-            PresetRow("時刻", SkyPresets.times, time, onTimeChange)
+            PresetPicker(place, era, time, onPlaceChange, onEraChange, onTimeChange)
 
             Spacer(Modifier.height(10.dp))
-            Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) {
+            // **押したら畳む。** 用が済んだのに開いたままだと、出したばかりの空が
+            // 選択肢の裏に隠れる（元の画面へ戻る口をここが兼ねる）
+            Button(
+                onClick = {
+                    onApply()
+                    open = false
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("この空を見る")
             }
             if (message != null) {
@@ -175,11 +190,104 @@ internal fun SkyConditionSettings(
             // **押すものは「この空を見る」1 つに見せる。** 戻る口は再現中しか要らないので、
             // 枠を持たない文字にして、並んだボタンに見せない
             if (simulation) {
-                TextButton(onClick = onReturnLive, modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = {
+                        onReturnLive()
+                        open = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("現在の空に戻る")
                 }
             }
         }
+    }
+}
+
+/** 選ぶもの 3 つ。**畳んでいる間は 1 行**（いま何が選んであるかだけ見せる） */
+private enum class PresetKind(val title: String) { PLACE("場所"), ERA("時代"), TIME("時刻") }
+
+/**
+ * 場所・時代・時刻を**1 行に畳んで**選ばせる。
+ *
+ * **3 つとも並べると、それだけで画面が埋まった**（選択肢は場所だけで 19 個ある）。
+ * 押した 1 つぶんだけ下へ開き、選ぶと閉じる。**開いても 2 行**。
+ */
+@Composable
+private fun PresetPicker(
+    place: SkyPreset,
+    era: SkyPreset,
+    time: SkyPreset,
+    onPlaceChange: (SkyPreset) -> Unit,
+    onEraChange: (SkyPreset) -> Unit,
+    onTimeChange: (SkyPreset) -> Unit,
+) {
+    var picking by rememberSaveable { mutableStateOf<PresetKind?>(null) }
+    fun selected(kind: PresetKind) = when (kind) {
+        PresetKind.PLACE -> place
+        PresetKind.ERA -> era
+        PresetKind.TIME -> time
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (kind in PresetKind.entries) {
+            PresetButton(
+                title = kind.title,
+                value = selected(kind).label,
+                open = picking == kind,
+                modifier = Modifier.weight(1f),
+            ) { picking = if (picking == kind) null else kind }
+        }
+    }
+    picking?.let { kind ->
+        val options = when (kind) {
+            PresetKind.PLACE -> SkyPresets.places
+            PresetKind.ERA -> SkyPresets.eras
+            PresetKind.TIME -> SkyPresets.times
+        }
+        ChipRow(options, selected(kind)) { chosen ->
+            when (kind) {
+                PresetKind.PLACE -> onPlaceChange(chosen)
+                PresetKind.ERA -> onEraChange(chosen)
+                PresetKind.TIME -> onTimeChange(chosen)
+            }
+            // **選んだら閉じる。** 開いたままだと、次に押すものが選択肢の下に隠れる
+            picking = null
+        }
+    }
+}
+
+/** 畳んでいるときの 1 つぶん。**見出しは小さく、選んである値を大きく** */
+@Composable
+private fun PresetButton(
+    title: String,
+    value: String,
+    open: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(if (open) SaberaSelected else Color.Transparent)
+            .border(1.dp, if (open) SaberaSelected else SaberaFinePrint.copy(alpha = 0.45f), shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -188,22 +296,10 @@ internal fun SkyConditionSettings(
  *
  * **折り返さず横スクロールにしてある。** 場所は 19 個あるので、折り返すと
  * 画面の半分がチップの壁になり、**その下にある「この空を見る」まで届かない**。
- * 3 つとも同じ形にしているのは、**選び方を 1 つだけ覚えれば済む**ようにするため。
  */
 @Composable
-private fun PresetRow(
-    title: String,
-    options: List<SkyPreset>,
-    selected: SkyPreset,
-    onSelect: (SkyPreset) -> Unit,
-) {
-    Spacer(Modifier.height(8.dp))
-    Text(
-        title,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(2.dp))
+private fun ChipRow(options: List<SkyPreset>, selected: SkyPreset, onSelect: (SkyPreset) -> Unit) {
+    Spacer(Modifier.height(6.dp))
     val scroll = rememberScrollState()
     Row(
         Modifier.fillMaxWidth().horizontalScroll(scroll),
