@@ -15,10 +15,10 @@ import kotlin.math.sqrt
  * グラスのマイクで 1 回ぶん録る（#38）。
  *
  * SDK が Opus をほどいて **PCM16 リトルエンディアン・16kHz モノラル**で流してくれる
- * （`CommandManager.micAudio`）。ここは貯めて、**送信のタップを受けたら止める**だけ。
+ * （`CommandManager.micAudio`）。ここは貯めて、**送信の長押しを受けたら止める**だけ。
  *
  * **ホールドは押しっぱなしを取れない。** ジェスチャーは 1 回のイベントとして届くので、
- * 「離したら終わり」にはできない。`HOLD` で始め、`SINGLE_TAP` で送信する。
+ * 「離したら終わり」にはできない。`HOLD` で始め、もう一度の `HOLD` で送信する。
  *
  * **マイクを流すと毎秒 32,000 バイトが同じ BLE を通る**ので、録っている間は星図を送らない。
  */
@@ -36,7 +36,7 @@ class GlassMic(private val commandManager: CommandManager) {
          * 声として数えた時間。**送るかどうかの判定には使わない。**
          *
          * しきい値はその場の暗騒音からの推測なので、0ms は「喋っていない」ではなく
-         * 「しきい値が高すぎた」でも起こる。**タップは「これを送る」という意思表示**なので、
+         * 「しきい値が高すぎた」でも起こる。**長押しは「これを送る」という意思表示**なので、
          * 端末の推測で質問を捨てない（2026-08-24。「聞き取れているのか分からない」）。
          */
         val speechMs: Long,
@@ -100,7 +100,7 @@ class GlassMic(private val commandManager: CommandManager) {
                     submitted = true
                     break
                 }
-                // タップを忘れても BLE を占有し続けない。無音では送らず、安全上限だけ置く
+                // 長押しを忘れても BLE を占有し続けない。無音では送らず、安全上限だけ置く
                 if (elapsed > MAX_MS) break
             }
         } catch (e: TimeoutCancellationException) {
@@ -169,7 +169,7 @@ class GlassMic(private val commandManager: CommandManager) {
         /** 暗騒音の何倍を声とみなすか。RMS は 2.5 倍で 8dB ほど上 */
         private const val NOISE_MARGIN = 2.5
 
-        /** タップを忘れたときの安全上限。**BLE を占有し続けると星図が止まる** */
+        /** 長押しを忘れたときの安全上限。**BLE を占有し続けると星図が止まる** */
         private const val MAX_MS = 30_000
 
         private const val POLL_MS = 100L
