@@ -15,13 +15,15 @@
 
 ## 画面プレビュー
 
+**全画面ぶんは [docs/images/](docs/images/) にある。** どれも実機の写真ではなく、
+**アプリと同じコードから作り直せる**（`tools/build-demo-images.sh`）。
+
 ### スマホ
 
-<img src="docs/images/smartphone-home.png" alt="星しるべのスマホホーム画面" width="280">
+<img src="docs/images/phone-home.png" alt="星しるべのホーム画面" width="240"> <img src="docs/images/phone-star-map.png" alt="観測中のスマホ画面" width="240">
 
-- 採用ロゴ、季節の星座、開始ボタンを表示する
-- 実装と同じ素材・色・配置から作ったプレビュー
-- 作り直し：`java -Djava.awt.headless=true tools/compose-phone-preview.java`
+- 入口では季節の星座を背景に、今日のひとことと開始ボタンを出す
+- 観測中はグラスに出している星図をそのまま映す（同伴者はここを見る）
 
 ### SABERA
 

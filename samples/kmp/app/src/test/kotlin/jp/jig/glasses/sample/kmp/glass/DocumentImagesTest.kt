@@ -1,7 +1,14 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import app.jigglass.glass.CommandManager
+import android.graphics.BitmapFactory
+import jp.jig.glasses.sample.kmp.alignment.CalibrationMarker
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
+import jp.jig.glasses.sample.kmp.satellite.SkyMotion
+import jp.jig.glasses.sample.kmp.satellite.SkyTrack
+import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
+import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
+import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 import jp.jig.glasses.sample.kmp.sky.Basis
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
@@ -18,6 +25,9 @@ import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import org.json.JSONObject
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.GraphicsMode
 import java.io.File
 import java.util.Base64
 import kotlin.math.abs
@@ -38,6 +48,8 @@ import kotlin.math.sin
  * グラスに画面キャプチャの口は無く、スマホ側も BLE がつながらないと星図まで進まないので、
  * 「実物の見え方」が要るときは実機で撮る。
  */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class DocumentImagesTest {
 
     /** かけている人の視界（**広さは見た目で置いた値**。実測はしていない） */
@@ -100,6 +112,59 @@ class DocumentImagesTest {
         out.appendScreen("glass-star-map", map.width, map.height, map.gray, map.toCanvasElements())
         out.appendScreen("glass-caption", 0, 0, null, caption.elements)
 
+        // 挨拶。**ロゴと本文は画像に焼く**（テキスト枠では字の大きさを変えられない）
+        val logo = BitmapFactory.decodeFile(
+            File(repoRoot, "samples/kmp/app/src/main/res/drawable-nodpi/hoshishirube_logo.png").path,
+        )
+        val splash = GlassTextArt.splash(logo, SPLASH_BODY)
+        out.appendScreen("glass-splash", splash.width, splash.height, splash.gray, emptyList())
+
+        // 方位合わせの十字。**星図とは別の画像**なので、パネルの真ん中に小さく出る
+        out.appendScreen(
+            "glass-calibration",
+            CalibrationMarker.SIZE,
+            CalibrationMarker.SIZE,
+            CalibrationMarker.grayscale(),
+            emptyList(),
+        )
+
+        // 案内。**星図の上に矢印の小画像を重ねる**（星図は焼き直さず 10Hz で差し替える）。
+        // 見本では 2 枚を 1 枚に合成する ― 実機では別々の画像として同時に光っている
+        val guided = map.gray.copyOf()
+        val overlay = guidanceOverlay(
+            GuidanceFrame(
+                targetName = target.nameJa,
+                distanceDeg = 32.0,
+                stage = GuidanceStage.HORIZONTAL,
+                direction = GuidanceDirection.RIGHT,
+                horizontalErrorDeg = 32.0,
+                verticalErrorDeg = -6.0,
+                near = false,
+            ),
+        )
+        overlay.mergeInto(guided, map.width, map.height)
+        out.appendScreen("glass-guidance", map.width, map.height, guided, map.toCanvasElements())
+
+        // 人工衛星。**星座のおまけ**なので同じ星図に点と輪郭を足す（軌跡の線は引かない）
+        val satellites = renderer.render(
+            site = site,
+            epochMillis = epoch,
+            look = look,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            limitMagnitude = density.limitMagnitude,
+            width = STAR_MAP_WIDTH,
+            height = STAR_MAP_HEIGHT,
+            constellationMagnitude = density.constellationMagnitude,
+            tracks = demoTracks(look),
+        )
+        out.appendScreen(
+            "glass-satellites",
+            satellites.width,
+            satellites.height,
+            satellites.gray,
+            satellites.toCanvasElements(),
+        )
+
         val file = File(repoRoot, "samples/kmp/app/build/doc-images/panels.txt")
         file.parentFile.mkdirs()
         file.writeText(out.toString())
@@ -108,6 +173,55 @@ class DocumentImagesTest {
 
         assertTrue("星図が真っ黒", map.gray.any { (it.toInt() and 0xFF) > 0 })
         assertTrue("解説画面が空", caption.elements.any { it.text.isNotEmpty() })
+        assertTrue("挨拶が真っ黒", splash.gray.any { (it.toInt() and 0xFF) > 0 })
+        assertTrue("案内の矢印が乗っていない", !guided.contentEquals(map.gray))
+        assertTrue("衛星の名前が出ていない", satellites.labels.any { it.text.contains("ISS") })
+    }
+
+    /**
+     * 見本に写す人工衛星。**軌道要素は引かない**（TLE は取得した日で変わるので絵が揃わない）。
+     * 位置は見ている方角の近くへ置いてあるだけで、実際の軌道ではない。
+     */
+    private fun demoTracks(look: Look): List<SkyTrack> = listOf(
+        SkyTrack(
+            name = "ISS",
+            nowAzDeg = look.azDeg + 6.0,
+            nowAltDeg = look.altDeg + 5.0,
+            sunlit = true,
+            labelled = true,
+            motion = SkyMotion(
+                closestInMinutes = 2.0,
+                rising = true,
+                stationary = false,
+                nextAzDeg = look.azDeg + 9.0,
+                nextAltDeg = look.altDeg + 7.0,
+            ),
+        ),
+        SkyTrack(
+            name = "みちびき1R",
+            nowAzDeg = look.azDeg - 9.0,
+            nowAltDeg = look.altDeg - 6.0,
+            sunlit = true,
+            labelled = true,
+            motion = SkyMotion(closestInMinutes = null, rising = false, stationary = true),
+        ),
+    )
+
+    /** 小画像をパネル中央へ重ねる。**光は足す**（グラスでは黒が透明で、消しゴムにならない） */
+    private fun GuidanceOverlay.mergeInto(target: ByteArray, width: Int, height: Int) {
+        val offsetX = (width - this.width) / 2
+        val offsetY = (height - this.height) / 2
+        for (y in 0 until this.height) {
+            for (x in 0 until this.width) {
+                val destX = offsetX + x
+                val destY = offsetY + y
+                if (destX !in 0 until width || destY !in 0 until height) continue
+                val source = gray[y * this.width + x].toInt() and 0xFF
+                val index = destY * width + destX
+                val existing = target[index].toInt() and 0xFF
+                if (source > existing) target[index] = source.toByte()
+            }
+        }
     }
 
     /**
@@ -193,6 +307,9 @@ class DocumentImagesTest {
         val side = basis.right * (dx / r) + basis.up * (dy / r)
         return (basis.forward * cos(theta) + side * sin(theta)).normalized()
     }
+
+    /** 挨拶に出す今日のひとこと。**起動ごとに変わる**ので、見本では 1 つに決める */
+    private val SPLASH_BODY = "今夜は月が出ていません。暗い星まで見える夜です。"
 
     /** 88 星座ぶんの解説文は `data/` の生成物。**アプリと同じ文を出す** */
     private fun lore(nameJa: String): String {
