@@ -39,7 +39,7 @@ class MagneticQualityTest {
     fun `打ち消されて弱くなる歪みも弾く`() {
         val result = quality(20.0, 49.0)
         assertTrue(result.distorted)
-        assertTrue(result.reason!!.contains("弱すぎ"))
+        assertTrue(result.reason!!.contains("金属"))
     }
 
     /**

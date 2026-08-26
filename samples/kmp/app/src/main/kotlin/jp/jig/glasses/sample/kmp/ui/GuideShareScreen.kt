@@ -215,7 +215,7 @@ fun GuideShareScreen(
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "ファイルは中身が読める JSON です。PC で文面を直してから配れます",
+                        "ファイルはパソコンでも開けます。文面を直してから配れます",
                         style = MaterialTheme.typography.bodySmall,
                         color = SaberaFinePrint,
                     )

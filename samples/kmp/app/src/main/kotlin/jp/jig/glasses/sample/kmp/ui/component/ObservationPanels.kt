@@ -1,6 +1,5 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -24,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -44,19 +44,29 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
 import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
 import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 
+/** 実機のパネルと同じ緑（[toPreviewBitmap] が絵に使っているのと同じ色） */
+private val PANEL_GREEN = Color(0xFF38FF74)
+
 @Composable
 internal fun ObservationPreview(
-    bitmap: Bitmap?,
+    frame: PreviewFrame?,
     sending: Boolean,
     transferMs: Long,
     modifier: Modifier = Modifier,
     guidance: GuidanceFrame? = null,
 ) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Color.Black)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())) {
-            if (bitmap != null) {
+        // 送る前だけパネルの形で場所を取る。**出たあとは絵そのものの形に従う**
+        // （描かれていない黒を落としてあるので、パネルより縦が短いことがある）
+        val box = if (frame == null) {
+            Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())
+        } else {
+            Modifier.fillMaxWidth()
+        }
+        Box(box) {
+            if (frame != null) {
                 Image(
-                    bitmap = bitmap.asImageBitmap(),
+                    bitmap = frame.bitmap.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxWidth().background(Color.Black),
                 )
@@ -67,19 +77,33 @@ internal fun ObservationPreview(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            if (sending && bitmap != null) {
-                SendingChip(
-                    "送信中（グラスは一時的に消える）",
-                    Modifier.align(Alignment.TopStart).padding(8.dp),
+            // **名前は絵に焼かれていない**（グラスはテキスト枠で重ねている）ので、
+            // ここでも同じ位置に重ねる。出さないと、点の集まりが何なのか分からない
+            frame?.labels?.forEach { label ->
+                Text(
+                    label.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PANEL_GREEN,
+                    modifier = Modifier
+                        .align(BiasAlignment(label.fx * 2f - 1f, label.fy * 2f - 1f))
+                        .padding(horizontal = 2.dp),
                 )
             }
-            guidance?.let { GuidancePreviewOverlay(it, Modifier.align(Alignment.Center)) }
+            // **送信中の札は出さない。** 0.4 秒ごとに出ては消えるので、
+            // 同伴者が見ているのは絵なのに、札のほうが目に付く
+            guidance?.let {
+                GuidancePreviewOverlay(it, frame?.visibleHeight ?: PANEL_HEIGHT, Modifier.align(Alignment.Center))
+            }
         }
     }
 }
 
 @Composable
-private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Modifier) {
+private fun GuidancePreviewOverlay(
+    frame: GuidanceFrame,
+    visibleHeight: Int,
+    modifier: Modifier = Modifier,
+) {
     Canvas(modifier.fillMaxSize()) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val mint = Color(0xFF5CFFB0)
@@ -87,7 +111,9 @@ private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Mo
         // 割った比率をそのまま使うので、プレビューだけ見やすくならない
         // （見やすくすると、実機で読めるかを画面で判断できなくなる）
         val box = guidanceIndicatorBox(frame)
-        val scale = size.minDimension * (box.span / PANEL_HEIGHT.toFloat())
+        // **見えているぶんで割る。** 黒を落として拡大しているので、
+        // パネルの高さで割ると矢印だけ小さく出る
+        val scale = size.minDimension * (box.span / visibleHeight.toFloat())
         fun at(point: GuidancePoint) = Offset(
             center.x + point.x.toFloat() * scale,
             center.y + point.y.toFloat() * scale,
@@ -117,8 +143,10 @@ private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Mo
                     mint,
                     at(geometry.tail),
                     at(geometry.tip),
+                    // **端は丸めない。** 丸めると軸が頭より先へ出て、
+                    // 矢印の先に玉が付いて見える（グラス側は平らに描いている）
                     strokeWidth = (geometry.shaftHalfWidth * 2.0).toFloat() * scale,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Butt,
                 )
                 val tip = at(geometry.tip)
                 val left = at(geometry.headBase.first())
@@ -207,6 +235,8 @@ internal fun NarrationPanel(
             if (status.isNotEmpty()) {
                 Text(status, color = MaterialTheme.colorScheme.primary)
             }
+            // **名前は動かさない。** 本文だけが下の枠の中を流れるので、
+            // 読んでいる途中でも「何の話か」が画面から消えない
             if (subject.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(subject, style = MaterialTheme.typography.titleLarge)
@@ -217,8 +247,14 @@ internal fun NarrationPanel(
                 modifier = Modifier.fillMaxWidth()
                     // 直に null を見る（fill 経由だとスマートキャストが効かない）
                     .then(
-                        if (maxTextHeight == null) Modifier.weight(1f)
-                        else Modifier.heightIn(max = maxTextHeight),
+                        if (maxTextHeight == null) {
+                            Modifier.weight(1f)
+                        } else {
+                            // **上限だけ決める。** 押すものは画面の下に貼り付けてあるので、
+                            // 枠が縮んでもボタンは動かない。数文しかない解説で
+                            // 高さを決め打つと、本文の下に空の帯が残る
+                            Modifier.heightIn(max = maxTextHeight)
+                        },
                     )
                     .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyLarge,
@@ -232,7 +268,6 @@ internal fun NarrationPanel(
 internal fun ObservationActions(
     primaryLabel: String,
     onPrimary: () -> Unit,
-    onRecalibrate: () -> Unit,
     /** 主ボタンの次に置くもの（いまはガイドの開始）。**要らないときは出さない** */
     secondaryLabel: String? = null,
     onSecondary: () -> Unit = {},
@@ -253,9 +288,17 @@ internal fun ObservationActions(
             Text(secondaryLabel)
         }
     }
-    // **やり直しの逃げ道はいちばん下のまま。** 押す機会がいちばん少ないので、
-    // 上に来ると誤って押される（押すと方位合わせからやり直しになる）
-    OutlinedButton(onClick = onRecalibrate, modifier = Modifier.fillMaxWidth()) {
+}
+
+/**
+ * 方位を合わせ直す。**画面のいちばん下に固定する**（流れる中身の外に置く）。
+ *
+ * 押す機会はいちばん少ないので上には置かない（誤って押すと方位合わせからやり直しになる）。
+ * それでも**流れて消えてはいけない** — 星図がずれていると気づいたときに探させることになる。
+ */
+@Composable
+internal fun RecalibrateButton(onRecalibrate: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(onClick = onRecalibrate, modifier = modifier.fillMaxWidth()) {
         Text("方位を合わせ直す")
     }
 }

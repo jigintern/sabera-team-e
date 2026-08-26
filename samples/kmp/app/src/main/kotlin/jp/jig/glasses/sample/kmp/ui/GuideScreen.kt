@@ -9,13 +9,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -138,18 +150,15 @@ fun GuideScreen(
                 },
             ) { padding ->
                 Column(
-                    Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                    Modifier.fillMaxSize().padding(padding)
+                        .padding(horizontal = 16.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        "決めた順に星座へ案内して、そのつど解説します。" +
-                            "作った台本は端末に残るので、電波の届かない場所でも使えます",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-                    Text("いまの空から作る", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
+                    // **バーのすぐ下から始める。** 上に余白を積むと、
+                    // 何をする画面なのかが 1 画面目から押し出される
+                    // **手順をそのまま見出しにする。** 説明文で書くより、
+                    // いまどこにいるのか（選ぶ／作る）が形で分かる
+                    SectionTitle("テーマを選ぶ")
                     Card(
                         Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
@@ -163,8 +172,11 @@ fun GuideScreen(
                                 )
                             } else {
                                 for (theme in GuideTheme.entries) {
+                                    val chosen = theme == vm.theme
                                     Row(
-                                        Modifier.fillMaxWidth(),
+                                        Modifier.fillMaxWidth()
+                                            .clickable { vm.theme = theme }
+                                            .padding(vertical = 8.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Column(Modifier.weight(1f)) {
@@ -175,30 +187,26 @@ fun GuideScreen(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
                                         }
-                                        Button(
-                                            onClick = { vm.make(theme) },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = SaberaGreen,
-                                                contentColor = SaberaOnAccent,
-                                            ),
-                                        ) {
-                                            Text("作る")
-                                        }
+                                        // **選んだものだけ印を付ける。** 押した先で何が起きるかは
+                                        // 下の「作成する」が持っているので、行に矢印は要らない
+                                        if (chosen) Icon(Icons.Filled.Check, "選んでいます", tint = SaberaGreen)
                                     }
-                                    Spacer(Modifier.height(8.dp))
                                 }
-                                // **キーが無くても作れることを書く。** 使えないと思わせない
-                                Text(
-                                    if (BuildConfig.OPENAI_API_KEY.isEmpty()) {
-                                        "AI の設定がないので、同梱の解説文で組みます"
-                                    } else {
-                                        "電波があれば AI が文を書き、届かなければ同梱の解説文で組みます"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
                             }
                         }
+                    }
+
+                    SectionTitle("作成する")
+                    Button(
+                        onClick = { vm.make(vm.theme) },
+                        enabled = !vm.making,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = SaberaGreen,
+                            contentColor = SaberaOnAccent,
+                        ),
+                    ) {
+                        Text("「${vm.theme.label}」で作る")
                     }
 
                     vm.notice?.let {
@@ -207,8 +215,7 @@ fun GuideScreen(
                     }
 
                     Spacer(Modifier.height(20.dp))
-                    Text("作った台本", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
+                    SectionTitle("作った台本", "押すと中身を読めます")
                     if (vm.guides.isEmpty()) {
                         Text(
                             "まだありません",
@@ -228,15 +235,18 @@ fun GuideScreen(
 
                     Spacer(Modifier.height(20.dp))
                     OutlinedButton(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
-                        Text("ガイドを受け取る（QR・ファイル）")
+                        Icon(Icons.Filled.QrCode2, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("受け取る")
                     }
 
                     Spacer(Modifier.height(8.dp))
                     AdvancedSection(expanded = vm.advanced, onToggle = { vm.advanced = !vm.advanced }) {
                         Column(Modifier.fillMaxWidth()) {
                             Text(
-                                "星座と順番と文面を、ぜんぶ自分で決めます。" +
-                                    "想定した日時と場所で組めるので、先の日付のツアーも作れます",
+                                "テーマ任せではなく、星座も順番も文面も自分で決めます。" +
+                                    "想定した日時と場所で組めるので、先の日付のツアーも作れます" +
+                                    "（旅行会社のツアー向け）",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -245,14 +255,15 @@ fun GuideScreen(
                                 onClick = { onAuthor(null) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("新しく作る")
+                                Text("1 から作りはじめる")
                             }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "始めるのは観測画面の「ガイドを始める」から。グラスをつないでから選びます",
+                        "電波の届かない場所でも使えます。" +
+                            "始めるのは観測画面の「ガイドを始める」から",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -261,6 +272,21 @@ fun GuideScreen(
             }
         }
     }
+}
+
+/** 区画の見出し。**何をする場所かを 1 行で言い切る**（作るのか、選ぶのか） */
+@Composable
+private fun SectionTitle(title: String, hint: String? = null) {
+    Spacer(Modifier.height(12.dp))
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    if (hint != null) {
+        Text(
+            hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Spacer(Modifier.height(6.dp))
 }
 
 /** 台本 1 本。**中身を読めるようにする**（何を喋るのか分からないまま外へ持ち出させない） */
@@ -272,14 +298,36 @@ private fun GuideCard(
     onDelete: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(guide.title, style = MaterialTheme.typography.titleSmall)
+        // **中身はカードを押して開く。** 「中身を読む」ボタンを 1 つ減らせる
+        Column(
+            Modifier.fillMaxWidth()
+                .clickable {
+                    expanded = !expanded
+                    confirmDelete = false
+                }
+                .padding(12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    guide.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (expanded) "閉じる" else "中身を読む",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Text(
-                "${guide.size} 星座・${guide.origin.label}" + if (guide.locked) "・編集できません" else "",
+                // **どう作ったか（AI か同梱か）は出さない。** 読む人が決めるのは
+                // 「この台本を使うか」だけで、作り方を知っても選び方は変わらない
+                "${guide.size} 星座" + if (guide.locked) "・編集できません" else "",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -305,27 +353,30 @@ private fun GuideCard(
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = { expanded = !expanded },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(if (expanded) "閉じる" else "中身を読む")
-                }
+            // **操作は 1 行のアイコンだけ。** 台本が増えるほどボタンの壁になっていた
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 // **配った台本は守る。** 客がうっかり直すと、その 1 台だけ違うツアーになる
                 if (!guide.locked) {
-                    OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("直す") }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!guide.locked) {
-                    TextButton(onClick = onShare, modifier = Modifier.weight(1f)) {
-                        Text("配る", color = SaberaGreen)
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Filled.Edit, "直す", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onShare) {
+                        Icon(Icons.Filled.QrCode2, "配る", tint = SaberaGreen)
                     }
                 }
-                TextButton(onClick = onDelete, modifier = Modifier.weight(1f)) {
-                    Text("消す", color = SaberaWarning)
+                // **消すのは 2 回押させる。** 取り消せないのに、アイコンは指が滑って当たる
+                if (confirmDelete) {
+                    TextButton(onClick = onDelete) {
+                        Text("本当に消す", color = SaberaWarning)
+                    }
+                } else {
+                    IconButton(onClick = { confirmDelete = true }) {
+                        Icon(Icons.Filled.Delete, "消す", tint = SaberaWarning)
+                    }
                 }
             }
         }

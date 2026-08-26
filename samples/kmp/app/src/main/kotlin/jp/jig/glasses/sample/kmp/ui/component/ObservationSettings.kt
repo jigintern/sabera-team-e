@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,11 +26,11 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SatelliteAlt
@@ -62,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.glass.StarMapInk
 import jp.jig.glasses.sample.kmp.glass.StarMapLayer
@@ -145,13 +148,29 @@ internal fun CollapsibleSection(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    CollapsibleSection(title, icon, hint, expanded, { expanded = !expanded }, content)
+}
+
+/**
+ * 開閉を呼ぶ側が持つ版。**用が済んだら閉じたい区画**に使う
+ * （星空の条件は「この空を見る」を押した時点で用が済む）。
+ */
+@Composable
+internal fun CollapsibleSection(
+    title: String,
+    icon: ImageVector,
+    hint: String? = null,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     Spacer(Modifier.height(10.dp))
     Card(
         Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
     ) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            SectionHeader(title, icon, hint, expanded, onToggle = { expanded = !expanded })
+            SectionHeader(title, icon, hint, expanded, onToggle = onToggle)
             if (expanded) content()
         }
     }
@@ -223,12 +242,16 @@ private fun IconToggle(
     modifier: Modifier = Modifier,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    // **1 つずつ独立したボタンに見せる。** 敷いた緑が隣とつながると、
+    // 3 つで 1 本の帯に見えて、どれが入っているのか読めなくなる
+    val shape = RoundedCornerShape(10.dp)
     Column(
         modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(shape)
             .background(if (checked) SaberaSelected else Color.Transparent)
+            .border(1.dp, if (checked) SaberaSelected else SaberaFinePrint.copy(alpha = 0.45f), shape)
             .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 6.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val tint = if (checked) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
@@ -426,8 +449,6 @@ internal fun SkyViewSettings(
     onArtChange: (Boolean) -> Unit,
     showGuides: Boolean,
     onGuidesChange: (Boolean) -> Unit,
-    ink: StarMapInk,
-    onInkChange: (StarMapInk) -> Unit,
 ) {
     SettingsSection(
         "見え方",
@@ -454,7 +475,10 @@ internal fun SkyViewSettings(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             IconToggle("星座絵", Icons.Filled.AutoAwesome, showArt, Modifier.weight(1f), onArtChange)
             IconToggle("目印", Icons.Filled.Explore, showGuides, Modifier.weight(1f), onGuidesChange)
             IconToggle(
@@ -465,44 +489,19 @@ internal fun SkyViewSettings(
                 onSatellitesChange,
             )
         }
-        InkRow(ink, onInkChange)
     }
 }
 
 /**
- * 下敷きの濃さ。**開くまで出さない。**
+ * 下敷きの濃さ。**開発者用画面に置く。**
  *
  * **屋内で決めた濃さは屋外の暗闇では必ず明るすぎる**ので現地で動かせるようにしてあるが、
- * 初めて開いた人が最初に触るものではない。
+ * 初めて開いた人が最初に触るものではない。見え方の区画に混ぜると、
+ * いちばん効く空の濃さがその下に隠れる。
  */
 @Composable
-private fun InkRow(ink: StarMapInk, onInkChange: (StarMapInk) -> Unit) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    Row(
-        Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            Icons.Filled.Tune,
-            null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            "下敷きの濃さ",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            if (expanded) "畳む" else "開く",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
-        )
-    }
-    if (expanded) {
+internal fun InkSettings(ink: StarMapInk, onInkChange: (StarMapInk) -> Unit) {
+    CollapsibleSection("下敷きの濃さ", Icons.Filled.Tune, "段で決める（グラスは緑 8 階調）") {
         // 星はここに入れない（等級を明るさで表しているので、一律に動かすと差が潰れる）
         for (layer in StarMapLayer.entries) {
             InkStepper(layer, ink.level(layer)) { onInkChange(ink.with(layer, it)) }
@@ -536,21 +535,48 @@ private fun InkStepper(layer: StarMapLayer, level: Int, onChange: (Int) -> Unit)
 }
 
 /**
- * 音。**グラスからは鳴らない**ので、ここで合わせるのはスマホのスピーカーの音量。
+ * 声。**グラスからは鳴らない**ので、合わせるのはスマホのスピーカーの音量。
  *
  * 適正な音量は場所（屋外の暗騒音）と機種で変わるので、合わせた値は端末に覚えさせる。
- *
- * **屋外で触るのは音量だけ**なので、つまみ 2 本しか出さない。
- * 入／切は左のアイコンが兼ねる。声を端末の読み上げに落とす・曲を指名するのは
- * 一度決めたらそのままなので、開くまで出さない。
+ * **曲とは分ける** — 音量を下げたいのがどちらなのかは場面ごとに違う。
  */
 @Composable
-internal fun SoundSettings(
+internal fun VoiceSettings(
     aiVoice: Boolean,
     onAiVoiceChange: (Boolean) -> Unit,
     voiceVolume: Float,
     onVoiceVolumeChange: (Float) -> Unit,
     onVoiceVolumeCommit: () -> Unit,
+) {
+    SettingsSection(
+        "声",
+        Icons.Filled.RecordVoiceOver,
+        "スマホから鳴る（グラスにスピーカーは無い）",
+    ) {
+        SliderRow(
+            "音量",
+            if (voiceVolume > 0f) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+            voiceVolume,
+            onVoiceVolumeChange,
+            onVoiceVolumeCommit,
+        )
+        // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
+        // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
+        SettingSwitch(
+            if (aiVoice) "AI 音声（落ち着いた解説員）" else "端末の読み上げ",
+            aiVoice,
+            onAiVoiceChange,
+        )
+    }
+}
+
+/**
+ * 曲（BGM）。**入／切は左のアイコンが兼ねる**（スイッチとつまみで 2 行使わない）。
+ *
+ * 曲の指名は一度決めたらそのままなので、開くまで出さない。
+ */
+@Composable
+internal fun BgmSettings(
     bgmOn: Boolean,
     onBgmChange: (Boolean) -> Unit,
     bgmVolume: Float,
@@ -561,19 +587,12 @@ internal fun SoundSettings(
     onBgmPinnedChange: (BgmTrack?) -> Unit,
 ) {
     SettingsSection(
-        "音",
-        Icons.Filled.VolumeUp,
-        "スマホのスピーカーから鳴る（グラスにスピーカーは無い）",
+        "曲",
+        if (bgmOn) Icons.Filled.MusicNote else Icons.Filled.MusicOff,
+        if (bgmOn) "いま ${bgmPlaying?.title ?: "止まっている"}・解説中は自動で下がる" else "鳴らさない",
     ) {
         SliderRow(
-            "読み上げ",
-            if (voiceVolume > 0f) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
-            voiceVolume,
-            onVoiceVolumeChange,
-            onVoiceVolumeCommit,
-        )
-        SliderRow(
-            "BGM",
+            "音量",
             if (bgmOn) Icons.Filled.MusicNote else Icons.Filled.MusicOff,
             bgmVolume,
             onBgmVolumeChange,
@@ -581,31 +600,20 @@ internal fun SoundSettings(
             enabled = bgmOn,
             onIconClick = { onBgmChange(!bgmOn) },
         )
-        Text(
-            if (bgmOn) "いま ${bgmPlaying?.title ?: "止まっている"}・解説中は自動で下がる" else "BGM なし",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SoundDetails(aiVoice, onAiVoiceChange, bgmOn, bgmPinned, onBgmPinnedChange)
+        if (bgmOn) InlineDisclosure("曲を選ぶ") { BgmPicker(bgmPinned, onBgmPinnedChange) }
     }
 }
 
-/** 一度決めたらそのままの設定。**開くまで出さない** */
+/** 区画の中でさらに畳む 1 行。**普段は触らないものを、消さずに隠す** */
 @Composable
-private fun SoundDetails(
-    aiVoice: Boolean,
-    onAiVoiceChange: (Boolean) -> Unit,
-    bgmOn: Boolean,
-    bgmPinned: BgmTrack?,
-    onBgmPinnedChange: (BgmTrack?) -> Unit,
-) {
+private fun InlineDisclosure(label: String, content: @Composable ColumnScope.() -> Unit) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            "声と曲",
+            label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
@@ -617,39 +625,26 @@ private fun SoundDetails(
             modifier = Modifier.size(18.dp),
         )
     }
-    if (expanded) {
-        // 端末の読み上げは棒読みで雰囲気を壊す。既定は AI 音声で、
-        // 圏外や API キー無しのときは自動で端末の読み上げに落ちる
-        SettingSwitch(
-            if (aiVoice) "声: AI 音声（落ち着いた解説員）" else "声: 端末の読み上げ",
-            aiVoice,
-            onAiVoiceChange,
-        )
-        if (bgmOn) BgmPicker(bgmPinned, onBgmPinnedChange)
-    }
+    if (expanded) Column(Modifier.fillMaxWidth()) { content() }
 }
 
 /**
- * 同梱物の出典。
+ * 同梱物の出典。**設定のいちばん下に、いちばん小さく置く。**
  *
  * **CC BY 4.0 は帰属の表示が条件**で、`NOTICE` はアプリの利用者には見えない。
- * 曲と星座絵で 2 か所に散らすと設定パネルが細字で埋まるので、1 つに集めて畳んでおく。
+ * ただし読ませたい文ではないので、区画にはしない（開く手間のぶんだけ場所を取る）。
  */
 @Composable
-internal fun CreditsCard() {
-    CollapsibleSection("出典", Icons.Filled.Info, "曲と星座絵のライセンス") {
-        Text(
-            "BGM: ${BgmTrack.credit}",
-            style = MaterialTheme.typography.bodySmall,
-            color = SaberaFinePrint,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
+internal fun CreditsFootnote() {
+    Spacer(Modifier.height(20.dp))
+    Text(
+        "BGM: ${BgmTrack.credit}　" +
             "星座絵: The 88 Constellations by NOIRLab/NSF/AURA CC BY 4.0（改変あり）",
-            style = MaterialTheme.typography.bodySmall,
-            color = SaberaFinePrint,
-        )
-    }
+        style = MaterialTheme.typography.labelSmall,
+        fontSize = 9.sp,
+        lineHeight = 12.sp,
+        color = SaberaFinePrint,
+    )
 }
 
 /**
