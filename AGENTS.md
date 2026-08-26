@@ -31,6 +31,7 @@
 | 何をどれだけ出せるか（画像・テキスト・転送） | [02_glass-output.md](docs/team-e/02_glass-output.md) |
 | 座標変換・方位合わせ・星座判定 | [03_coordinate-system.md](docs/team-e/03_coordinate-system.md) |
 | 星図を空に重ねる精度（**見送った計画**） | [14_alignment-accuracy.md](docs/team-e/14_alignment-accuracy.md) |
+| **見送った案と残っている宿題** | [19_backlog.md](docs/team-e/19_backlog.md) |
 | **星図に何をどう描くか**（点・絵・空の濃さ） | [04_star-map-drawing.md](docs/team-e/04_star-map-drawing.md) |
 | 画面遷移・ジェスチャー・スマホ UI | [05_app-flow.md](docs/team-e/05_app-flow.md) |
 | **何を喋るか**（解説・一口メモ・声の質問） | [06_narration.md](docs/team-e/06_narration.md) |
