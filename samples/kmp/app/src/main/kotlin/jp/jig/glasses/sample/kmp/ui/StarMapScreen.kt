@@ -234,6 +234,7 @@ import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.ui.starmap.LOG_LINES
 import jp.jig.glasses.sample.kmp.ui.starmap.ScreenLog
+import jp.jig.glasses.sample.kmp.ui.starmap.simulationPhrase
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
 import jp.jig.glasses.sample.kmp.voice.GlassMic
@@ -984,17 +985,20 @@ fun StarMapScreen(
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
+            // **1 枚につき 1 回だけ数える。** 18 万画素を走る計算なので、
+            // 同じ絵に対して呼び直すとそのぶん次の絵が遅れる
             val compressed = map.compressedSizeBytes()
+            val imageUsage = map.canvasBufferUsageBytes(compressed)
             var overlayUsage = guidanceFrame?.let { guidanceOverlay(it).bufferUsageBytes } ?: 0
             // **溢れるなら星図より矢印を捨てる。** 矢印が消えても文字の案内（「左へ 32°」）は
             // 残るが、星図が出なければ何も分からない。星が多い空ほど圧縮後が膨らむので、
             // ここに来るのは案内中のいちばん濃い空だけ
-            if (overlayUsage > 0 && map.canvasBufferUsageBytes() + overlayUsage > CANVAS_IMAGE_BUFFER_BYTES) {
+            if (overlayUsage > 0 && imageUsage + overlayUsage > CANVAS_IMAGE_BUFFER_BYTES) {
                 log("バッファが足りないので案内表示を外して星図を通す")
                 runCatching { guidanceOverlaySender.removeWhileLocked() }
                 overlayUsage = 0
             }
-            val used = map.canvasBufferUsageBytes() + overlayUsage
+            val used = imageUsage + overlayUsage
             transferMs = ((compressed + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES) * packetMs.toLong()
             if (used > CANVAS_IMAGE_BUFFER_BYTES) {
                 preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
@@ -1566,7 +1570,15 @@ fun StarMapScreen(
     // 短い定型文はキャッシュに残るので、2 回目からは通信すら要らない。
     // **解説の主役と同じ選び方にする**（種別で絞らないと、月が視野にあるだけで
     // 「月ですね」を作って、タップしたときのキャッシュが当たらない）
-    LaunchedEffect(lastMap, bodiesShown, lore.value) {
+    // **鍵は先読みする文の材料だけ。** lastMap をそのまま鍵にすると
+    // （StarMap は参照で比べるので）**絵を 1 枚焼くたびに作り直し**になり、
+    // そのつど文を組み直して先読みし直していた
+    LaunchedEffect(
+        lastMap?.constellationNames()?.firstOrNull(),
+        lastMapObservation?.fullTimeLabel(),
+        bodiesShown,
+        lore.value,
+    ) {
         val name = lastMap?.constellationNames()?.firstOrNull() ?: return@LaunchedEffect
         val observation = lastMapObservation ?: return@LaunchedEffect
         // **名乗りだけでなく解説の全文を作っておく。** ここを名乗りだけにしていたとき、
@@ -2109,27 +2121,16 @@ fun StarMapScreen(
     fun submitSimulationForm() {
         // **スマホも声とまったく同じ経路を通す。** 別の解釈を 2 つ持つと、
         // 片方だけ直したときに「スマホでは出せるのに声では出せない」が起きる
-        val raw = if (!simulationDetailed) {
-            SkyPresets.phraseOf(simulationPlace, simulationEra, simulationTime)
-        } else {
-            // **打った欄を優先する。** わざわざ開いて入れた指定を、選んだものが黙って上書きしない
-            val city = simulationCityText.trim().ifEmpty { simulationPlace.phrase }
-            val era = simulationEraText.trim().ifEmpty {
-                if (simulationDateText.isBlank()) simulationEra.phrase else ""
-            }
-            val date = simulationDateText.trim()
-            val time = simulationTimeText.trim().ifEmpty { simulationTime.phrase }
-            buildString {
-                if (city.isNotEmpty()) append(city).append("の")
-                // 時代を入れたら日付より優先する（パーサが「何年前」を先に見る）
-                if (era.isNotEmpty()) {
-                    append(era).append(' ')
-                } else if (date.isNotEmpty()) {
-                    append(date).append(' ')
-                }
-                append(time).append("の空を表示して")
-            }
-        }
+        val raw = simulationPhrase(
+            place = simulationPlace,
+            era = simulationEra,
+            time = simulationTime,
+            detailed = simulationDetailed,
+            cityText = simulationCityText,
+            eraText = simulationEraText,
+            dateText = simulationDateText,
+            timeText = simulationTimeText,
+        )
         when (val parsed = SkyCommandParser.parse(raw, System.currentTimeMillis(), livePlace())) {
             is SkyCommandResult.Accepted -> {
                 if (parsed.command is SkyCommand.ShowSky) {
