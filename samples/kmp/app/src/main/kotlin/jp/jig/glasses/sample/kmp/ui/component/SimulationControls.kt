@@ -1,24 +1,25 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,16 +27,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.SkyPreset
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
@@ -57,47 +58,28 @@ internal fun TimeScrubControls(
     scrubbing: Boolean,
     /** つまみの位置。**その夜の中を ±12 時間**（0 が条件で指定した時刻） */
     offsetHours: Float,
-    onStep: (Float) -> Unit,
     onScrub: (Float) -> Unit,
     onScrubFinished: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     Column(Modifier.fillMaxWidth()) {
-        // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる
-        Row(
+        // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる。
+        // **1 時間ずつのボタンは置かない** — つまみが 15 分刻みで止まるので同じことが指でできる
+        Column(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            StepButton(
-                pointsRight = false,
-                description = "1時間戻す",
-                enabled = offsetHours > -TIME_SCRUB_HOURS,
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onStep(-TIME_SCRUB_STEP_HOURS)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
+            )
+            if (detail != null) {
                 Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                if (detail != null) {
-                    Text(
-                        detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            StepButton(
-                pointsRight = true,
-                description = "1時間進める",
-                enabled = offsetHours < TIME_SCRUB_HOURS,
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onStep(TIME_SCRUB_STEP_HOURS)
             }
         }
         // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
@@ -145,48 +127,6 @@ internal fun TimeScrubControls(
 }
 
 /**
- * 三角 2 つで描く送り・戻し。
- *
- * `material-icons` を足すと持ち物が増えるうえ、要るのは 2 つだけ。
- * 形だけでは何のボタンか分からないので、読み上げ用の名前は必ず付ける。
- */
-@Composable
-private fun StepButton(
-    pointsRight: Boolean,
-    description: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val tint = if (enabled) Color.White else Color.White.copy(alpha = 0.3f)
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.semantics { contentDescription = description },
-    ) {
-        Canvas(Modifier.size(18.dp)) {
-            val w = size.width
-            val h = size.height
-            drawPath(trianglePath(0f, w / 2f, h, pointsRight), tint)
-            drawPath(trianglePath(w / 2f, w, h, pointsRight), tint)
-        }
-    }
-}
-
-private fun trianglePath(left: Float, right: Float, height: Float, pointsRight: Boolean): Path =
-    Path().apply {
-        if (pointsRight) {
-            moveTo(left, 0f)
-            lineTo(right, height / 2f)
-            lineTo(left, height)
-        } else {
-            moveTo(right, 0f)
-            lineTo(left, height / 2f)
-            lineTo(right, height)
-        }
-        close()
-    }
-
-/**
  * つまみで動かせる幅。**その夜の中だけ。**
  *
  * 日をまたいで動かしたいなら「時代」の選択肢を使う。ここを広げると、
@@ -196,9 +136,6 @@ const val TIME_SCRUB_HOURS = 12f
 
 /** 15 分刻み。±12 時間 ＝ 96 目盛りなので、あいだの数はその 1 つ手前 */
 const val TIME_SCRUB_STEPS = 95
-
-/** ボタン 1 回で動く量。**押すたびに 1 枚描き直す**ので、細かすぎると待たされる */
-const val TIME_SCRUB_STEP_HOURS = 1f
 
 /** 震わせる間隔。目盛りと同じ 15 分 */
 private const val TIME_SCRUB_NOTCH_HOURS = 0.25f
@@ -217,97 +154,140 @@ internal fun SkyConditionSettings(
     place: SkyPreset,
     era: SkyPreset,
     time: SkyPreset,
-    detailed: Boolean,
-    cityText: String,
-    eraText: String,
-    dateText: String,
-    timeText: String,
     message: String?,
     onPlaceChange: (SkyPreset) -> Unit,
     onEraChange: (SkyPreset) -> Unit,
     onTimeChange: (SkyPreset) -> Unit,
-    onDetailedChange: (Boolean) -> Unit,
-    onCityTextChange: (String) -> Unit,
-    onEraTextChange: (String) -> Unit,
-    onDateTextChange: (String) -> Unit,
-    onTimeTextChange: (String) -> Unit,
     onApply: () -> Unit,
     onReturnLive: () -> Unit,
+    /** 見出しのすぐ下に置くもの（時刻を動かすつまみ）。**同じ「いつの空か」の操作なので束ねる** */
+    header: @Composable ColumnScope.() -> Unit = {},
 ) {
     // **普段は「いまの空」で足りる。** 見出しに状態を出したうえで畳んでおき、
     // 場所や時代を変えたい人だけが開く（開閉は覚えない＝次に開いたときは畳んである）
-    CollapsibleSection("星空の条件", Icons.Filled.Schedule, status) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    CollapsibleSection("星空の条件", Icons.Filled.Schedule, status, open, { open = !open }) {
         Column(Modifier.fillMaxWidth()) {
-            PresetRow("場所", SkyPresets.places, place, onPlaceChange)
-            PresetRow("時代", SkyPresets.eras, era, onEraChange)
-            PresetRow("時刻", SkyPresets.times, time, onTimeChange)
+            header()
+            PresetPicker(place, era, time, onPlaceChange, onEraChange, onTimeChange)
 
             Spacer(Modifier.height(10.dp))
-            Button(onClick = onApply, modifier = Modifier.fillMaxWidth()) {
+            // **押したら畳む。** 用が済んだのに開いたままだと、出したばかりの空が
+            // 選択肢の裏に隠れる（元の画面へ戻る口をここが兼ねる）
+            Button(
+                onClick = {
+                    onApply()
+                    open = false
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text("この空を見る")
             }
             if (message != null) {
                 Spacer(Modifier.height(4.dp))
                 Text(message, style = MaterialTheme.typography.bodySmall)
             }
+            // **押すものは「この空を見る」1 つに見せる。** 戻る口は再現中しか要らないので、
+            // 枠を持たない文字にして、並んだボタンに見せない
             if (simulation) {
-                Spacer(Modifier.height(4.dp))
-                OutlinedButton(onClick = onReturnLive, modifier = Modifier.fillMaxWidth()) {
+                TextButton(
+                    onClick = {
+                        onReturnLive()
+                        open = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     Text("現在の空に戻る")
                 }
             }
-
-            TextButton(onClick = { onDetailedChange(!detailed) }) {
-                Text(if (detailed) "細かい指定を閉じる" else "細かく指定する")
-            }
-            if (detailed) {
-                // **打ったほうを優先する。** わざわざ開いて入れた指定を、
-                // 上の選択肢が黙って上書きしたら開いた意味がない
-                Text(
-                    "打った欄が優先されます。空欄なら上の選択肢を使います",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = cityText,
-                    onValueChange = onCityTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("都市") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = eraText,
-                    onValueChange = onEraTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("時代") },
-                    placeholder = { Text("紀元前3000年 / 2000年後") },
-                    singleLine = true,
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = dateText,
-                        onValueChange = onDateTextChange,
-                        modifier = Modifier.weight(1f),
-                        label = { Text("日付") },
-                        placeholder = { Text("2026/8/24") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = timeText,
-                        onValueChange = onTimeTextChange,
-                        modifier = Modifier.weight(0.72f),
-                        label = { Text("時刻") },
-                        placeholder = { Text("20:30") },
-                        singleLine = true,
-                    )
-                }
-            }
-            Text(
-                "都市データと日時計算は圏外でも使えます",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
+    }
+}
+
+/** 選ぶもの 3 つ。**畳んでいる間は 1 行**（いま何が選んであるかだけ見せる） */
+private enum class PresetKind(val title: String) { PLACE("場所"), ERA("時代"), TIME("時刻") }
+
+/**
+ * 場所・時代・時刻を**1 行に畳んで**選ばせる。
+ *
+ * **3 つとも並べると、それだけで画面が埋まった**（選択肢は場所だけで 19 個ある）。
+ * 押した 1 つぶんだけ下へ開き、選ぶと閉じる。**開いても 2 行**。
+ */
+@Composable
+private fun PresetPicker(
+    place: SkyPreset,
+    era: SkyPreset,
+    time: SkyPreset,
+    onPlaceChange: (SkyPreset) -> Unit,
+    onEraChange: (SkyPreset) -> Unit,
+    onTimeChange: (SkyPreset) -> Unit,
+) {
+    var picking by rememberSaveable { mutableStateOf<PresetKind?>(null) }
+    fun selected(kind: PresetKind) = when (kind) {
+        PresetKind.PLACE -> place
+        PresetKind.ERA -> era
+        PresetKind.TIME -> time
+    }
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (kind in PresetKind.entries) {
+            PresetButton(
+                title = kind.title,
+                value = selected(kind).label,
+                open = picking == kind,
+                modifier = Modifier.weight(1f),
+            ) { picking = if (picking == kind) null else kind }
+        }
+    }
+    picking?.let { kind ->
+        val options = when (kind) {
+            PresetKind.PLACE -> SkyPresets.places
+            PresetKind.ERA -> SkyPresets.eras
+            PresetKind.TIME -> SkyPresets.times
+        }
+        ChipRow(options, selected(kind)) { chosen ->
+            when (kind) {
+                PresetKind.PLACE -> onPlaceChange(chosen)
+                PresetKind.ERA -> onEraChange(chosen)
+                PresetKind.TIME -> onTimeChange(chosen)
+            }
+            // **選んだら閉じる。** 開いたままだと、次に押すものが選択肢の下に隠れる
+            picking = null
+        }
+    }
+}
+
+/** 畳んでいるときの 1 つぶん。**見出しは小さく、選んである値を大きく** */
+@Composable
+private fun PresetButton(
+    title: String,
+    value: String,
+    open: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(if (open) SaberaSelected else Color.Transparent)
+            .border(1.dp, if (open) SaberaSelected else SaberaFinePrint.copy(alpha = 0.45f), shape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -316,22 +296,10 @@ internal fun SkyConditionSettings(
  *
  * **折り返さず横スクロールにしてある。** 場所は 19 個あるので、折り返すと
  * 画面の半分がチップの壁になり、**その下にある「この空を見る」まで届かない**。
- * 3 つとも同じ形にしているのは、**選び方を 1 つだけ覚えれば済む**ようにするため。
  */
 @Composable
-private fun PresetRow(
-    title: String,
-    options: List<SkyPreset>,
-    selected: SkyPreset,
-    onSelect: (SkyPreset) -> Unit,
-) {
-    Spacer(Modifier.height(8.dp))
-    Text(
-        title,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    Spacer(Modifier.height(2.dp))
+private fun ChipRow(options: List<SkyPreset>, selected: SkyPreset, onSelect: (SkyPreset) -> Unit) {
+    Spacer(Modifier.height(6.dp))
     val scroll = rememberScrollState()
     Row(
         Modifier.fillMaxWidth().horizontalScroll(scroll),

@@ -78,6 +78,9 @@ import kotlin.random.Random
 fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
 
+    // 台本の画面へ入ってきた側。**戻るで返す先**（ホームから来たか、観測中に来たか）
+    var guidesFrom by rememberSaveable { mutableStateOf(AppScreen.HOME) }
+
     // **台本は保存済みのものを渡す。** 画面の間で持ち回るのは「どれを開くか」だけで、
     // 編集中の中身は編集画面が持つ（回転しない画面なので、これで足りる）
     var editing by remember { mutableStateOf<StarGuide?>(null) }
@@ -197,6 +200,9 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
     BackHandler(enabled = screen != AppScreen.HOME) {
         when (val back = backDestination(screen)) {
             null -> if (screen == AppScreen.STAR_MAP) confirmLeaving = true
+            // **台本の画面だけは入ってきた側へ返す。** 観測中に作りに来た人をホームへ落とすと、
+            // 方位合わせからやり直しになる
+            AppScreen.HOME -> screen = if (screen == AppScreen.GUIDES) guidesFrom else back
             else -> screen = back
         }
     }
@@ -215,7 +221,10 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
         val client = observingClient ?: return@LaunchedEffect
         val watch = ConnectionWatch()
         while (true) {
-            if (watch.sample(client.connected.value, SystemClock.elapsedRealtime())) connectionLost = true
+            // 接続状態の正は connectedDevice。保持した client は猶予のあいだ見るための控えなので、
+            // どちらかが切れていれば切れたものとして数え始める
+            val alive = manager.connectedDevice.value != null && client.connected.value
+            if (watch.sample(alive, SystemClock.elapsedRealtime())) connectionLost = true
             delay(CONNECTION_CHECK_INTERVAL_MS)
         }
     }
@@ -274,11 +283,14 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
             constellation = constellation,
             tip = splashTipText,
             onStart = { screen = AppScreen.CONNECTION },
-            onGuides = { screen = AppScreen.GUIDES },
+            onGuides = {
+                guidesFrom = AppScreen.HOME
+                screen = AppScreen.GUIDES
+            },
         )
         AppScreen.GUIDES -> GuideScreen(
             constellation = constellation,
-            onBack = { screen = AppScreen.HOME },
+            onBack = { screen = guidesFrom },
             onAuthor = {
                 editing = it
                 screen = AppScreen.GUIDE_EDITOR
@@ -377,6 +389,10 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
                     bgm = bgm,
                     soundPrefs = soundPrefs,
                     onRecalibrate = { screen = AppScreen.CALIBRATION },
+                    onGuides = {
+                        guidesFrom = AppScreen.STAR_MAP
+                        screen = AppScreen.GUIDES
+                    },
                 )
             }
         }

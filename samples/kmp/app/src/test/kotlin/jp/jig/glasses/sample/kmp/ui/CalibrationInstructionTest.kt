@@ -23,16 +23,16 @@ class CalibrationInstructionTest {
     @Test
     fun `直せないことより先に、直せることを言う`() {
         assertEquals(
-            "グラスの6DoFを待っています",
+            "グラスの動きを待っています",
             instruction(imuFresh = false, headingReady = false, compassReady = false, facingReady = false),
         )
         assertEquals(
             "スマホの向きを待っています",
             instruction(headingReady = false, compassReady = false, facingReady = false),
         )
-        assertEquals("スマホを8の字に動かしてください", instruction(compassReady = false, facingReady = false))
-        assertEquals("スマホを視線に正対させてください", instruction(facingReady = false))
-        assertEquals("そのまま1秒ほど止めてください", instruction(stabilityReady = false))
+        assertEquals("スマホを8の字に動かす", instruction(compassReady = false, facingReady = false))
+        assertEquals("スマホを顔の正面へ", instruction(facingReady = false))
+        assertEquals("そのまま1秒止める", instruction(stabilityReady = false))
     }
 
     /**
@@ -50,6 +50,6 @@ class CalibrationInstructionTest {
     /** 全部揃ったあとも呼ばれうる（画面は文を出さないが、空文字を返さない） */
     @Test
     fun `揃っていても文は返す`() {
-        assertEquals("センサーを確認しています", instruction())
+        assertEquals("確認しています", instruction())
     }
 }

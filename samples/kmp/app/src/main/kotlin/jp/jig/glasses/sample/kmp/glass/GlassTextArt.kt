@@ -77,39 +77,6 @@ object GlassTextArt {
         return StarMap(width, height, toGray(bitmap), emptyList())
     }
 
-    /**
-     * 1 行を**枠いっぱいの大きさ**で焼く（タイムラプスの年号・#45）。
-     *
-     * **テキスト枠では字の大きさを変えられない**ので、大きく出したいものはここを通す。
-     * [splash] と違って**毎フレーム作り直す**ため、折り返しも行送りもしない。
-     * 入らなければ入る大きさまで落とす（「紀元前 10000 年」がいちばん長い）。
-     */
-    fun bigLine(text: String, width: Int, height: Int): StarMap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        // **黒は透明。** 塗りつぶしておくと、前に出ていた絵が透けない
-        canvas.drawColor(Color.BLACK)
-
-        val usable = width - 2 * BIG_LINE_MARGIN
-        val linePaint = paint(height * BIG_LINE_HEIGHT_RATIO)
-        while (linePaint.textSize > BIG_LINE_MIN_SIZE &&
-            linePaint.measureText(text) > usable
-        ) {
-            linePaint.textSize -= 2f
-        }
-        // 中央へ。**上下も真ん中**にしたいので、字の高さの半分だけベースラインを下げる
-        val metrics = linePaint.fontMetrics
-        val baseline = height / 2f - (metrics.ascent + metrics.descent) / 2f
-        canvas.drawText(text, width / 2f, baseline, linePaint)
-
-        return StarMap(width, height, toGray(bitmap), emptyList())
-    }
-
-    /** 枠の高さに対する字の大きさ。上下に余白が要るので目いっぱいにはしない */
-    private const val BIG_LINE_HEIGHT_RATIO = 0.62f
-    private const val BIG_LINE_MARGIN = 12
-    private const val BIG_LINE_MIN_SIZE = 16f
-
     private fun paint(size: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = size
@@ -200,11 +167,12 @@ object GlassTextArt {
     /**
      * 本文の字の大きさ[画素]。**入る大きさが見つかるまで上から順に試す。**
      *
-     * ひとことの長さはメモによって倍近く変わる（60〜120 文字）。この並びなら
-     * **短いものは 30px で 4 行、長いものでも 24px で 7 行**に収まる。
+     * ひとことの長さはメモによって倍近く変わる（60〜120 文字）。
+     * **ロゴより本文が目立たない大きさから始める** — 挨拶の主役はロゴで、
+     * ひとことは添える一言。30px から始めていたときは本文が画面を占めていた。
      * いちばん小さい 20px は最後の逃げ道で、そこまで落ちるなら**ひとことを短くするほうがよい**。
      */
-    private val BODY_SIZES = floatArrayOf(30f, 27f, 24f, 22f, 20f)
+    private val BODY_SIZES = floatArrayOf(24f, 22f, 20f)
 
     /**
      * 行送り（字の大きさに対する倍率）。

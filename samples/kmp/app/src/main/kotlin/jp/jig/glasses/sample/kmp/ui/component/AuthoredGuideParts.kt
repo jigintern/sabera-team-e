@@ -339,7 +339,7 @@ internal fun AdvancedSection(
     Column(Modifier.fillMaxWidth()) {
         TextButton(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
             Text(
-                (if (expanded) "▼ " else "▶ ") + "詳しく作る（旅行会社・ツアー向け）",
+                (if (expanded) "▼ " else "▶ ") + "星座も順番も文も、自分で決めて作る",
                 style = MaterialTheme.typography.bodySmall,
                 color = SaberaFinePrint,
             )

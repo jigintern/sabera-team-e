@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -41,7 +42,14 @@ internal class GuideListViewModel(
     /** 詳細エディタは畳んでおく。**ふだんは目に入らないが、探せば見つかる** */
     var advanced by mutableStateOf(false)
 
+    /** 選んであるテーマ。**選ぶと作るを分けた**ので、押すまで作らない */
+    var theme by mutableStateOf(GuideTheme.entries.first())
+
     private var makeJob: Job? = null
+
+    private companion object {
+        const val TAG = "GuideList"
+    }
 
     fun reload() {
         viewModelScope.launch { guides = withContext(io) { store.list() } }
@@ -59,16 +67,18 @@ internal class GuideListViewModel(
                     return@launch
                 }
                 val saved = withContext(io) { store.save(draft.guide) }
-                notice = when {
-                    !saved -> "台本を保存できませんでした"
-                    draft.fellBackReason != null ->
-                        "「${draft.guide.title}」を作りました（${draft.fellBackReason}。同梱の解説で組みました）"
-                    else -> "「${draft.guide.title}」を作りました（AI が書きました）"
+                // **どう作ったか（AI か同梱か）は言わない。** 使う人が決めるのは
+                // 「この台本を使うか」だけで、作り方を知っても選び方は変わらない
+                notice = if (saved) {
+                    "「${draft.guide.title}」を作りました"
+                } else {
+                    "台本を保存できませんでした"
                 }
                 reload()
             } catch (error: Throwable) {
                 // **落ちるより断って続ける**（05_app-flow.md）。星表が読めないこともある
-                notice = "台本を作れませんでした: ${error.message}"
+                Log.w(TAG, "台本を作れなかった", error)
+                notice = "台本を作れませんでした。もう一度試してください"
             } finally {
                 making = false
             }

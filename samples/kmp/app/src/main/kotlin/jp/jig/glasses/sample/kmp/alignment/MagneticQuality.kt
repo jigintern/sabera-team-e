@@ -44,10 +44,10 @@ fun magneticQuality(
     // 強さの異常だけは原因（磁石・鉄）を名指しできるので、そこだけ言う。
     // 伏角は測り続けて [MagneticQuality.inclinationOff] と詳細行に残す
     val reason = when {
-        ratio > MAX_STRENGTH_RATIO ->
-            "磁石か鉄が近くにあります（磁場が期待値の %.1f 倍）".format(ratio)
-        ratio < MIN_STRENGTH_RATIO ->
-            "磁場が弱すぎます（期待値の %.1f 倍）。金属に囲まれていませんか".format(ratio)
+        // **数字は括弧に押し込まない。** 折り返しが半端な位置に来るうえ、
+        // 倍率を読んでも打つ手は変わらない（詳しい値は下の一覧に残る）
+        ratio > MAX_STRENGTH_RATIO -> "磁石か鉄が近くにあります"
+        ratio < MIN_STRENGTH_RATIO -> "金属に囲まれていませんか"
         else -> null
     }
     return MagneticQuality(

@@ -66,11 +66,9 @@ fun HomeScreen(
         )
 
         Column(
-            // 下はひとことのぶんを**最初から空けておく**。あとから足すと、
-            // 読み込みが終わった瞬間にボタンが飛び上がる（押そうとした先が動く）
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = TIP_RESERVE),
+                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
@@ -87,6 +85,15 @@ fun HomeScreen(
                 color = Color.White.copy(alpha = 0.82f),
                 textAlign = TextAlign.Center,
             )
+            // **ひとことはスタートの手前に置く。** 押したあとの画面へ行ってしまう位置では読まれない。
+            // **できる前から高さだけ空けておく**（あとから足すと、押そうとした先が動く）
+            Box(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).height(TIP_RESERVE),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (tip != null) TipCard(tip)
+            }
+
             Button(
                 onClick = onStart,
                 modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
@@ -111,23 +118,11 @@ fun HomeScreen(
             // ここが入り口なので、切るためのもう 1 か所は観測画面の設定パネルに置いてある
             MeteorShowerNoticeRow()
         }
-
-        // **できるまで何も置かない。** 枠だけ先に出すと、開いた瞬間に空の箱が見える。
-        // 下に寄せるのは、**ボタンの位置を動かさない**ため（中央の列に足すと押す場所がずれる）
-        if (tip != null) {
-            TipCard(
-                tip,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
-                    .widthIn(max = 420.dp),
-            )
-        }
     }
 }
 
-/** ひとことのために空けておく高さ。**3 行ぶん＋余白** */
-private val TIP_RESERVE = 116.dp
+/** ひとことのために空けておく高さ。**小さく 3 行ぶん。できるまでは空のまま置く** */
+private val TIP_RESERVE = 84.dp
 
 /** 今日のひとこと 1 枚。**背景の星に負けないよう、薄い板を敷いてから字を置く** */
 /**
@@ -168,28 +163,28 @@ private fun MeteorShowerNoticeRow() {
 private fun TipCard(tip: SkyTip, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(Color.Black.copy(alpha = 0.42f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.AutoAwesome,
                 null,
                 tint = SaberaGreen,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(13.dp),
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(5.dp))
             Text(
                 tip.header,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelSmall,
                 color = SaberaGreen,
             )
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             tip.text,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = Color.White.copy(alpha = 0.9f),
         )
     }

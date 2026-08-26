@@ -60,6 +60,7 @@ import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimate
 import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimator
 import jp.jig.glasses.sample.kmp.alignment.CalibrationMarker
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.alignment.HoldFeedback
 import jp.jig.glasses.sample.kmp.alignment.Compass
 import jp.jig.glasses.sample.kmp.alignment.CompassGate
 import jp.jig.glasses.sample.kmp.alignment.Locator
@@ -132,6 +133,9 @@ fun CalibrationScreen(
     var estimate by remember { mutableStateOf<CalibrationEstimate?>(null) }
     // **センサーの生値以外**（進み具合・確定・立ち直り）は ViewModel が持つ
     val vm = viewModel<CalibrationViewModel>()
+
+    // 顔の前にかざしている人は画面を読めないので、進み具合は手へも返す
+    val feedback = remember(context) { HoldFeedback(context) }
     DisposableEffect(Unit) { onDispose { vm.leave() } }
 
 
@@ -321,18 +325,32 @@ fun CalibrationScreen(
      */
     LaunchedEffect(ready) {
         if (!ready) {
+            // **崩れたことも手に返す。** 顔の前のスマホは見えないので、
+            // 進み具合が 0 に戻ったことを画面で知らせても届かない
+            if (vm.holdProgress > 0f) feedback.lost()
             vm.resetHold()
             return@LaunchedEffect
         }
+        // **揃った瞬間に 1 回。** ここから数えはじめる合図
+        feedback.start()
         val startedAt = System.currentTimeMillis()
+        var notches = 0
         while (true) {
             val held = System.currentTimeMillis() - startedAt
             vm.advanceHold(held)
+            // **満ちていく途中も刻む。** あと少しなのか、始まったばかりなのかが手で分かる
+            val notch = (vm.holdProgress * HOLD_NOTCHES).toInt()
+            if (notch > notches) {
+                notches = notch
+                feedback.tick()
+            }
             if (held >= AUTO_CONFIRM_MS) break
             delay(AUTO_CONFIRM_TICK_MS)
         }
         // 待っている数秒で崩れていることがあるので、確定の直前にもう一度見る
         val measured = estimate?.takeIf { it.stable } ?: return@LaunchedEffect
+        // **決まったときだけ強く。** 押していないのに終わるので、終わった合図が要る
+        feedback.done()
         commit(measured)
     }
 
@@ -395,9 +413,10 @@ fun CalibrationScreen(
                     // **待っていても直らない**ので、手を出せるものを見せる
                     if (glassSilent) {
                         Spacer(Modifier.height(4.dp))
+                        // 上の行が「グラスから返事がありません」なので、ここは手当てだけ書く
                         Text(
-                            text = "つながってはいますが、十字も6DoFも返ってきていません",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "送り直すか、グラスを再起動してください",
+                            style = MaterialTheme.typography.bodySmall,
                             color = Color.White.copy(alpha = 0.72f),
                             textAlign = TextAlign.Center,
                         )
@@ -432,13 +451,13 @@ fun CalibrationScreen(
                     if (compassGate.bypassed && !compassAccurate) {
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "磁気精度が上がりません",
+                            text = "磁気の精度が上がりません",
                             style = MaterialTheme.typography.bodyMedium,
                             color = SaberaWarning,
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "このまま進めますが、方位が大きくずれることがあります",
+                            text = "このまま進めますが、方位はずれます",
                             style = MaterialTheme.typography.bodySmall,
                             color = SaberaWarning.copy(alpha = 0.8f),
                             textAlign = TextAlign.Center,
@@ -455,7 +474,7 @@ fun CalibrationScreen(
                             textAlign = TextAlign.Center,
                         )
                         Text(
-                            text = "このまま合わせると方位がずれます。金属や電子機器から離れてください",
+                            text = "金属や電子機器から離れてください",
                             style = MaterialTheme.typography.bodySmall,
                             color = SaberaWarning.copy(alpha = 0.8f),
                             textAlign = TextAlign.Center,
@@ -767,12 +786,12 @@ internal fun calibrationInstruction(
     facingReady: Boolean,
     stabilityReady: Boolean,
 ): String = when {
-    !imuFresh -> "グラスの6DoFを待っています"
+    !imuFresh -> "グラスの動きを待っています"
     !headingReady -> "スマホの向きを待っています"
-    !compassReady -> "スマホを8の字に動かしてください"
-    !facingReady -> "スマホを視線に正対させてください"
-    !stabilityReady -> "そのまま1秒ほど止めてください"
-    else -> "センサーを確認しています"
+    !compassReady -> "スマホを8の字に動かす"
+    !facingReady -> "スマホを顔の正面へ"
+    !stabilityReady -> "そのまま1秒止める"
+    else -> "確認しています"
 }
 
 private fun compassAccuracyLabel(accuracy: Int): String = when (accuracy) {
@@ -829,3 +848,12 @@ private const val GAUGE_PULSE_SPREAD_DP = 14
  * ここで 2 秒足すので、実際には**3 秒ほど止めた区間**を渡すことになる。
  */
 internal const val AUTO_CONFIRM_MS = 2_000L
+
+/**
+ * 保持のあいだに手へ返す刻みの数。
+ *
+ * **かざしている人は画面を読めない**（腕の先で十字に重ねている）ので、
+ * 外周が満ちるのと同じことを振動でも返す。細かくしすぎると鳴りっぱなしになり、
+ * 何の合図か分からなくなる（時刻のつまみで踏んだのと同じ）。
+ */
+private const val HOLD_NOTCHES = 4

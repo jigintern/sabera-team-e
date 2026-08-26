@@ -23,6 +23,10 @@
     -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- 方位合わせの進み具合を手へ返す。**画面を読めない姿勢で受け取る合図**なので、
+         UI の軽いコツンでは弱く、強さを決められる Vibrator を使う（インストール時に付く） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!--
         流星群の予告（#70）。既定は切ってあり、ホームでトグルを入れたときに初めて聞く。
         起動時の BLE の許可ダイアログへ積むと、両方とも読まずに閉じられる。
