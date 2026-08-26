@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.sky
 
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
@@ -80,7 +81,7 @@ fun enu(azDeg: Double, altDeg: Double): Vec3 {
  * J2000.0 からの経過日数。
  * JD ≒ 2,460,000 を Double で持つと仮数部の上位が食われるので、差を直接組み立てる。
  */
-fun daysFromJ2000(epochMillis: Long): Double = epochMillis / 86_400_000.0 - 10957.5
+fun daysFromJ2000(epochMillis: Long): Double = epochMillis / DAY_MILLIS.toDouble() - 10957.5
 
 /** グリニッジ平均恒星時[時間]。係数が 24 でなく 24.0657 なのは恒星日が太陽日より約 4 分短いため */
 fun gmstHours(d: Double): Double {
@@ -281,6 +282,9 @@ fun angleBetweenDeg(a: Vec3, b: Vec3): Double = acos((a dot b).coerceIn(-1.0, 1.
 
 /** 横 fovDeg が幅 w に収まるときの倍率。r = 2 tan(θ/2) の θ = fov/2 が w/2 に来る */
 fun projectionScale(w: Int, fovDeg: Double): Double = (w / 2.0) / (2.0 * tan(fovDeg * RAD / 4.0))
+
+/** 高度を ±90° に収める。オフセットの足し込みで天頂・天底を越えたときの保険 */
+fun clampAltDeg(deg: Double): Double = deg.coerceIn(-90.0, 90.0)
 
 /** 角度の差を -180..180 に畳む。ヨーが ±180 で折り返すので、差分を取るときは必ず通す */
 fun normalizeDeg(deg: Double): Double {

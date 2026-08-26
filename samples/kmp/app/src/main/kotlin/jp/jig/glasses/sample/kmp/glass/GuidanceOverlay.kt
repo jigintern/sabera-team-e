@@ -32,8 +32,8 @@ fun guidanceOverlay(frame: GuidanceFrame): GuidanceOverlay {
     when (val geometry = guidanceIndicatorGeometry(frame)) {
         is GuidanceIndicatorGeometry.Arrival -> {
             val stroke = (span * geometry.strokeHalfWidth).roundToInt().coerceAtLeast(1)
-            circle(gray, box, centerX, centerY, span * geometry.innerRadius, LIT, stroke)
-            circle(gray, box, centerX, centerY, span * geometry.outerRadius, LIT, stroke)
+            circle(gray, box, centerX, centerY, span * geometry.innerRadius, INK_LIT, stroke)
+            circle(gray, box, centerX, centerY, span * geometry.outerRadius, INK_LIT, stroke)
             sparkle(gray, box, centerX, centerY, span * geometry.starArm, stroke)
         }
         is GuidanceIndicatorGeometry.Arrow -> {
@@ -43,7 +43,7 @@ fun guidanceOverlay(frame: GuidanceFrame): GuidanceOverlay {
                 gray, box,
                 x(geometry.tail), y(geometry.tail),
                 x(geometry.tip), y(geometry.tip),
-                LIT,
+                INK_LIT,
                 radius = (span * geometry.shaftHalfWidth).roundToInt().coerceAtLeast(1),
             )
             val base = geometry.headBase
@@ -52,15 +52,13 @@ fun guidanceOverlay(frame: GuidanceFrame): GuidanceOverlay {
                 x(geometry.tip), y(geometry.tip),
                 x(base[0]), y(base[0]),
                 x(base[1]), y(base[1]),
-                LIT,
+                INK_LIT,
             )
         }
     }
     return GuidanceOverlay(box.width, box.height, gray)
 }
 
-/** 3bit の最上段。**中間の階調は屋外で消える**ので、案内表示はここしか使わない */
-private const val LIT = 255
 
 private fun sparkle(
     gray: ByteArray,
@@ -70,8 +68,8 @@ private fun sparkle(
     arm: Double,
     stroke: Int,
 ) {
-    line(gray, box, cx - arm * 0.45, cy, cx + arm * 0.45, cy, LIT, stroke)
-    line(gray, box, cx, cy - arm, cx, cy + arm, LIT, stroke)
+    line(gray, box, cx - arm * 0.45, cy, cx + arm * 0.45, cy, INK_LIT, stroke)
+    line(gray, box, cx, cy - arm, cx, cy + arm, INK_LIT, stroke)
 }
 
 /** 頂点 3 点を塗る。辺の符号が揃う画素だけを埋めるので、頂点の並び順は問わない */

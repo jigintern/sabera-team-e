@@ -176,15 +176,9 @@ fun GlassesApp(manager: GlassManager) {
      * ホームでは受けない。**そこは終わってよい場所**で、握るとアプリを閉じられなくなる。
      */
     BackHandler(enabled = screen != AppScreen.HOME) {
-        when (screen) {
-            AppScreen.HOME -> Unit
-            AppScreen.GUIDES -> screen = AppScreen.HOME
-            AppScreen.GUIDE_EDITOR -> screen = AppScreen.GUIDES
-            AppScreen.GUIDE_SHARE -> screen = AppScreen.GUIDES
-            AppScreen.GUIDE_IMPORT -> screen = AppScreen.GUIDES
-            AppScreen.CONNECTION -> screen = AppScreen.HOME
-            AppScreen.CALIBRATION -> screen = AppScreen.CONNECTION
-            AppScreen.STAR_MAP -> confirmLeaving = true
+        when (val back = backDestination(screen)) {
+            null -> if (screen == AppScreen.STAR_MAP) confirmLeaving = true
+            else -> screen = back
         }
     }
 
@@ -200,15 +194,9 @@ fun GlassesApp(manager: GlassManager) {
             return@LaunchedEffect
         }
         val client = observingClient ?: return@LaunchedEffect
-        var disconnectedAt: Long? = null
+        val watch = ConnectionWatch()
         while (true) {
-            if (client.connected.value) {
-                disconnectedAt = null
-            } else {
-                val now = SystemClock.elapsedRealtime()
-                val startedAt = disconnectedAt ?: now.also { disconnectedAt = it }
-                if (now - startedAt >= CONNECTION_LOST_GRACE_MS) connectionLost = true
-            }
+            if (watch.sample(client.connected.value, SystemClock.elapsedRealtime())) connectionLost = true
             delay(CONNECTION_CHECK_INTERVAL_MS)
         }
     }
@@ -497,7 +485,7 @@ private fun ConnectionLostDialog(onConnectionCheck: () -> Unit) {
     }
 }
 
-private enum class AppScreen {
+internal enum class AppScreen {
     HOME,
 
     /** ガイドの台本を作る。**グラスをつなぐ前に通る**ので、接続の外側に置く */
@@ -529,4 +517,4 @@ private val GUIDE_SCREENS = setOf(
 private const val SPLASH_TIP_SPREAD = 1_000
 
 private const val CONNECTION_CHECK_INTERVAL_MS = 1_000L
-private const val CONNECTION_LOST_GRACE_MS = 2_000L
+internal const val CONNECTION_LOST_GRACE_MS = 2_000L

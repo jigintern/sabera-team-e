@@ -185,3 +185,24 @@ const val GUIDANCE_LEAVE_DEG = 8.0
 const val GUIDANCE_ARRIVAL_DWELL_MS = 500L
 const val GUIDANCE_ARRIVAL_HOLD_MS = 3_000L
 const val GUIDANCE_TIMEOUT_MS = 60_000L
+
+// 案内の進行で画面側が使う周期としきい値
+
+/**
+ * 矢印を差し替える間隔。6DoF の到着間隔（約10Hz）に近い値。
+ *
+ * **POLL_MS（追従の見張り） と同じ 100ms にしない。** 星図の描き直しは `sendGate.tryLock()` で
+ * 「塞がっていたら諦める」ので、追従の見張りと矢印の送信が同じ周期だと
+ * **位相が噛み合ったまま何秒も星図が描き直されない**（矢印だけ動いて空が古いままになる）。
+ * 周期をずらしておけば、噛み合っても 1 秒ほどで抜ける。
+ */
+const val GUIDANCE_REFRESH_MS = 130L
+
+/** 転送見積りが1周期を超えても、連続送信で他の表示を塞がないための隙間。 */
+const val GUIDANCE_REFRESH_MIN_DELAY_MS = 10L
+
+/** 音声で対象を復唱し、見間違いならタップで止められる時間。 */
+const val GUIDANCE_CONFIRMATION_MS = 1_000L
+
+/** 地平線すれすれは遮蔽物や大気で見つけにくいため、案内前に断りを入れる。 */
+const val GUIDANCE_LOW_ALTITUDE_DEG = 5.0

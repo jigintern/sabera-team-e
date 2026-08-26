@@ -1,15 +1,14 @@
 package jp.jig.glasses.sample.kmp.satellite
 
+import jp.jig.glasses.sample.kmp.sky.EARTH_EQUATORIAL_RADIUS_KM
+import jp.jig.glasses.sample.kmp.sky.RAD
 import jp.jig.glasses.sample.kmp.sky.sunPosition
-import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private const val RAD = PI / 180.0
-
-/** 地球の半径[km]。影の判定に使うので、赤道半径で少し大きめに見る */
-private const val EARTH_RADIUS_KM = 6378.137
+/** 影の判定は赤道半径で少し大きめに見る */
+private const val EARTH_RADIUS_KM = EARTH_EQUATORIAL_RADIUS_KM
 
 /**
  * 衛星に日が当たっているか。

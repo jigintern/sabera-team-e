@@ -2,6 +2,7 @@ package jp.jig.glasses.sample.kmp.alignment
 
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.RAD
+import jp.jig.glasses.sample.kmp.sky.clampAltDeg
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -89,7 +90,7 @@ class HeadMotion(private val windowMs: Long = WINDOW_MS) {
         }
         return Look(
             (normalizeDeg(now.azDeg + az) + 360.0) % 360.0,
-            (now.altDeg + alt).coerceIn(-90.0, 90.0),
+            clampAltDeg(now.altDeg + alt),
         )
     }
 

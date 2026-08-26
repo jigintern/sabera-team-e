@@ -1,6 +1,5 @@
-package jp.jig.glasses.sample.kmp.ui
+package jp.jig.glasses.sample.kmp.glass
 
-import jp.jig.glasses.sample.kmp.glass.GlassTextPage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

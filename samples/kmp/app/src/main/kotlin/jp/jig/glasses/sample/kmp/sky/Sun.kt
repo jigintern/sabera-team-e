@@ -19,9 +19,6 @@ import kotlin.math.sin
 /** 太陽の赤経・赤緯[度]と距離[km] */
 class SunPosition(val raDeg: Double, val decDeg: Double, val distanceKm: Double)
 
-/** 1 天文単位[km] */
-private const val AU_KM = 149_597_870.7
-
 fun sunPosition(epochMillis: Long): SunPosition {
     val d = daysFromJ2000(epochMillis)
     val meanLon = (280.460 + 0.9856474 * d) * RAD

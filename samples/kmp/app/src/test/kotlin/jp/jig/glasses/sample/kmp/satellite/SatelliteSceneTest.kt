@@ -37,6 +37,9 @@ class SatelliteSceneTest {
     private val sabae = ObservationDefaults.site
     private val observer = Observer(sabae.latDeg, sabae.lonDeg)
 
+    // 実機と同じ視野の絞り方で検査する（tracksInView はパネルの縦横比を外から受け取る）
+    private val panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH
+
     private fun scene(): SatelliteScene = SatelliteScene(
         named = Tle.parseAll(File(dataDir, "satellites.tle").readText()).map { Sgp4(it) },
         starlink = Tle.parseAll(File(dataDir, "starlink.tle").readText()).map { Sgp4(it) },
@@ -84,6 +87,7 @@ class SatelliteSceneTest {
             now,
             Look(target.azDeg, target.altDeg),
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            panelAspect = panelAspect,
         )
         assertTrue("視野に何も入らない", tracks.isNotEmpty())
         val named = tracks.filter { it.labelled }
@@ -103,7 +107,7 @@ class SatelliteSceneTest {
         val now = System.currentTimeMillis()
         val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
         val look = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
         val width = STAR_MAP_WIDTH
         val height = STAR_MAP_HEIGHT
@@ -141,7 +145,7 @@ class SatelliteSceneTest {
         val scene = scene()
         val now = System.currentTimeMillis()
         // 天頂を向く。スターリンクは全天にいるので、たいてい何本か入る
-        val tracks = scene.tracksInView(observer, now, Look(180.0, 70.0), fovDeg = 50.0)
+        val tracks = scene.tracksInView(observer, now, Look(180.0, 70.0), fovDeg = 50.0, panelAspect = panelAspect)
         val starlink = tracks.filterNot { it.labelled }
         assertTrue("スターリンクが名前つきになっている", starlink.none { it.labelled })
         assertTrue(
@@ -158,7 +162,7 @@ class SatelliteSceneTest {
 
         // 狙った衛星のちょうど反対側を向く。視野 35° なら絶対に入らないはず
         val away = Look((target.azDeg + 180.0) % 360.0, -target.altDeg.coerceAtMost(80.0))
-        val tracks = scene.tracksInView(observer, now, away, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        val tracks = scene.tracksInView(observer, now, away, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
         assertTrue("反対側を向いたのに狙った衛星が入っている", tracks.none { it.name == target.name })
 
         // 視野の半分より外にいるものが混ざっていないか。
@@ -245,14 +249,18 @@ class SatelliteSceneTest {
         val now = System.currentTimeMillis()
         val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
         val drawnLook = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
+        // **首を傾けた状態で突き合わせる。** roll 0 同士だと、絵だけ傾けて名前を傾け忘れる
+        // 取り違え（絵と根拠を別々に計算する #37 と同型）を検出できない
+        val drawnRoll = 12.0
         val map = renderer.render(
             site = sabae, epochMillis = now, look = drawnLook,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
             limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
             width = STAR_MAP_WIDTH, height = STAR_MAP_HEIGHT,
             drawLines = true, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
+            rollDeg = drawnRoll,
         )
         val fromRender = map.labels.filter { it.text.startsWith("●") || it.text.startsWith("○") }
         val fromLabels = renderer.trackLabels(
@@ -261,6 +269,7 @@ class SatelliteSceneTest {
             STAR_MAP_WIDTH,
             STAR_MAP_HEIGHT,
             tracks,
+            rollDeg = drawnRoll,
         )
         assertEquals("描画と印の数が合わない", fromRender.size, fromLabels.size)
         for ((a, b) in fromRender.zip(fromLabels)) {
@@ -299,12 +308,13 @@ class SatelliteSceneTest {
             now,
             look,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            panelAspect = panelAspect,
             maxStarlink = 0,
         )
         val namedMs = (System.nanoTime() - started) / 1e6
 
         val started2 = System.nanoTime()
-        scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
         val allMs = (System.nanoTime() - started2) / 1e6
 
         assertTrue("スターリンクが混ざっている", onlyNamed.all { it.labelled })

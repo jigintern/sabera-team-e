@@ -1,4 +1,4 @@
-package jp.jig.glasses.sample.kmp.narration
+package jp.jig.glasses.sample.kmp.openai
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

@@ -2,9 +2,9 @@ package jp.jig.glasses.sample.kmp.openai
 
 import jp.jig.glasses.sample.kmp.guide.GuideAsk
 import jp.jig.glasses.sample.kmp.guide.GuideStep
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import jp.jig.glasses.sample.kmp.support.NANOS_PER_MILLI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -148,7 +148,7 @@ class OpenAiGuideChat(
                     attempt = 1,
                     requestId = requestId(connection),
                     firstByteMs = null,
-                    totalMs = (System.nanoTime() - startedAt) / 1_000_000,
+                    totalMs = (System.nanoTime() - startedAt) / NANOS_PER_MILLI,
                     bytes = bytes,
                     completed = bytes > 0,
                 ),

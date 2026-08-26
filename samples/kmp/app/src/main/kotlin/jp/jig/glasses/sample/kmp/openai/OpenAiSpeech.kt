@@ -1,7 +1,6 @@
 package jp.jig.glasses.sample.kmp.openai
 
-import jp.jig.glasses.sample.kmp.voice.CloudVoice
-import jp.jig.glasses.sample.kmp.voice.Pcm16FrameAssembler
+import jp.jig.glasses.sample.kmp.support.NANOS_PER_MILLI
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -21,7 +20,7 @@ import java.io.IOException
  * **受け取るのは PCM。** 届いたぶんから鳴らせるので、全部できるまで待たずに喋り出せる
  * （issue #20 の「返答音声データ垂れ流し」）。mp3 や Opus のほうが軽いが、
  * 途中から鳴らすにはデコーダを挟むことになる。**48KB/秒 は夜の屋外では細いので、
- * 失敗したら端末の読み上げに落とす**（[CloudVoice]）。
+ * 失敗したら端末の読み上げに落とす**（voice.CloudVoice）。
  */
 class OpenAiSpeech(
     private val apiKey: String,
@@ -192,6 +191,6 @@ class OpenAiSpeech(
             return body
         }
 
-        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / 1_000_000
+        private fun elapsedMs(startedAt: Long): Long = (System.nanoTime() - startedAt) / NANOS_PER_MILLI
     }
 }
