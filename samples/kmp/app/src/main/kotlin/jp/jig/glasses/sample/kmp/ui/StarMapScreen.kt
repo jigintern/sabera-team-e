@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -222,6 +223,21 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+/**
+ * スマホがいま出している面。**グラスの表示とは別物**で、どの面でも星図は出したまま。
+ *
+ * **戻るは 1 段ずつ**（開発者用 → 設定 → メイン）。空を見ている人はスマホを見ないので、
+ * ふだん触るもの（見え方・明るさ・音）だけを設定に残し、**数字とログは開発者用へ送った**。
+ */
+private enum class PhonePage(val title: String) {
+    MAIN("星空"),
+    SETTINGS("設定"),
+    DEVELOPER("開発者用画面"),
+    ;
+
+    fun back(): PhonePage = if (this == DEVELOPER) SETTINGS else MAIN
+}
 
 /**
  * 星図をグラスに出す観測画面。役割は 3 つ。
@@ -441,7 +457,10 @@ fun StarMapScreen(
     var ink by remember { mutableStateOf(StarMapInk()) }
 
     /** 設定パネルを開いているか。開いている間は上のバーの見出しも変える */
-    var showDetails by remember { mutableStateOf(false) }
+    // **スマホがいま出している面**（[PhonePage]）。グラスの表示とは別物で、どの面でも星図は出したまま。
+    // 戻るは 1 段ずつ（開発者用 → 設定 → メイン）
+    var phonePage by remember { mutableStateOf(PhonePage.MAIN) }
+    val showDetails = phonePage != PhonePage.MAIN
 
     // **衛星は星座のおまけ**（#36）。モードで分けず、同じ星図に重ねる。
     // 衛星だけを見たい人は少数で、狙っているのは天文の初心者なので、
@@ -1201,8 +1220,8 @@ fun StarMapScreen(
         }
     }
 
-    LaunchedEffect(showDetails) {
-        while (showDetails) {
+    LaunchedEffect(phonePage) {
+        while (phonePage == PhonePage.DEVELOPER) {
             logBytes = sessionLog.bytes
             delay(LOG_SIZE_POLL_MS)
         }
@@ -2701,7 +2720,7 @@ fun StarMapScreen(
 
     // **戻るキーで設定パネルを閉じる。** 上の「戻る」を押すには顔の前のスマホを見る必要があり、
     // 空を見ている人には見えない。ここを取っておかないと、観測画面ごと畳まれる
-    BackHandler(enabled = showDetails) { showDetails = false }
+    BackHandler(enabled = showDetails) { phonePage = phonePage.back() }
 
     MaterialTheme(
         colorScheme = SaberaDarkColorScheme,
@@ -2725,7 +2744,7 @@ fun StarMapScreen(
                     if (!landscape) {
                         TopAppBar(
                             // **「現在の」とは書かない。** 場所・日時を指定している間は現在の空ではない
-                            title = { Text(if (showDetails) "星図の設定" else "星空") },
+                            title = { Text(phonePage.title) },
                             colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = Color(0xA608111B),
                                 titleContentColor = Color.White,
@@ -2734,7 +2753,7 @@ fun StarMapScreen(
                                 Box(Modifier.width(88.dp), contentAlignment = Alignment.CenterStart) {
                                     if (showDetails) {
                                         TextButton(
-                                            onClick = { showDetails = false },
+                                            onClick = { phonePage = phonePage.back() },
                                             modifier = Modifier.padding(start = 8.dp),
                                         ) {
                                             Text("戻る", color = Color.White)
@@ -2773,7 +2792,7 @@ fun StarMapScreen(
                                 // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
                                 // スマホを見ないので、上のバーに常設する意味が無い
                                 if (!showDetails) {
-                                    TextButton(onClick = { showDetails = true }) {
+                                    TextButton(onClick = { phonePage = PhonePage.SETTINGS }) {
                                         Text("設定", color = Color.White)
                                     }
                                 }
@@ -2810,8 +2829,8 @@ fun StarMapScreen(
                             Column(Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)) {
                                 // バーの代わり。題と「戻る」は左、操作は右ペインの頭（画面の右上）
                                 LandscapeHeader(
-                                    title = if (showDetails) "星図の設定" else "星空",
-                                    onBack = if (showDetails) ({ showDetails = false }) else null,
+                                    title = phonePage.title,
+                                    onBack = if (showDetails) ({ phonePage = phonePage.back() }) else null,
                                 )
                                 Column(
                                     Modifier.fillMaxWidth().weight(1f),
@@ -2885,15 +2904,20 @@ fun StarMapScreen(
                                                 else -> toggleNarration()
                                             }
                                         },
-                                        onSettings = if (!showDetails) ({ showDetails = true }) else null,
+                                        onSettings = if (!showDetails) ({ phonePage = PhonePage.SETTINGS }) else null,
                                     )
                                 }
                                 // 流れるのは中身だけ。上の操作はスクロールの外に残す
                                 Column(
                                     Modifier.fillMaxWidth().weight(1f)
                                         .then(
-                                            if (showDetails) Modifier.verticalScroll(rememberScrollState())
-                                            else Modifier,
+                                            // **縦はメインも流す。** 星空の条件を開くと 1 画面に収まらない。
+                                            // 横は解説が weight で高さを吸うので、流すと測れなくなる
+                                            if (showDetails || !landscape) {
+                                                Modifier.verticalScroll(rememberScrollState())
+                                            } else {
+                                                Modifier
+                                            },
                                         ),
                                 ) {
                                     // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
@@ -2971,6 +2995,40 @@ fun StarMapScreen(
                                                 scrubbingHours = null
                                             },
                                         )
+
+                                        // **場所と日時の指定はメインに置く。** 「設定」ではなく「いま何を見るか」の操作で、
+                                        // 時間送り（上）と続きになっている。畳んであるので普段は 1 行
+                                        val simulation = observationMode as? ObservationMode.Simulation
+                                        SkyConditionSettings(
+                                            status = observationSnapshot().shortLabel(),
+                                            simulation = simulation != null,
+                                            place = simulationPlace,
+                                            era = simulationEra,
+                                            time = simulationTime,
+                                            detailed = simulationDetailed,
+                                            cityText = simulationCityText,
+                                            eraText = simulationEraText,
+                                            dateText = simulationDateText,
+                                            timeText = simulationTimeText,
+                                            message = if (satellitesSuppressedForSimulation) {
+                                                "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
+                                            } else {
+                                                simulationMessage
+                                            },
+                                            onPlaceChange = { simulationPlace = it },
+                                            onEraChange = { simulationEra = it },
+                                            onTimeChange = { simulationTime = it },
+                                            onDetailedChange = { simulationDetailed = it },
+                                            onCityTextChange = { simulationCityText = it },
+                                            onEraTextChange = { simulationEraText = it },
+                                            onDateTextChange = { simulationDateText = it },
+                                            onTimeTextChange = { simulationTimeText = it },
+                                            onApply = { submitSimulationForm() },
+                                            onReturnLive = {
+                                                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+                                            },
+                                        )
+
                                         Text("星座解説", style = MaterialTheme.typography.titleMedium)
                                         Spacer(Modifier.height(4.dp))
                                         NarrationPanel(
@@ -3007,7 +3065,7 @@ fun StarMapScreen(
                                                 .takeIf { guides.isNotEmpty() && guideProgress == null },
                                             onSecondary = { showGuidePicker = true },
                                         )
-                                    } else {
+                                    } else if (phonePage == PhonePage.SETTINGS) {
                                         // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
                                         // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
                                         if (!landscape) {
@@ -3021,62 +3079,6 @@ fun StarMapScreen(
                                         }
 
                                         Spacer(Modifier.height(16.dp))
-                                        val simulation = observationMode as? ObservationMode.Simulation
-                                        SkyConditionSettings(
-                                            status = observationSnapshot().shortLabel(),
-                                            simulation = simulation != null,
-                                            place = simulationPlace,
-                                            era = simulationEra,
-                                            time = simulationTime,
-                                            detailed = simulationDetailed,
-                                            cityText = simulationCityText,
-                                            eraText = simulationEraText,
-                                            dateText = simulationDateText,
-                                            timeText = simulationTimeText,
-                                            message = if (satellitesSuppressedForSimulation) {
-                                                "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
-                                            } else {
-                                                simulationMessage
-                                            },
-                                            onPlaceChange = { simulationPlace = it },
-                                            onEraChange = { simulationEra = it },
-                                            onTimeChange = { simulationTime = it },
-                                            onDetailedChange = { simulationDetailed = it },
-                                            onCityTextChange = { simulationCityText = it },
-                                            onEraTextChange = { simulationEraText = it },
-                                            onDateTextChange = { simulationDateText = it },
-                                            onTimeTextChange = { simulationTimeText = it },
-                                            onApply = { submitSimulationForm() },
-                                            onReturnLive = {
-                                                runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
-                                            },
-                                        )
-
-                                        // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
-                                        // 1 つも無いうちは出さない（使う機能だけを置く）
-                                        if (nightSeen.isNotEmpty()) {
-                                            NightRecordCard(
-                                                entries = nightSeen,
-                                                onAgain = { replayRecord(it) },
-                                                onClear = {
-                                                    NightRecord.clear()
-                                                    log("今夜の記録を消した")
-                                                },
-                                            )
-                                        }
-
-                                        // 声で聞いたやり取り。**答えはここにしか残らない**（#38）
-                                        if (askHistory.isNotEmpty()) {
-                                            AskHistoryCard(
-                                                exchanges = askHistory,
-                                                onAgain = { replayAsk(it) },
-                                                onClear = {
-                                                    AskHistory.clear()
-                                                    log("声のやり取りを消した")
-                                                },
-                                            )
-                                        }
-
                                         SkyViewSettings(
                                             density = density,
                                             onDensityChange = { step ->
@@ -3152,6 +3154,45 @@ fun StarMapScreen(
                                             },
                                         )
 
+                                        // **ログと数字は開発者用画面へ送った。** ここに残すのは、
+                                        // 夜の屋外で触るものだけ（見え方・明るさ・音）
+                                        OutlinedButton(
+                                            onClick = { phonePage = PhonePage.DEVELOPER },
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text("ログを見る（開発者用画面）")
+                                        }
+
+                                        // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
+                                        CreditsCard()
+                                    } else {
+                                        // **開発者用画面。** 数字とログはここだけ。設定から入り、戻るで設定へ帰る
+
+                                        // 今夜どの星座を解説したか。**読み終わった解説文はここにしか残らない**。
+                                        // 1 つも無いうちは出さない（使う機能だけを置く）
+                                        if (nightSeen.isNotEmpty()) {
+                                            NightRecordCard(
+                                                entries = nightSeen,
+                                                onAgain = { replayRecord(it) },
+                                                onClear = {
+                                                    NightRecord.clear()
+                                                    log("今夜の記録を消した")
+                                                },
+                                            )
+                                        }
+
+                                        // 声で聞いたやり取り。**答えはここにしか残らない**（#38）
+                                        if (askHistory.isNotEmpty()) {
+                                            AskHistoryCard(
+                                                exchanges = askHistory,
+                                                onAgain = { replayAsk(it) },
+                                                onClear = {
+                                                    AskHistory.clear()
+                                                    log("声のやり取りを消した")
+                                                },
+                                            )
+                                        }
+
                                         ObservationStatusCard(
                                             imuStarted = imuStarted,
                                             calibration = initialCalibration,
@@ -3182,9 +3223,6 @@ fun StarMapScreen(
                                                 log("記録を消した。ここから計測しなおす")
                                             },
                                         )
-
-                                        // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
-                                        CreditsCard()
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
                                 }
