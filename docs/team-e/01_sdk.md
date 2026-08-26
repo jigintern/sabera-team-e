@@ -75,6 +75,12 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 - `setDevicePersistence` を省くとインメモリになり、プロセスをまたぐと接続先を忘れる
 - コンテンツはページを開いてから送る。**例外 = 分割レイアウトと自由配置キャンバス**
   （送るだけで画面が切り替わる）
+- **AAR の manifest は空**（`<uses-sdk>` だけ）。`BleCompanionDeviceService` の宣言は
+  **アプリ側の manifest が持っている**。マージで入ってくると思って消さない
+- **AAR は難読化されている。** ソース jar に見えるクラスが AAR にあるとは限らない。
+  名前が残っているのは `BleCompanionDeviceService` と `BleDeviceSelector` だけで、
+  **`BluetoothStateReceiver` は潰されていて manifest から名指しできない**（[落とし穴](11_pitfalls.md)）。
+  そのため **Bluetooth を ON に戻したときの自動再接続（`connectToLastDevice`）は走らない**
 
 ## グラスに何を出せるか
 
