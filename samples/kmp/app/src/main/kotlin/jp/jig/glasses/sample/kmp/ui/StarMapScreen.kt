@@ -136,6 +136,7 @@ import jp.jig.glasses.sample.kmp.openai.OpenAiRequestTrace
 import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
+import jp.jig.glasses.sample.kmp.satellite.SkyTrack
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_CONFIRMATION_MS
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_LOW_ALTITUDE_DEG
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MIN_DELAY_MS
@@ -893,16 +894,7 @@ fun StarMapScreen(
             val tracks = if (showSatellites && satellitesReliable && scene != null) {
                 withContext(Dispatchers.Default) {
                     val observer = Observer(observation.site.latDeg, observation.site.lonDeg)
-                    scene.tracksInView(
-                        observer,
-                        observation.epochMillis,
-                        target,
-                        fov.toDouble(),
-                        panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH,
-                        maxStarlink = 0,
-                    )
-                        .filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
-                        .take(MAX_SATELLITES_IN_VIEW)
+                    overlayTracks(scene, observer, observation.epochMillis, target, fov.toDouble())
                 }
             } else {
                 emptyList()
@@ -1266,16 +1258,10 @@ fun StarMapScreen(
             val moved = withContext(Dispatchers.Default) {
                 val observer = Observer(observation.site.latDeg, observation.site.lonDeg)
                 // 輪郭は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
-                // 印が付くのは名前つきだけなので、スターリンク 10,748 機は回さない。
-                // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）
-                val fresh = scene.tracksInView(
-                    observer,
-                    observation.epochMillis,
-                    baseLook,
-                    drawnFov,
-                    panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH,
-                    maxStarlink = 0,
-                )
+                // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）。
+                // **選定は焼いたときと同じ道**（overlayTracks）。ここだけ絞り込みが抜けると、
+                // 描かれていない衛星の名前が 1.5 秒後に湧いて出る
+                val fresh = overlayTracks(scene, observer, observation.epochMillis, baseLook, drawnFov)
                 r.trackLabels(
                     baseLook, drawnFov, map.width, map.height, fresh, showFigures, drawnRoll,
                 )
@@ -3428,6 +3414,33 @@ private const val POLL_MS = 100L
  * 前の都市と合流して、頼んでいない空が出る。
  */
 private const val PENDING_SKY_REQUEST_MS = 120_000L
+
+/**
+ * 星図に重ねる機体の選定。**焼くときも印を動かすときも必ずここを通す。**
+ * 片方だけ絞り込みが抜けると、描かれていない衛星の名前が印の更新で湧いて出る
+ * （「絵と根拠を別々に計算しない」#37 と同じ壊れ方）。
+ */
+private fun overlayTracks(
+    scene: SatelliteScene,
+    observer: Observer,
+    epochMillis: Long,
+    look: Look,
+    fovDeg: Double,
+): List<SkyTrack> = notableTracks(
+    scene.tracksInView(
+        observer,
+        epochMillis,
+        look,
+        fovDeg,
+        panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH,
+        maxStarlink = 0,
+    ),
+)
+
+/** 名前が手がかりになる機体だけを、星座の邪魔をしない数（3 機）まで */
+internal fun notableTracks(tracks: List<SkyTrack>): List<SkyTrack> =
+    tracks.filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
+        .take(MAX_SATELLITES_IN_VIEW)
 
 private const val LATCH_MS = 500L
 

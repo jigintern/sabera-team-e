@@ -392,8 +392,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             )
         }
 
-        // 名前の置き場所は上で決めた吹き出しに合わせる（同じ引数なので同じ答えになる）
-        val trackLabels = trackLabels(look, fovDeg, width, height, tracks, drawFigures)
+        // 名前の置き場所は上で決めた吹き出しに合わせる。**傾きまで同じ引数で**呼ばないと、
+        // 絵は回っているのに名前だけ回らず、突き合わせに失敗した機体の名前が落ちる
+        val trackLabels = trackLabels(look, fovDeg, width, height, tracks, drawFigures, rollDeg)
 
         val starLabels = if (drawStars) {
             labels(precessed, lst, site, basis, k, width, height, maxLabels, brightest, constellationMagnitude)

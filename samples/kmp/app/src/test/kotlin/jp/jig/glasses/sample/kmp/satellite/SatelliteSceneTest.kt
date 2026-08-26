@@ -251,12 +251,16 @@ class SatelliteSceneTest {
         val drawnLook = Look(target.azDeg, target.altDeg)
         val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
+        // **首を傾けた状態で突き合わせる。** roll 0 同士だと、絵だけ傾けて名前を傾け忘れる
+        // 取り違え（絵と根拠を別々に計算する #37 と同型）を検出できない
+        val drawnRoll = 12.0
         val map = renderer.render(
             site = sabae, epochMillis = now, look = drawnLook,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
             limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
             width = STAR_MAP_WIDTH, height = STAR_MAP_HEIGHT,
             drawLines = true, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
+            rollDeg = drawnRoll,
         )
         val fromRender = map.labels.filter { it.text.startsWith("●") || it.text.startsWith("○") }
         val fromLabels = renderer.trackLabels(
@@ -265,6 +269,7 @@ class SatelliteSceneTest {
             STAR_MAP_WIDTH,
             STAR_MAP_HEIGHT,
             tracks,
+            rollDeg = drawnRoll,
         )
         assertEquals("描画と印の数が合わない", fromRender.size, fromLabels.size)
         for ((a, b) in fromRender.zip(fromLabels)) {
