@@ -1,6 +1,5 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -46,17 +45,24 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 
 @Composable
 internal fun ObservationPreview(
-    bitmap: Bitmap?,
+    frame: PreviewFrame?,
     sending: Boolean,
     transferMs: Long,
     modifier: Modifier = Modifier,
     guidance: GuidanceFrame? = null,
 ) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Color.Black)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())) {
-            if (bitmap != null) {
+        // 送る前だけパネルの形で場所を取る。**出たあとは絵そのものの形に従う**
+        // （描かれていない黒を落としてあるので、パネルより縦が短いことがある）
+        val box = if (frame == null) {
+            Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())
+        } else {
+            Modifier.fillMaxWidth()
+        }
+        Box(box) {
+            if (frame != null) {
                 Image(
-                    bitmap = bitmap.asImageBitmap(),
+                    bitmap = frame.bitmap.asImageBitmap(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxWidth().background(Color.Black),
                 )
@@ -67,19 +73,21 @@ internal fun ObservationPreview(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            if (sending && bitmap != null) {
-                SendingChip(
-                    "送信中（グラスは一時的に消える）",
-                    Modifier.align(Alignment.TopStart).padding(8.dp),
-                )
+            // **送信中の札は出さない。** 0.4 秒ごとに出ては消えるので、
+            // 同伴者が見ているのは絵なのに、札のほうが目に付く
+            guidance?.let {
+                GuidancePreviewOverlay(it, frame?.visibleHeight ?: PANEL_HEIGHT, Modifier.align(Alignment.Center))
             }
-            guidance?.let { GuidancePreviewOverlay(it, Modifier.align(Alignment.Center)) }
         }
     }
 }
 
 @Composable
-private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Modifier) {
+private fun GuidancePreviewOverlay(
+    frame: GuidanceFrame,
+    visibleHeight: Int,
+    modifier: Modifier = Modifier,
+) {
     Canvas(modifier.fillMaxSize()) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val mint = Color(0xFF5CFFB0)
@@ -87,7 +95,9 @@ private fun GuidancePreviewOverlay(frame: GuidanceFrame, modifier: Modifier = Mo
         // 割った比率をそのまま使うので、プレビューだけ見やすくならない
         // （見やすくすると、実機で読めるかを画面で判断できなくなる）
         val box = guidanceIndicatorBox(frame)
-        val scale = size.minDimension * (box.span / PANEL_HEIGHT.toFloat())
+        // **見えているぶんで割る。** 黒を落として拡大しているので、
+        // パネルの高さで割ると矢印だけ小さく出る
+        val scale = size.minDimension * (box.span / visibleHeight.toFloat())
         fun at(point: GuidancePoint) = Offset(
             center.x + point.x.toFloat() * scale,
             center.y + point.y.toFloat() * scale,

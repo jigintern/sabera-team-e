@@ -1,7 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.os.SystemClock
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -243,6 +242,7 @@ import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
 import jp.jig.glasses.sample.kmp.ui.component.VoiceSettings
 import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
 import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
+import jp.jig.glasses.sample.kmp.ui.component.PreviewFrame
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
 import jp.jig.glasses.sample.kmp.ui.starmap.LOG_LINES
 import jp.jig.glasses.sample.kmp.ui.starmap.ScreenLog
@@ -310,6 +310,8 @@ fun StarMapScreen(
     bgm: Bgm,
     soundPrefs: SoundPrefs,
     onRecalibrate: () -> Unit,
+    /** ガイドの台本を作る画面へ。**設定と、台本が 1 つも無いときの「ガイドを始める」から** */
+    onGuides: () -> Unit,
 ) {
     val context = LocalContext.current
     // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
@@ -589,7 +591,7 @@ fun StarMapScreen(
         }
     }
 
-    var preview by remember { mutableStateOf<Bitmap?>(null) }
+    var preview by remember { mutableStateOf<PreviewFrame?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
     var lastMapObservation by remember { mutableStateOf<ObservationSnapshot?>(null) }
     // 解説の根拠は**その絵を焼いた視線**から作る。いまの視線で作り直すと、
@@ -2755,19 +2757,19 @@ fun StarMapScreen(
                                 titleContentColor = Color.White,
                             ),
                             navigationIcon = {
-                                Box(Modifier.width(88.dp), contentAlignment = Alignment.CenterStart) {
-                                    if (showDetails) {
-                                        TextButton(
-                                            onClick = { phonePage = phonePage.back() },
-                                            modifier = Modifier.padding(start = 8.dp),
-                                        ) {
-                                            Text("戻る", color = Color.White)
-                                        }
-                                    } else {
-                                        // **どのアプリを使っているかを星図の画面にも残す。**
-                                        // 印だけにするのは、題（星空）と二重に名前を出さないため
-                                        AppMark(Modifier.padding(start = 12.dp))
+                                // **幅を決め打たない。** 「戻る」のぶんを空けておくと、
+                                // 印しか無いメインで題だけが右へ寄って見える
+                                if (showDetails) {
+                                    TextButton(
+                                        onClick = { phonePage = phonePage.back() },
+                                        modifier = Modifier.padding(start = 8.dp),
+                                    ) {
+                                        Text("戻る", color = Color.White)
                                     }
+                                } else {
+                                    // **どのアプリを使っているかを星図の画面にも残す。**
+                                    // 印だけにするのは、題（星空）と二重に名前を出さないため
+                                    AppMark(Modifier.padding(start = 12.dp))
                                 }
                             },
                             actions = {
@@ -2917,6 +2919,22 @@ fun StarMapScreen(
                                     )
                                 }
                                 // 流れるのは中身だけ。上の操作はスクロールの外に残す
+                                // **かけている人が見ている画面は動かさない。** 流れるのは
+                                // 星空の条件と解説だけ（横は左ペインに同じ絵がある）
+                                if (phonePage == PhonePage.MAIN && !landscape) {
+                                    if (renderer == null) {
+                                        Text("星表を読み込み中…")
+                                        Spacer(Modifier.height(12.dp))
+                                    }
+
+                                    Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                                    Spacer(Modifier.height(4.dp))
+                                    ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
+                                    Text(
+                                        "グラスの向きを止めると、その方角の星図に更新します",
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
                                 Column(
                                     Modifier.fillMaxWidth().weight(1f)
                                         .then(
@@ -2929,23 +2947,9 @@ fun StarMapScreen(
                                             },
                                         ),
                                 ) {
-                                    // **畳んだ側が本体。** 見出し → プレビュー → 解説 → ボタン 2 つだけを出す。
+                                    // **畳んだ側が本体。** 流れるのは星空の条件と解説だけ。
                                     // 数字と設定は「設定」を開いた側へ全部やる（空を見ている人はスマホを見ない）
                                     if (!showDetails) {
-                                        if (!landscape) {
-                                            if (renderer == null) {
-                                                Text("星表を読み込み中…")
-                                                Spacer(Modifier.height(12.dp))
-                                            }
-
-                                            Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
-                                            Spacer(Modifier.height(4.dp))
-                                            ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
-                                            Text(
-                                                "グラスの向きを止めると、その方角の星図に更新します",
-                                                style = MaterialTheme.typography.bodySmall,
-                                            )
-                                        }
                                         // **案内とガイドの札は解説と同じ側に置く。** 横で左の
                                         // プレビューへ積むと、縦幅 350dp に収まらず切れる
                                         guidanceFrame?.let { frame ->
@@ -3129,6 +3133,15 @@ fun StarMapScreen(
                                             },
                                         )
 
+                                        // **台本を作る口はホームだけではない。** つないだあとで
+                                        // 「ガイドを始めたい」と思った人が、戻らずに作りに行ける
+                                        OutlinedButton(
+                                            onClick = onGuides,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text("ガイドを作る")
+                                        }
+
                                         // **ログと数字は開発者用画面へ送った。** ここに残すのは、
                                         // 夜の屋外で触るものだけ（見え方・明るさ・音）
                                         OutlinedButton(
@@ -3228,12 +3241,15 @@ fun StarMapScreen(
                                                 else -> toggleNarration()
                                             }
                                         },
-                                        // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
-                                        // 作るのはホーム画面の「ガイドを作る」から。
-                                        // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
-                                        secondaryLabel = "ガイドを始める"
-                                            .takeIf { guides.isNotEmpty() && guideProgress == null },
-                                        onSecondary = { showGuidePicker = true },
+                                        // **台本が無くても出す。** 無いときは作る画面へ送る
+                                        // （押しても何も起きないのではなく、次にすることを見せる）。
+                                        // ガイド中だけ出さない（主ボタンが「ガイドを止める」になっている）
+                                        secondaryLabel = (
+                                            if (guides.isEmpty()) "ガイドを作る" else "ガイドを始める"
+                                            ).takeIf { guideProgress == null },
+                                        onSecondary = {
+                                            if (guides.isEmpty()) onGuides() else showGuidePicker = true
+                                        },
                                     )
                                     RecalibrateButton(onRecalibrate, Modifier.padding(bottom = 4.dp))
                                 }
