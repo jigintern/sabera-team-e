@@ -2,12 +2,15 @@ package jp.jig.glasses.sample.kmp.voice
 
 import app.jigglass.glass.CommandManager
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.withContext
 import kotlin.math.ln
 import kotlin.math.sqrt
 
@@ -61,7 +64,10 @@ class GlassMic(private val commandManager: CommandManager) {
     ): Recording = coroutineScope {
         val buffer = ByteArrayOutputStream(MAX_MS * SAMPLE_RATE * 2 / 1000)
         var speechMs = 0L
-        var startedAt = 0L
+        // **書く側と読む側が違うコルーチンなので、素のローカルにしない。**
+        // 捕捉ローカルは `Ref.LongRef` になるだけで可視性の保証が無く、
+        // 集計側が 0 のままだと暗騒音を測り終えたかの判定（`NOISE_FLOOR_MS`）が狂う
+        val startedAt = AtomicLong(0L)
         var submitted = false
 
         // **録音全体でいちばん静かな塊**を暗騒音とみなす。冒頭の 0.4 秒だけでは、
@@ -73,7 +79,8 @@ class GlassMic(private val commandManager: CommandManager) {
             buffer.write(chunk)
             val level = rms(chunk)
             val chunkMs = chunk.size * 1000L / (SAMPLE_RATE * 2)
-            val elapsed = if (startedAt == 0L) 0L else System.currentTimeMillis() - startedAt
+            val begun = startedAt.get()
+            val elapsed = if (begun == 0L) 0L else System.currentTimeMillis() - begun
             // **暗騒音は録っている間ずっと下へ更新する。** 最初の 0.4 秒だけで決めていたときは、
             // そこに風が 1 回入るだけでしきい値が上限（4,000）に張り付き、
             // **そのあとの声を一度も数えられなかった**。人は言葉の合間に必ず黙るので、
@@ -92,10 +99,10 @@ class GlassMic(private val commandManager: CommandManager) {
 
         try {
             commandManager.startMicStreaming()
-            startedAt = System.currentTimeMillis()
+            startedAt.set(System.currentTimeMillis())
             while (true) {
                 delay(POLL_MS)
-                val elapsed = System.currentTimeMillis() - startedAt
+                val elapsed = System.currentTimeMillis() - startedAt.get()
                 if (submitRequests.tryReceive().isSuccess) {
                     submitted = true
                     break
@@ -106,7 +113,13 @@ class GlassMic(private val commandManager: CommandManager) {
         } catch (e: TimeoutCancellationException) {
             throw e
         } finally {
-            job.cancel()
+            // **止めたら集計が終わるまで待つ。** 待たずに `Recording` を組むと、
+            // 送信のタップ直前に届いた塊が `speechMs` にも `buffer` にも入らないことがある。
+            // キャンセルで抜けるときも締めたいので `NonCancellable` で囲う
+            withContext(NonCancellable) {
+                job.cancel()
+                job.join()
+            }
             runCatching { commandManager.stopMicStreaming() }
         }
         Recording(
