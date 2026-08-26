@@ -69,7 +69,7 @@ class GuideListViewModelTest {
         vm.make(GuideTheme.TONIGHT)
         dispatcher.scheduler.advanceUntilIdle()
         assertEquals(
-            "「${guide.title}」を作りました（通信を使わない設定です。同梱の解説で組みました）",
+            "「${guide.title}」を作りました",
             vm.notice,
         )
         assertEquals(1, vm.guides.size)

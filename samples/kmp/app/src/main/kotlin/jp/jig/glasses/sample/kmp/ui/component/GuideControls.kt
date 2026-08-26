@@ -71,7 +71,8 @@ internal fun GuidePickerDialog(
                         ) {
                             Text(guide.title, style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "${guide.size} 星座・${guide.origin.label}",
+                                // どう作ったか（AI か同梱か）は出さない。選ぶのに要らない
+                                "${guide.size} 星座",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
