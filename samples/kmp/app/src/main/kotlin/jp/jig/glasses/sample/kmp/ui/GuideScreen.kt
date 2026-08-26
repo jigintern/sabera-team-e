@@ -147,18 +147,13 @@ fun GuideScreen(
                 },
             ) { padding ->
                 Column(
-                    Modifier.fillMaxSize().padding(padding).padding(16.dp)
+                    Modifier.fillMaxSize().padding(padding)
+                        .padding(horizontal = 16.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        "決めた順に星座へ案内して、そのつど解説します。" +
-                            "作った台本は端末に残るので、電波の届かない場所でも使えます",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-                    Text("いまの空から作る", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
+                    // **バーのすぐ下から始める。** 上に余白を積むと、
+                    // 何をする画面なのかが 1 画面目から押し出される
+                    SectionTitle("1. 台本を作る", "テーマを選ぶと、いまの空から自動で組みます")
                     Card(
                         Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = SaberaSurface),
@@ -211,11 +206,13 @@ fun GuideScreen(
                     }
 
                     Spacer(Modifier.height(20.dp))
-                    Text("作った台本", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(4.dp))
+                    SectionTitle(
+                        "2. 作った台本",
+                        "押すと中身を読めます。始めるのは観測画面から",
+                    )
                     if (vm.guides.isEmpty()) {
                         Text(
-                            "まだありません",
+                            "まだありません。上の 1. から作ります",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -241,8 +238,9 @@ fun GuideScreen(
                     AdvancedSection(expanded = vm.advanced, onToggle = { vm.advanced = !vm.advanced }) {
                         Column(Modifier.fillMaxWidth()) {
                             Text(
-                                "星座と順番と文面を、ぜんぶ自分で決めます。" +
-                                    "想定した日時と場所で組めるので、先の日付のツアーも作れます",
+                                "テーマ任せではなく、星座も順番も文面も自分で決めます。" +
+                                    "想定した日時と場所で組めるので、先の日付のツアーも作れます" +
+                                    "（旅行会社のツアー向け）",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -251,14 +249,15 @@ fun GuideScreen(
                                 onClick = { onAuthor(null) },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("新しく作る")
+                                Text("1 から作りはじめる")
                             }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "始めるのは観測画面の「ガイドを始める」から。グラスをつないでから選びます",
+                        "作った台本は端末に残るので、電波の届かない場所でも使えます。" +
+                            "始めるのは観測画面の「ガイドを始める」から",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -267,6 +266,19 @@ fun GuideScreen(
             }
         }
     }
+}
+
+/** 区画の見出し。**何をする場所かを 1 行で言い切る**（作るのか、選ぶのか） */
+@Composable
+private fun SectionTitle(title: String, hint: String) {
+    Spacer(Modifier.height(12.dp))
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    Text(
+        hint,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
 }
 
 /** 台本 1 本。**中身を読めるようにする**（何を喋るのか分からないまま外へ持ち出させない） */

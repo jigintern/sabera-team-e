@@ -1,6 +1,5 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -11,14 +10,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,12 +25,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.sky.SkyPreset
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
@@ -56,47 +49,28 @@ internal fun TimeScrubControls(
     scrubbing: Boolean,
     /** つまみの位置。**その夜の中を ±12 時間**（0 が条件で指定した時刻） */
     offsetHours: Float,
-    onStep: (Float) -> Unit,
     onScrub: (Float) -> Unit,
     onScrubFinished: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
     Column(Modifier.fillMaxWidth()) {
-        // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる
-        Row(
+        // **読みは、つまみの上に置く。** 指がスライダーに乗るので、下だと隠れる。
+        // **1 時間ずつのボタンは置かない** — つまみが 15 分刻みで止まるので同じことが指でできる
+        Column(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            StepButton(
-                pointsRight = false,
-                description = "1時間戻す",
-                enabled = offsetHours > -TIME_SCRUB_HOURS,
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onStep(-TIME_SCRUB_STEP_HOURS)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
+            )
+            if (detail != null) {
                 Text(
-                    label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (scrubbing) MaterialTheme.colorScheme.primary else Color.White,
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                if (detail != null) {
-                    Text(
-                        detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            StepButton(
-                pointsRight = true,
-                description = "1時間進める",
-                enabled = offsetHours < TIME_SCRUB_HOURS,
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                onStep(TIME_SCRUB_STEP_HOURS)
             }
         }
         // **離すまで空を送らない。** つまんでいる間ずっと星図を焼くと、
@@ -144,48 +118,6 @@ internal fun TimeScrubControls(
 }
 
 /**
- * 三角 2 つで描く送り・戻し。
- *
- * `material-icons` を足すと持ち物が増えるうえ、要るのは 2 つだけ。
- * 形だけでは何のボタンか分からないので、読み上げ用の名前は必ず付ける。
- */
-@Composable
-private fun StepButton(
-    pointsRight: Boolean,
-    description: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-) {
-    val tint = if (enabled) Color.White else Color.White.copy(alpha = 0.3f)
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = Modifier.semantics { contentDescription = description },
-    ) {
-        Canvas(Modifier.size(18.dp)) {
-            val w = size.width
-            val h = size.height
-            drawPath(trianglePath(0f, w / 2f, h, pointsRight), tint)
-            drawPath(trianglePath(w / 2f, w, h, pointsRight), tint)
-        }
-    }
-}
-
-private fun trianglePath(left: Float, right: Float, height: Float, pointsRight: Boolean): Path =
-    Path().apply {
-        if (pointsRight) {
-            moveTo(left, 0f)
-            lineTo(right, height / 2f)
-            lineTo(left, height)
-        } else {
-            moveTo(right, 0f)
-            lineTo(left, height / 2f)
-            lineTo(right, height)
-        }
-        close()
-    }
-
-/**
  * つまみで動かせる幅。**その夜の中だけ。**
  *
  * 日をまたいで動かしたいなら「時代」の選択肢を使う。ここを広げると、
@@ -195,9 +127,6 @@ const val TIME_SCRUB_HOURS = 12f
 
 /** 15 分刻み。±12 時間 ＝ 96 目盛りなので、あいだの数はその 1 つ手前 */
 const val TIME_SCRUB_STEPS = 95
-
-/** ボタン 1 回で動く量。**押すたびに 1 枚描き直す**ので、細かすぎると待たされる */
-const val TIME_SCRUB_STEP_HOURS = 1f
 
 /** 震わせる間隔。目盛りと同じ 15 分 */
 private const val TIME_SCRUB_NOTCH_HOURS = 0.25f
@@ -242,9 +171,10 @@ internal fun SkyConditionSettings(
                 Spacer(Modifier.height(4.dp))
                 Text(message, style = MaterialTheme.typography.bodySmall)
             }
+            // **押すものは「この空を見る」1 つに見せる。** 戻る口は再現中しか要らないので、
+            // 枠を持たない文字にして、並んだボタンに見せない
             if (simulation) {
-                Spacer(Modifier.height(4.dp))
-                OutlinedButton(onClick = onReturnLive, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onReturnLive, modifier = Modifier.fillMaxWidth()) {
                     Text("現在の空に戻る")
                 }
             }

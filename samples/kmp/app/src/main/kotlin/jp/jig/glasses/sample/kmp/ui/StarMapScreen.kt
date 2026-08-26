@@ -2971,6 +2971,19 @@ fun StarMapScreen(
                                         if (!landscape || guidanceFrame != null || guideProgress != null) {
                                             Spacer(Modifier.height(16.dp))
                                         }
+                                        // 見出しは置かない。**枠の中の名前が見出しそのもの**で、
+                                        // 「星座解説」と重ねると本文に使える高さがそのぶん減る
+                                        Spacer(Modifier.height(8.dp))
+                                        NarrationPanel(
+                                            status = if (landscape) "" else narrationStatus,
+                                            subject = narration.constellation,
+                                            text = narration.text,
+                                            failed = narration.phase == NarrationPhase.FAILED,
+                                            // **横は残りの高さを本文に吸わせる。** そうしないと
+                                            // 解説の下が空いたままボタン 2 つが宙に浮く
+                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
+                                            maxTextHeight = if (landscape) null else 160.dp,
+                                        )
                                         // **場所と日時の指定はメインに置く。** 「設定」ではなく
                                         // 「いま何を見るか」の操作。**畳んであるので普段は 1 行**
                                         val simulation = observationMode as? ObservationMode.Simulation
@@ -3011,16 +3024,6 @@ fun StarMapScreen(
                                                     scrubbing = scrubbingHours != null,
                                                     // つまんでいる間は指の値、離したら実際の時刻から引き直す
                                                     offsetHours = scrubbingHours ?: timeScrubHours(),
-                                                    // **1 回押して 1 枚だけ描き直す。** 自動で送り続けると点滅する
-                                                    onStep = { step ->
-                                                        if (scrubAnchorMillis == null) {
-                                                            scrubAnchorMillis = observationSnapshot().epochMillis
-                                                        }
-                                                        applyTimeScrub(
-                                                            (timeScrubHours() + step)
-                                                                .coerceIn(-TIME_SCRUB_HOURS, TIME_SCRUB_HOURS),
-                                                        )
-                                                    },
                                                     onScrub = {
                                                         if (scrubAnchorMillis == null) {
                                                             scrubAnchorMillis = observationSnapshot().epochMillis
@@ -3036,33 +3039,7 @@ fun StarMapScreen(
                                             },
                                         )
 
-                                        // 見出しは置かない。**枠の中の名前が見出しそのもの**で、
-                                        // 「星座解説」と重ねると本文に使える高さがそのぶん減る
-                                        Spacer(Modifier.height(8.dp))
-                                        NarrationPanel(
-                                            status = if (landscape) "" else narrationStatus,
-                                            subject = narration.constellation,
-                                            text = narration.text,
-                                            failed = narration.phase == NarrationPhase.FAILED,
-                                            // **横は残りの高さを本文に吸わせる。** そうしないと
-                                            // 解説の下が空いたままボタン 2 つが宙に浮く
-                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
-                                            maxTextHeight = if (landscape) null else 160.dp,
-                                        )
                                     } else if (phonePage == PhonePage.SETTINGS) {
-                                        // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
-                                        // 判断材料はこの絵で、切り替えるたびに閉じて確かめるのは往復になる
-                                        if (!landscape) {
-                                            ObservationPreview(
-                                                preview,
-                                                sending,
-                                                transferMs,
-                                                modifier = Modifier.fillMaxWidth(0.62f),
-                                                guidance = guidanceFrame,
-                                            )
-                                        }
-
-                                        Spacer(Modifier.height(16.dp))
                                         SkyViewSettings(
                                             density = density,
                                             onDensityChange = { step ->

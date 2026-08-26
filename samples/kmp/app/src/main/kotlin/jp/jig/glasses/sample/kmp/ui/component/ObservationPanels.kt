@@ -127,8 +127,10 @@ private fun GuidancePreviewOverlay(
                     mint,
                     at(geometry.tail),
                     at(geometry.tip),
+                    // **端は丸めない。** 丸めると軸が頭より先へ出て、
+                    // 矢印の先に玉が付いて見える（グラス側は平らに描いている）
                     strokeWidth = (geometry.shaftHalfWidth * 2.0).toFloat() * scale,
-                    cap = StrokeCap.Round,
+                    cap = StrokeCap.Butt,
                 )
                 val tip = at(geometry.tip)
                 val left = at(geometry.headBase.first())
