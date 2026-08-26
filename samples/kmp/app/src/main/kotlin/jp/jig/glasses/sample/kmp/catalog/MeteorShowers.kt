@@ -1,6 +1,11 @@
 package jp.jig.glasses.sample.kmp.catalog
 
 import android.content.Context
+import java.time.Instant
+import jp.jig.glasses.sample.kmp.sky.ObservationSnapshot
+import jp.jig.glasses.sample.kmp.sky.daysFromJ2000
+import jp.jig.glasses.sample.kmp.sky.localSiderealDeg
+import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import org.json.JSONObject
 import kotlin.math.abs
 
@@ -109,4 +114,20 @@ class MeteorShowers(val showers: List<Shower>, private val peakWindowDays: Int) 
             return MeteorShowers(showers, json.optInt("peakWindowDays", 2))
         }
     }
+}
+
+/**
+ * 今夜活動している群。放射点は **J2000 の赤経・赤緯**で持っている（星表と同じ座標系）。
+ *
+ * **星図の印と一口メモがここを共有する**ので、印の場所と喋る方角が食い違わない。
+ */
+fun MeteorShowers.activeShower(observation: ObservationSnapshot): MeteorShowers.Shower? {
+    val local = Instant.ofEpochMilli(observation.epochMillis).atZone(observation.zoneId)
+    return today(local.monthValue, local.dayOfMonth)
+}
+
+/** 放射点のいまの方位・高度 */
+fun MeteorShowers.Shower.radiantAltAz(observation: ObservationSnapshot): DoubleArray {
+    val lst = localSiderealDeg(daysFromJ2000(observation.epochMillis), observation.site.lonDeg)
+    return toApparentAltAz(raDeg, decDeg, lst, observation.site.latDeg)
 }

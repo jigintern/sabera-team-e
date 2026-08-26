@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.guide.GuideCodec
 import jp.jig.glasses.sample.kmp.guide.StarGuide
@@ -68,16 +69,10 @@ fun GuideShareScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    var enabled by remember(guide.id) { mutableStateOf(guide.steps.map { it.enabled }) }
-    var locked by remember(guide.id) { mutableStateOf(guide.locked) }
-    var notice by remember { mutableStateOf<String?>(null) }
-
-    val shared = guide.copy(
-        steps = guide.steps.mapIndexed { i, step -> step.copy(enabled = enabled.getOrElse(i) { true }) },
-        locked = locked,
-    )
+    val vm = viewModel(key = guide.id) { GuideShareViewModel(guide) }
+    val shared = vm.shared
     // **押すたびに圧縮し直さない。** 段の ON/OFF と編集の可否が変わったときだけ
-    val packed = remember(enabled, locked) { GuideCodec.pack(shared) }
+    val packed = remember(vm.enabled, vm.locked) { GuideCodec.pack(shared) }
     val qr: Bitmap? = remember(packed) {
         if (packed.size <= GuideCodec.QR_CAPACITY_BYTES) QrCode.encode(packed, QR_SIZE_PX) else null
     }
@@ -86,7 +81,7 @@ fun GuideShareScreen(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        notice = runCatching {
+        vm.notice = runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
                 it.write(GuideCodec.json(shared).toByteArray(Charsets.UTF_8))
             }
@@ -118,7 +113,7 @@ fun GuideShareScreen(
                 ) {
                     Text(guide.title, style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "${enabled.count { it }} / ${guide.size} 段を配ります",
+                        "${vm.enabled.count { it }} / ${guide.size} 段を配ります",
                         style = MaterialTheme.typography.bodySmall,
                         color = SaberaFinePrint,
                     )
@@ -137,10 +132,8 @@ fun GuideShareScreen(
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text("${index + 1}. ${step.targetName}", Modifier.weight(1f))
                                     Switch(
-                                        checked = enabled.getOrElse(index) { true },
-                                        onCheckedChange = { on ->
-                                            enabled = enabled.mapIndexed { i, old -> if (i == index) on else old }
-                                        },
+                                        checked = vm.enabled.getOrElse(index) { true },
+                                        onCheckedChange = { on -> vm.toggleStep(index, on) },
                                     )
                                 }
                             }
@@ -159,9 +152,9 @@ fun GuideShareScreen(
                                         color = SaberaFinePrint,
                                     )
                                 }
-                                Switch(checked = locked, onCheckedChange = { locked = it })
+                                Switch(checked = vm.locked, onCheckedChange = { vm.locked = it })
                             }
-                            if (locked) {
+                            if (vm.locked) {
                                 Spacer(Modifier.height(4.dp))
                                 // **守れないものを守れると書かない**（AGENTS.md と同じ筋）
                                 Text(
@@ -206,7 +199,7 @@ fun GuideShareScreen(
                         )
                     }
 
-                    notice?.let {
+                    vm.notice?.let {
                         Spacer(Modifier.height(12.dp))
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaGreen)
                     }
@@ -222,7 +215,7 @@ fun GuideShareScreen(
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "ファイルは中身が読める JSON です。PC で文面を直してから配れます",
+                        "ファイルはパソコンでも開けます。文面を直してから配れます",
                         style = MaterialTheme.typography.bodySmall,
                         color = SaberaFinePrint,
                     )

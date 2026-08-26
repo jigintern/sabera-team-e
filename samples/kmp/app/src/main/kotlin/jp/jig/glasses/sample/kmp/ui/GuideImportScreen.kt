@@ -30,6 +30,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import jp.jig.glasses.sample.kmp.guide.GuideCodec
@@ -53,10 +55,6 @@ import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
 import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.withContext
 
 /**
  * 台本を受け取る画面。**QR とファイルの両方から。**
@@ -75,12 +73,11 @@ fun GuideImportScreen(
     onImported: (StarGuide) -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val store = remember(context) { GuideStore.of(context) }
+    val vm = viewModel { GuideImportViewModel(store) }
+    // 入り直したら真っさら（remember に載っていたころと同じ見え方）
+    DisposableEffect(Unit) { onDispose { vm.leave() } }
 
-    var pending by remember { mutableStateOf<StarGuide?>(null) }
-    var rejected by remember { mutableStateOf<String?>(null) }
-    var scanning by remember { mutableStateOf(false) }
     var cameraGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -88,47 +85,21 @@ fun GuideImportScreen(
         )
     }
 
-    fun accept(result: GuideImport) {
-        when (result) {
-            is GuideImport.Ok -> {
-                pending = result.guide
-                rejected = null
-            }
-
-            is GuideImport.Rejected -> {
-                pending = null
-                rejected = result.reason
-            }
-        }
-        scanning = false
-    }
-
     val askCamera = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraGranted = granted
-        scanning = granted
-        if (!granted) rejected = "カメラを使えないので、ファイルから読み込んでください"
+        vm.onCameraPermission(granted)
     }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-                        // **丸ごと読まない。** 上限より大きければその時点で断る
-                        String(stream.readNBytes(GuideCodec.MAX_INFLATED_BYTES + 1), Charsets.UTF_8)
-                    } ?: return@runCatching GuideImport.Rejected("ファイルを開けませんでした")
-                    GuideCodec.fromJson(text)
-                }.getOrElse { GuideImport.Rejected("ファイルを読めませんでした: ${it.message}") }
-            }
-            accept(result)
-        }
-    }
-
-    fun save(guide: StarGuide) {
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) { store.save(guide) }
-            if (ok) onImported(guide) else rejected = "台本を保存できませんでした"
+        vm.importFrom {
+            runCatching {
+                val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    // **丸ごと読まない。** 上限より大きければその時点で断る
+                    String(stream.readNBytes(GuideCodec.MAX_INFLATED_BYTES + 1), Charsets.UTF_8)
+                } ?: return@runCatching GuideImport.Rejected("ファイルを開けませんでした")
+                GuideCodec.fromJson(text)
+            }.getOrElse { GuideImport.Rejected("ファイルを読めませんでした: ${it.message}") }
         }
     }
 
@@ -154,12 +125,12 @@ fun GuideImportScreen(
                     Modifier.fillMaxSize().padding(padding).padding(16.dp)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    val preview = pending
+                    val preview = vm.pending
                     if (preview != null) {
                         ImportPreview(
                             guide = preview,
-                            onCancel = { pending = null },
-                            onAccept = { save(preview) },
+                            onCancel = { vm.cancelPending() },
+                            onAccept = { vm.save(preview, onImported) },
                         )
                         Spacer(Modifier.height(24.dp))
                         return@Column
@@ -171,13 +142,13 @@ fun GuideImportScreen(
                     )
 
                     Spacer(Modifier.height(12.dp))
-                    if (scanning && cameraGranted) {
+                    if (vm.scanning && cameraGranted) {
                         Card(
                             Modifier.fillMaxWidth().aspectRatio(1f),
                             colors = CardDefaults.cardColors(containerColor = Color.Black),
                         ) {
                             QrScanner(
-                                onDecoded = { bytes -> accept(GuideCodec.unpack(bytes)) },
+                                onDecoded = { bytes -> vm.accept(GuideCodec.unpack(bytes)) },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -188,11 +159,11 @@ fun GuideImportScreen(
                             color = SaberaFinePrint,
                         )
                         Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = { scanning = false }) { Text("カメラを閉じる") }
+                        TextButton(onClick = { vm.scanning = false }) { Text("カメラを閉じる") }
                     } else {
                         Button(
                             onClick = {
-                                if (cameraGranted) scanning = true else askCamera.launch(Manifest.permission.CAMERA)
+                                if (cameraGranted) vm.scanning = true else askCamera.launch(Manifest.permission.CAMERA)
                             },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
@@ -212,7 +183,7 @@ fun GuideImportScreen(
                         Text("ファイルから読み込む")
                     }
 
-                    rejected?.let {
+                    vm.rejected?.let {
                         Spacer(Modifier.height(12.dp))
                         Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaWarning)
                     }

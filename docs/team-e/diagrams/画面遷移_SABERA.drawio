@@ -1,0 +1,140 @@
+<mxfile host="Electron">
+  <diagram name="ページ-1" id="sWXb38ybqFNzdzu-Pvs6">
+    <mxGraphModel dx="732" dy="629" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-3" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="GK8hg9urBfB_4MkSQuvG-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow-lbl-connect" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-3" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="接続完了" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="スタート画面&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;挨拶の画像 1 枚&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="120" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-5" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="GK8hg9urBfB_4MkSQuvG-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow-lbl-align" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-5" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="補正完了" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="方位あわせ&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;十字の画像 128×128&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="330" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;div&gt;星座表示&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="550" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-17" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="GK8hg9urBfB_4MkSQuvG-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-18" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-17" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="さそり座を見せて" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-19" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="GK8hg9urBfB_4MkSQuvG-16">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="580" y="420" />
+              <mxPoint x="180" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-20" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-19" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="〇〇の夜空を見せて" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;div&gt;聞き取り画面&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;テキストだけ&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="550" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="星座解説" vertex="1">
+          <mxGeometry height="60" width="120" x="770" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-10" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-4" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" target="GK8hg9urBfB_4MkSQuvG-8" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="650" y="310" as="sourcePoint" />
+            <mxPoint x="700" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-13" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-10" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="ダブルタップ" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-11" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-8" style="endArrow=classic;html=1;rounded=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;exitX=0;exitY=0.75;exitDx=0;exitDy=0;" target="GK8hg9urBfB_4MkSQuvG-4" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="670" y="320" as="sourcePoint" />
+            <mxPoint x="720" y="270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-14" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-11" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ&lt;div&gt;最終行＋読み上げ後 5 秒&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="15" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-27" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="GK8hg9urBfB_4MkSQuvG-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="380" y="260" />
+              <mxPoint x="480" y="260" />
+              <mxPoint x="480" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="flow-lbl-guide-back" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-27" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="ガイド機能&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;星座表示と同じ&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;＋ 案内の矢印の画像&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="320" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-25" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="GK8hg9urBfB_4MkSQuvG-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="260" />
+              <mxPoint x="480" y="260" />
+              <mxPoint x="480" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-28" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-25" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ" vertex="1">
+          <mxGeometry relative="1" x="-0.2" as="geometry">
+            <mxPoint y="14" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="シミュレーション&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;例）シドニーの夜空&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;10000年前の夜空&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="120" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-21" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-4" style="endArrow=classic;html=1;rounded=0;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="GK8hg9urBfB_4MkSQuvG-7" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="470" y="420" as="sourcePoint" />
+            <mxPoint x="520" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-23" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-21" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="長押し" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="32" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-22" edge="1" parent="1" source="GK8hg9urBfB_4MkSQuvG-7" style="endArrow=classic;html=1;rounded=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;exitX=0.25;exitY=0;exitDx=0;exitDy=0;" target="GK8hg9urBfB_4MkSQuvG-4" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="470" y="420" as="sourcePoint" />
+            <mxPoint x="520" y="370" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-24" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-22" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="長押しで送信" vertex="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-36" as="offset" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

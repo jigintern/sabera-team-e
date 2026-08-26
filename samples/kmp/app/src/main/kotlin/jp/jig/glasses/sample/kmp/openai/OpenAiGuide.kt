@@ -4,10 +4,10 @@ import jp.jig.glasses.sample.kmp.guide.GuideOrigin
 import jp.jig.glasses.sample.kmp.guide.GuideStep
 import jp.jig.glasses.sample.kmp.guide.GuideTheme
 import jp.jig.glasses.sample.kmp.guide.StarGuide
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.support.NANOS_PER_MILLI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -108,7 +108,7 @@ class OpenAiGuide(
                     attempt = 1,
                     requestId = requestId(connection),
                     firstByteMs = null,
-                    totalMs = (System.nanoTime() - startedAt) / 1_000_000,
+                    totalMs = (System.nanoTime() - startedAt) / NANOS_PER_MILLI,
                     bytes = bytes,
                     completed = bytes > 0,
                 ),

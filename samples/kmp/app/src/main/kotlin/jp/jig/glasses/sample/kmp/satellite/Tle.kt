@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.satellite
 
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.floor
@@ -41,11 +42,11 @@ class Tle(
     val epochDaysSince1950: Double get() = (jdEpoch - 2433281.5) + jdEpochFrac
 
     /** 元期の UNIX ミリ秒。**軌道要素の古さはこれで測る**（取得日ではない） */
-    val epochUnixMillis: Long get() = ((jdEpoch - 2440587.5 + jdEpochFrac) * 86_400_000.0).toLong()
+    val epochUnixMillis: Long get() = ((jdEpoch - 2440587.5 + jdEpochFrac) * DAY_MILLIS).toLong()
 
     /** 元期から `epochMillis` までの経過分。SGP4 に渡す時刻はこれ */
     fun minutesSinceEpoch(epochMillis: Long): Double {
-        val jd = 2440587.5 + epochMillis / 86_400_000.0
+        val jd = 2440587.5 + epochMillis / DAY_MILLIS.toDouble()
         return ((jd - jdEpoch) - jdEpochFrac) * 1440.0
     }
 

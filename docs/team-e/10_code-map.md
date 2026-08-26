@@ -23,15 +23,15 @@
 | `sky/` | **空の計算。Android に触らない**（JVM テストで数字を固定できる）。座標変換・太陽・月惑星・IAU 境界・観測の既定値・天体案内の状態 |
 | `catalog/` | 同梱データ（`data/`）を読む。星表・88 星座の解説文・流星群 |
 | `satellite/` | 軌道計算（SGP4/SDP4）と、いつどこに見えるか |
-| `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る |
+| `glass/` | **グラスへの出力。パネルの制約は全部ここ。** 星図を焼く・文字を組む・明るさを送る・描き直す条件（`RedrawPolicy`）・同梱データの読み込み（`BundledData`） |
 | `alignment/` | **星図を空に合わせるために端末が測るもの。** 方位・傾き・磁気の歪み・観測地 |
 | `narration/` | **何を喋るか。** 解説の組み立て、一口メモ、声の質問の入口・出口の検査 |
 | `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て・詳細ガイドの編集・配る形。**Android に触るのは保存だけ** |
 | `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
-| `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる |
-| `sound/` | BGM。**場面（`BgmScene`）と曲（`BgmTrack`）を分けてある**。選曲は `BgmPlaylist` |
-| `support/` | どこにも属さない道具（観測ログ・声のやり取りの履歴・音量の持ち上げ・重複送信の抑止） |
-| `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）。`ui/component/` は部品と色 |
+| `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる。聞き取った文と返ってきた文の検査（`AskGuard`）もここ |
+| `sound/` | BGM。**場面（`BgmScene`）と曲（`BgmTrack`）を分けてある**。選曲は `BgmTrack.kt` の `BgmPlaylist` |
+| `support/` | どこにも属さない道具（観測ログ・声のやり取りの履歴・音量の持ち上げ・重複送信の抑止・時間の換算）。**アプリ内の他パッケージに依存しない** |
+| `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）＋ガイド 4 画面（一覧・詳細エディタ・配る・受け取る）。画面の状態は `*ViewModel`、`ui/component/` は部品と色、`ui/starmap/` は観測画面から切り出した道具 |
 
 ## 外せない置き場所
 
@@ -39,9 +39,10 @@
 
 | ファイル | 責務 |
 |---|---|
-| `ui/GlassesApp.kt` | 4 画面の遷移と戻るキー。画面は `AppScreen` で表し、整数を増やさない |
+| `ui/GlassesApp.kt` | 画面の遷移と戻るキー。画面は `AppScreen` で表し、整数を増やさない。戻り先の表は `ui/AppNavigation.kt` |
 | `ui/CalibrationScreen.kt` | 方位合わせの唯一の実装。観測画面へ同じ処理を重ねない |
 | `ui/StarMapScreen.kt` | 観測セッションの調停。描画・キャンバス変換・補正計算は下へ委譲する |
+| `sky/Units.kt` / `support/Durations.kt` | 物理定数（地球半径・天文単位）と時間の換算の正本。**同じ値を各パッケージで書き直さない** |
 | `ui/component/ObservationSettings.kt` | 設定パネルの区画。**見出しの中身を見出しどおりにする** |
 | `ui/GuideScreen.kt` | 台本の一覧と即興ガイド。**グラスをつなぐ前に通る**ので、接続の外側に置く。詳細エディタは**いちばん下に畳む** |
 | `ui/AuthoredGuideScreen.kt` | 詳細エディタ（toB）。想定した空・候補・AI 対話・段の編集と並べ替え |
@@ -56,6 +57,7 @@
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
 | `glass/GuidanceIndicator.kt` | 天体案内の矢印・到着リングの共通形状。グラスとスマホのプレビューを同じ向き・比率にする（#61） |
+| `glass/CanvasBudget.kt` | **星図と案内矢印が画像バッファに同居できるか。** 溢れるなら矢印を捨てる。**焼く側と 130ms ごとの送信側が同じ判定を使う**（ずれると矢印が点滅する） |
 | `glass/GuidanceOverlay.kt` / `GuidanceOverlaySender.kt` | 共通形状を小画像へ焼き（左右120×56・上下56×120・到着80×80）、**全画面を送らず、この小画像だけ替える**。**枠が変わるときは先に消す**（#46・#61） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
@@ -147,13 +149,9 @@ java -Djava.awt.headless=true tools/compose-phone-preview.java                  
   位置に意味は無い。**これは写真ではない**ので、パネルのにじみ・明るさ・実機のフォントも出ない
 - スマホのホームは `compose-phone-preview.java` が実装と同じロゴ・色・配置から作る。
   **星図画面はBLEがつながらないと進めない**ので、必要なら実機のスクリーンショットを使う
-- 図（`docs/team-e/diagrams/*.drawio.svg`）は draw.io でそのまま開いて編集し、上書き保存する。
-  CLI から出し直すなら：
-
-```bash
-/Applications/draw.io.app/Contents/MacOS/draw.io --no-sandbox -x -f svg \
-  --embed-diagram --embed-svg-fonts false --theme light -o 図.drawio.svg 図.drawio
-```
+- 図（`docs/team-e/diagrams/*.drawio`）は draw.io で開いて編集し、上書き保存する。
+  **SVG は書き出さない**（原本と書き出しで二重管理になり、片方だけ古くなる）。
+  文書から貼るときは画像ではなく `.drawio` へのリンクにする
 
 ## ビルドの前提
 

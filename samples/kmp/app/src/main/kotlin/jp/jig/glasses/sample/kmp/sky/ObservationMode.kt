@@ -3,6 +3,7 @@ package jp.jig.glasses.sample.kmp.sky
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import jp.jig.glasses.sample.kmp.support.HOUR_MILLIS
 import kotlin.math.abs
 
 /** 現在の空と、場所・時刻を固定した空を混ぜないための観測状態。 */
@@ -75,7 +76,7 @@ fun ObservationSnapshot.beyondStarShapes(): Boolean =
  * いまの時刻から引き直せば、置いた場所に留まる。
  */
 fun scrubOffsetHours(anchorMillis: Long, epochMillis: Long, limitHours: Float): Float =
-    ((epochMillis - anchorMillis) / 3_600_000f).coerceIn(-limitHours, limitHours)
+    ((epochMillis - anchorMillis) / HOUR_MILLIS.toFloat()).coerceIn(-limitHours, limitHours)
 
 /**
  * つまみのずれを読める形にする（「＋3時間30分」）。
@@ -99,7 +100,7 @@ fun scrubOffsetLabel(offsetHours: Float): String {
 
 /** つまみを離した位置に対応する時刻。**基準は動かさない**（動かすと行き来でずれる） */
 fun scrubTargetMillis(anchorMillis: Long, offsetHours: Float): Long =
-    anchorMillis + (offsetHours * 3_600_000f).toLong()
+    anchorMillis + (offsetHours * HOUR_MILLIS.toFloat()).toLong()
 
 /** シミュレーション日時がTLE元期から離れすぎたときは、衛星だけをもっともらしく出さない。 */
 fun ObservationSnapshot.allowsSatellites(

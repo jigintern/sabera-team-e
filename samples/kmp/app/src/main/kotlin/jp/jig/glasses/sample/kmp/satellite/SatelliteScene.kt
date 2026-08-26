@@ -1,15 +1,13 @@
 package jp.jig.glasses.sample.kmp.satellite
 
 import android.content.Context
-import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
-import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
-import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.enu
+import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
+import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /**
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。
@@ -33,7 +31,7 @@ class SatelliteScene(
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.parse(text)
         }.getOrNull() ?: return null
-        return (nowMillis - parsed.time) / 86_400_000.0
+        return (nowMillis - parsed.time) / DAY_MILLIS.toDouble()
     }
 
     /**
@@ -44,60 +42,29 @@ class SatelliteScene(
      */
     fun elementAgeDays(nowMillis: Long): Double? {
         if (named.isEmpty()) return null
-        val ages = named.map { (nowMillis - it.tle.epochUnixMillis) / 86_400_000.0 }.sorted()
+        val ages = named.map { (nowMillis - it.tle.epochUnixMillis) / DAY_MILLIS.toDouble() }.sorted()
         return ages[ages.size / 2]
     }
 
     /** 空にいる衛星 1 機ぶんの情報。スマホ側の一覧にも使う */
-    class Sighting(
-        val name: String,
-        val azDeg: Double,
-        val altDeg: Double,
-        val rangeKm: Double,
-        val sunlit: Boolean,
-        val named: Boolean,
-        val motion: SkyMotion? = null,
-    ) {
-
-        /**
-         * 「上昇中・最接近まで 3 分」のような一言。
-         *
-         * **点だけ見せても「待てばいいのか」が分からない**ので、時間を出す。
-         */
-        val timing: String
-            get() {
-                val m = motion ?: return ""
-                if (m.stationary) return "ほぼ静止（同じ場所に見え続ける）"
-                val minutes = m.closestInMinutes
-                val direction = if (m.rising) "上昇中" else "下降中"
-                return when {
-                    minutes == null -> direction
-                    minutes > 0.5 -> "$direction・最接近まで ${kotlin.math.ceil(minutes).toInt()} 分"
-                    minutes > -0.5 -> "$direction・いま最接近"
-                    else -> "$direction・最接近は ${kotlin.math.ceil(-minutes).toInt()} 分前"
-                }
-            }
-
-        /** 「南南西 高度 45° 720km」のような表示 */
-        val where: String
-            get() {
-                return "${cardinalDirection16(azDeg)} 高度 ${altDeg.roundToInt()}° ${rangeKm.roundToInt()}km"
-            }
-    }
-
     /** 視野に入っている衛星を返す */
     fun tracksInView(
         observer: Observer,
         epochMillis: Long,
         look: Look,
         fovDeg: Double,
+        /**
+         * 表示面の縦横比（高さ／幅）。軌道計算はパネルの都合を知らないほうが検算しやすいので、
+         * glass の寸法は呼び出し側から渡す（既定値にすると値の複製になる）
+         */
+        panelAspect: Double,
         maxNamed: Int = MAX_NAMED,
         maxStarlink: Int = MAX_STARLINK,
     ): List<SkyTrack> {
         val forward = enu(look.azDeg, look.altDeg)
         // **fovDeg は視野の「横幅」なので、視線からの角度は半分で見る。**
         // パネルの対角まで含め、端へ入ってくる機体を少し早めに拾う。
-        val diagonalScale = hypot(1.0, PANEL_HEIGHT.toDouble() / PANEL_WIDTH)
+        val diagonalScale = hypot(1.0, panelAspect)
         val radiusDeg = fovDeg * 0.5 * diagonalScale * VIEW_MARGIN_SCALE
         val cosLimit = kotlin.math.cos(radiusDeg * (Math.PI / 180.0))
 
@@ -106,10 +73,14 @@ class SatelliteScene(
             return (v dot forward) > cosLimit
         }
 
-        val namedTracks = named.mapNotNull { track(it, observer, epochMillis, labelled = true) }
-            .filter { inView(it.nowAzDeg, it.nowAltDeg) }
-            .sortedByDescending { it.nowAltDeg }
+        // **視野で絞ってから動きを調べる。** 動きの計算は 1 機あたり 51 回の伝播で、
+        // 視野に入るのはたいてい 0〜3 機。先に motion まで作ると、そのほとんどを捨てることになる
+        // （視野の判定に使うのは「いま」の方位と高度だけなので、順番を変えても答えは同じ）
+        val namedTracks = named.mapNotNull { sgp4 -> track(sgp4, observer, epochMillis, labelled = true) }
+            .filter { inView(it.track.nowAzDeg, it.track.nowAltDeg) }
+            .sortedByDescending { it.track.nowAltDeg }
             .take(maxNamed)
+            .map { it.withMotion(observer, epochMillis) }
 
         // **近い順に選ぶ。** カタログの並び順で先着 8 機にすると、
         // 視野の隅にいる遠い機体が、真ん中を通る近い機体を押しのける。
@@ -125,29 +96,9 @@ class SatelliteScene(
         val starlinkTracks = starlinkCandidates
             .sortedBy { it.first }
             .take(maxStarlink)
-            .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false) }
+            .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false)?.track }
 
         return namedTracks + starlinkTracks
-    }
-
-    /** スマホ側の一覧に出すぶん。視野に関係なく、空に出ているものを高い順に */
-    fun aboveHorizon(observer: Observer, epochMillis: Long, limit: Int = 12): List<Sighting> {
-        val sightings = ArrayList<Sighting>()
-        for (sgp4 in named) {
-            val state = sgp4.at(epochMillis) ?: continue
-            val look = observer.look(state, epochMillis)
-            if (look.altDeg <= 0.0) continue
-            sightings += Sighting(
-                name = sgp4.tle.name,
-                azDeg = look.azDeg,
-                altDeg = look.altDeg,
-                rangeKm = look.rangeKm,
-                sunlit = isSunlit(state, epochMillis),
-                named = true,
-                motion = motion(sgp4, observer, epochMillis),
-            )
-        }
-        return sightings.sortedByDescending { it.altDeg }.take(limit)
     }
 
     /** 名前付き衛星を案内候補へ変える。地平線の下も断る根拠として返す。 */
@@ -205,19 +156,31 @@ class SatelliteScene(
      * **軌跡の線をやめたので、伝播するのは「いま」の 1 点だけ。**
      * 以前は前後 3 分ぶんを 10 秒刻みで 19 回伝播していた（線を引くため）。
      */
-    private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): SkyTrack? {
+    private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): Located? {
         val state = sgp4.at(epochMillis) ?: return null
         val now = observer.look(state, epochMillis)
         if (now.altDeg <= 0.0) return null
-        return SkyTrack(
-            name = sgp4.tle.name,
-            nowAzDeg = now.azDeg,
-            nowAltDeg = now.altDeg,
-            sunlit = isSunlit(state, epochMillis),
-            labelled = labelled,
-            // 名前を出さない機体では時間も出さないので、そのぶんの伝播を省く
-            motion = if (labelled) motion(sgp4, observer, epochMillis) else null,
+        return Located(
+            sgp4,
+            SkyTrack(
+                name = sgp4.tle.name,
+                nowAzDeg = now.azDeg,
+                nowAltDeg = now.altDeg,
+                sunlit = isSunlit(state, epochMillis),
+                labelled = labelled,
+            ),
         )
+    }
+
+    /**
+     * 「いま」の位置まで求めた 1 機。**動きはまだ調べていない。**
+     *
+     * 視野で絞ってから [withMotion] を呼ぶために、元の軌道要素を持ったまま渡す。
+     */
+    private inner class Located(private val sgp4: Sgp4, val track: SkyTrack) {
+        /** 名前を出さない機体では時間も出さないので、そのぶんの伝播を省く */
+        fun withMotion(observer: Observer, epochMillis: Long): SkyTrack =
+            if (track.labelled) track.copy(motion = motion(sgp4, observer, epochMillis)) else track
     }
 
     /**
@@ -241,7 +204,7 @@ class SatelliteScene(
         var azNext = Double.NaN
         for (i in 0..steps) {
             val minutes = APPROACH_BACK_MIN + i * APPROACH_STEP_MIN
-            val at = epochMillis + (minutes * 60_000.0).toLong()
+            val at = epochMillis + (minutes * MINUTE_MILLIS).toLong()
             val state = sgp4.at(at) ?: return null
             val look = observer.look(state, at)
             if (look.rangeKm < bestRange) {

@@ -6,7 +6,6 @@ import jp.jig.glasses.sample.kmp.glass.GlassPage
 /** ジェスチャーを受けて行う操作。画面ごとの割り当ては [glassAction] だけで決める。 */
 internal enum class GlassAction {
     NONE,
-    TIMELAPSE_LAND,
     STOP_GUIDANCE,
     RETURN_TO_LIVE,
     CANCEL_VOICE,
@@ -22,7 +21,6 @@ internal data class GlassGestureState(
     val page: GlassPage,
     val recordingVoice: Boolean,
     val asking: Boolean,
-    val timelapsePlaying: Boolean,
     val guidanceActive: Boolean,
     val guideRunning: Boolean,
     val simulating: Boolean,
@@ -34,7 +32,6 @@ internal fun glassAction(gesture: GestureType, state: GlassGestureState): GlassA
 
     return when (gesture) {
         GestureType.SINGLE_TAP -> when {
-            state.timelapsePlaying -> GlassAction.TIMELAPSE_LAND
             state.recordingVoice || state.asking -> GlassAction.CANCEL_VOICE
             // 案内段でも解説段でも、ガイド全体を 1 回で終了する。
             state.guideRunning -> GlassAction.STOP_GUIDE

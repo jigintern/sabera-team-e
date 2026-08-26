@@ -11,6 +11,7 @@ import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
 import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
 import jp.jig.glasses.sample.kmp.glass.canvasBufferUsageBytes
+import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.enu
@@ -36,6 +37,41 @@ class SatelliteSceneTest {
 
     private val sabae = ObservationDefaults.site
     private val observer = Observer(sabae.latDeg, sabae.lonDeg)
+
+    // 実機と同じ視野の絞り方で検査する（tracksInView はパネルの縦横比を外から受け取る）
+    private val panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH
+
+    /**
+     * 空に出ている名前つき衛星を高い順に。**本体が実際に使う入口から採る。**
+     *
+     * 以前は `SatelliteScene.aboveHorizon` を呼んでいたが、あれは本体から一度も呼ばれない
+     * 出し口の無いコードだったので撤去した（#99）。案内候補は地平線の下も返すので、ここで切る。
+     */
+    private fun SatelliteScene.namedUp(
+        epochMillis: Long,
+        include: (String) -> Boolean = { true },
+    ): List<GuidanceTarget> = guidanceTargets(observer, epochMillis, include)
+        .filter { it.aim.altDeg > 0.0 }
+        .sortedByDescending { it.aim.altDeg }
+
+    /**
+     * 名前で 1 機を狙い、その機体の動きを引く。
+     *
+     * **真正面に置いて視野の外へ落とさない。** 名前つきは高い順に絞られるので、
+     * 同じ視野に高いものが並んでも消えないよう上限も外す。
+     */
+    private fun SatelliteScene.motionOf(name: String, epochMillis: Long): SkyMotion? {
+        val target = namedUp(epochMillis) { it == name }.firstOrNull() ?: return null
+        return tracksInView(
+            observer,
+            epochMillis,
+            target.aim,
+            fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            panelAspect = panelAspect,
+            maxNamed = Int.MAX_VALUE,
+            maxStarlink = 0,
+        ).firstOrNull { it.name == name }?.motion
+    }
 
     private fun scene(): SatelliteScene = SatelliteScene(
         named = Tle.parseAll(File(dataDir, "satellites.tle").readText()).map { Sgp4(it) },
@@ -76,22 +112,23 @@ class SatelliteSceneTest {
     fun `いちばん高い衛星を向くとその機体が視野に入る`() {
         val scene = scene()
         val now = System.currentTimeMillis()
-        val target = scene.aboveHorizon(observer, now).firstOrNull()
+        val target = scene.namedUp(now).firstOrNull()
         checkNotNull(target) { "名前つきの衛星が 1 機も空に出ていない" }
 
         val tracks = scene.tracksInView(
             observer,
             now,
-            Look(target.azDeg, target.altDeg),
+            target.aim,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            panelAspect = panelAspect,
         )
         assertTrue("視野に何も入らない", tracks.isNotEmpty())
         val named = tracks.filter { it.labelled }
-        assertTrue("狙った衛星が入っていない", named.any { it.name == target.name })
+        assertTrue("狙った衛星が入っていない", named.any { it.name == target.nameJa })
         // 位置がそのまま出てくること。軌跡の線はもう持たない
         assertTrue("地平線より下を拾っている", tracks.all { it.nowAltDeg > 0.0 })
         println(
-            "${target.name}（${target.where}）を向くと ${tracks.size} 機" +
+            "${target.nameJa}（高度 ${"%.0f".format(target.aim.altDeg)}°）を向くと ${tracks.size} 機" +
                 "（名前つき ${named.size} / スターリンク ${tracks.size - named.size}）",
         )
     }
@@ -101,9 +138,8 @@ class SatelliteSceneTest {
         val scene = scene()
         val renderer = StarMapRenderer(catalog())
         val now = System.currentTimeMillis()
-        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
-        val look = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        val look = checkNotNull(scene.namedUp(now).firstOrNull()).aim
+        val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
         val width = STAR_MAP_WIDTH
         val height = STAR_MAP_HEIGHT
@@ -141,7 +177,7 @@ class SatelliteSceneTest {
         val scene = scene()
         val now = System.currentTimeMillis()
         // 天頂を向く。スターリンクは全天にいるので、たいてい何本か入る
-        val tracks = scene.tracksInView(observer, now, Look(180.0, 70.0), fovDeg = 50.0)
+        val tracks = scene.tracksInView(observer, now, Look(180.0, 70.0), fovDeg = 50.0, panelAspect = panelAspect)
         val starlink = tracks.filterNot { it.labelled }
         assertTrue("スターリンクが名前つきになっている", starlink.none { it.labelled })
         assertTrue(
@@ -154,12 +190,12 @@ class SatelliteSceneTest {
     fun `視野の外にいる衛星は拾わない`() {
         val scene = scene()
         val now = System.currentTimeMillis()
-        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
+        val target = checkNotNull(scene.namedUp(now).firstOrNull())
 
         // 狙った衛星のちょうど反対側を向く。視野 35° なら絶対に入らないはず
-        val away = Look((target.azDeg + 180.0) % 360.0, -target.altDeg.coerceAtMost(80.0))
-        val tracks = scene.tracksInView(observer, now, away, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
-        assertTrue("反対側を向いたのに狙った衛星が入っている", tracks.none { it.name == target.name })
+        val away = Look((target.aim.azDeg + 180.0) % 360.0, -target.aim.altDeg.coerceAtMost(80.0))
+        val tracks = scene.tracksInView(observer, now, away, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
+        assertTrue("反対側を向いたのに狙った衛星が入っている", tracks.none { it.name == target.nameJa })
 
         // 視野の半分より外にいるものが混ざっていないか。
         // fovDeg は横幅なので、視線からの角度は半分＋余裕までしか入らない
@@ -178,11 +214,10 @@ class SatelliteSceneTest {
         // 距離がほとんど変わらないので、数値のゆらぎで「あと 7 分」と出すと嘘になる
         val scene = scene()
         val now = System.currentTimeMillis()
-        val himawari = scene.aboveHorizon(observer, now, limit = 30).first { it.name == "ひまわり8" }
-        val motion = checkNotNull(himawari.motion) { "動きが出ていない" }
+        val motion = checkNotNull(scene.motionOf("ひまわり8", now)) { "動きが出ていない" }
         assertTrue("静止と判定できていない", motion.stationary)
         assertTrue("静止なのに最接近を出している: ${motion.closestInMinutes}", motion.closestInMinutes == null)
-        println("ひまわり8: ${himawari.timing}")
+        println("ひまわり8: 静止 ${motion.stationary} / 最接近 ${motion.closestInMinutes}")
     }
 
     @Test
@@ -205,8 +240,8 @@ class SatelliteSceneTest {
         assertTrue("24 時間のあいだ ISS が 30° より上に来ない", found > 0)
 
         val scene = SatelliteScene(named = listOf(iss), starlink = emptyList())
-        val sighting = scene.aboveHorizon(observer, found).first { it.name == "ISS" }
-        val motion = checkNotNull(sighting.motion)
+        val target = checkNotNull(scene.namedUp(found) { it == "ISS" }.firstOrNull())
+        val motion = checkNotNull(scene.motionOf("ISS", found))
         assertTrue("静止と誤判定している", !motion.stationary)
         val minutes = checkNotNull(motion.closestInMinutes) { "最接近が出ていない" }
         assertTrue("窓の外を返している: $minutes", minutes in -5.0..20.0)
@@ -217,7 +252,7 @@ class SatelliteSceneTest {
         val closestRange = observer.look(checkNotNull(iss.at(closestAt)), closestAt).rangeKm
         assertTrue("最接近のほうが遠い: $closestRange > $nowRange", closestRange <= nowRange + 0.1)
         println(
-            "ISS: 高度 ${"%.0f".format(sighting.altDeg)}° / ${sighting.timing} / " +
+            "ISS: 高度 ${"%.0f".format(target.aim.altDeg)}° / 最接近まで ${"%.1f".format(minutes)} 分 / " +
                 "いま ${"%.0f".format(nowRange)}km → 最接近 ${"%.0f".format(closestRange)}km",
         )
     }
@@ -243,16 +278,19 @@ class SatelliteSceneTest {
         val scene = scene()
         val renderer = StarMapRenderer(catalog())
         val now = System.currentTimeMillis()
-        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
-        val drawnLook = Look(target.azDeg, target.altDeg)
-        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        val drawnLook = checkNotNull(scene.namedUp(now).firstOrNull()).aim
+        val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
+        // **首を傾けた状態で突き合わせる。** roll 0 同士だと、絵だけ傾けて名前を傾け忘れる
+        // 取り違え（絵と根拠を別々に計算する #37 と同型）を検出できない
+        val drawnRoll = 12.0
         val map = renderer.render(
             site = sabae, epochMillis = now, look = drawnLook,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
             limitMagnitude = ObservationDefaults.LIMIT_MAGNITUDE,
             width = STAR_MAP_WIDTH, height = STAR_MAP_HEIGHT,
             drawLines = true, maxLabels = CANVAS_TEXT_SLOTS, tracks = tracks,
+            rollDeg = drawnRoll,
         )
         val fromRender = map.labels.filter { it.text.startsWith("●") || it.text.startsWith("○") }
         val fromLabels = renderer.trackLabels(
@@ -261,6 +299,7 @@ class SatelliteSceneTest {
             STAR_MAP_WIDTH,
             STAR_MAP_HEIGHT,
             tracks,
+            rollDeg = drawnRoll,
         )
         assertEquals("描画と印の数が合わない", fromRender.size, fromLabels.size)
         for ((a, b) in fromRender.zip(fromLabels)) {
@@ -290,8 +329,7 @@ class SatelliteSceneTest {
     fun `印だけ動かすときはスターリンクを回さない`() {
         val scene = scene()
         val now = System.currentTimeMillis()
-        val target = checkNotNull(scene.aboveHorizon(observer, now).firstOrNull())
-        val look = Look(target.azDeg, target.altDeg)
+        val look = checkNotNull(scene.namedUp(now).firstOrNull()).aim
 
         val started = System.nanoTime()
         val onlyNamed = scene.tracksInView(
@@ -299,12 +337,13 @@ class SatelliteSceneTest {
             now,
             look,
             fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG,
+            panelAspect = panelAspect,
             maxStarlink = 0,
         )
         val namedMs = (System.nanoTime() - started) / 1e6
 
         val started2 = System.nanoTime()
-        scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG)
+        scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
         val allMs = (System.nanoTime() - started2) / 1e6
 
         assertTrue("スターリンクが混ざっている", onlyNamed.all { it.labelled })

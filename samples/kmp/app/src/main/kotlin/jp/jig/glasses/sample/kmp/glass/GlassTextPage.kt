@@ -1,6 +1,8 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import app.jigglass.glass.CommandManager
+import kotlin.math.max
+import kotlin.math.min
 
 /** グラスに出しているページ。**星図と解説は同居させない**（#40）。 */
 enum class GlassPage {
@@ -286,4 +288,79 @@ object GlassTextPage {
         height = CANVAS_LABEL_HEIGHT,
         text = text,
     )
+}
+
+// 解説画面（1 枚 3 行）を 1 行ずつ流す速さの数値と計算
+
+/** 読み上げが終わってから星図へ戻すまでの余韻 */
+const val EXPLANATION_LINGER_MS = 5_000L
+
+/**
+ * 音が鳴らなかったときに解説を出したままにしておく時間。
+ *
+ * **騒がしい場所やイヤホンが無いときは文字が主役**（#40 の動機そのもの）なので、
+ * 読み終わる前に消えるのがいちばん悪い。140 文字の黙読に 16〜23 秒かかる。
+ */
+const val EXPLANATION_READ_MS = 25_000L
+
+/** 話が切り替わってから最初の 1 枚を送るまで。畳まれた古い本文を出さないための間 */
+const val EXPLANATION_SEND_DEBOUNCE_MS = 150L
+
+/**
+ * 1 枚目を出したあと、音が出るのを待つ上限。
+ *
+ * AI 音声の合成は 1〜2 秒。**待ちすぎるより先へ進むほうが害が小さい**（字幕だけで読む人が
+ * 主役の場面もある）ので、鳴らなければ黙読の速さでめくる。
+ */
+const val EXPLANATION_SOUND_WAIT_MS = 3_000L
+
+/**
+ * 最後の 1 枚を出しておく時間。
+ *
+ * **読み終わってからでも戻せるようにする**（首の上下フリック（HeadFlickDetector））。読み逃しに気づくのは
+ * たいてい流れ切ったあとで、そこで戻せないと**もう読む手立てが無い**
+ * （タップは「もう終わり」なので、止まって星図へ戻ってしまう）。
+ * この間も自動で星図へ戻す時計は動いているので、放っておけば今までどおり畳まれる。
+ */
+const val SUBTITLE_LAST_HOLD_MS = 6_000L
+
+/**
+ * 字幕を 1 枚出しておく最短の時間。
+ *
+ * 1 行ずつ流すようになったので、**下限も 1 行ぶん**。最後のほうに短い行が来たときに、
+ * 目に入る前に流れていくのを止めるためだけの値で、埋まった行（17 文字）では効かない。
+ */
+const val EXPLANATION_PAGE_MIN_MS = 1_600L
+
+/** 1 文字あたりの送り時間。読み上げはおよそ 7 文字／秒 */
+const val EXPLANATION_PAGE_PER_CHAR_MS = 150L
+
+/**
+ * 1 行流すごとに、次まで置く時間を何割ずつ延ばすか。
+ *
+ * **読み上げは文の切れ目で息が入る**が、字幕は 1 文字あたり一定で数えているので、
+ * **流すほど字幕が声より先へ出ていく**。1 行ごとに少しずつ長く置けば、そのぶんを取り返せる。
+ * 読む側から見ても、後ろの行ほど前の行を思い出しながら読むので、同じ速さでは追いつかない。
+ * **実機未確認**（読む速さは人と明るさで変わるので、合わなければここだけ直す）。
+ */
+const val EXPLANATION_SCROLL_SLOWDOWN = 0.06
+
+/**
+ * 遅くする頭打ち。
+ *
+ * 際限なく遅くすると、**声が終わったあと字幕だけが延々と残る**。
+ * いちばん長い解説（16 行）でも、最後の行は 1.4 倍で頭打ちになる。
+ */
+const val EXPLANATION_SCROLL_SLOWDOWN_MAX = 1.4
+
+/**
+ * 字幕を次の 1 行へ送るまでの時間。
+ *
+ * [revealed] はその 1 枚で新しく出た文字数（1 枚目だけ 2 行ぶん）、[step] は何枚目か。
+ * **Android に触らないので JVM テストで固定できる。**
+ */
+internal fun explanationDwellMs(revealed: Int, step: Int): Long {
+    val read = max(EXPLANATION_PAGE_MIN_MS, revealed * EXPLANATION_PAGE_PER_CHAR_MS)
+    val slowdown = min(1.0 + step * EXPLANATION_SCROLL_SLOWDOWN, EXPLANATION_SCROLL_SLOWDOWN_MAX)
+    return (read * slowdown).toLong()
 }

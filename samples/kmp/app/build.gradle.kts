@@ -108,6 +108,8 @@ dependencies {
     // AndroidX
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.runtime.compose)
+    // 画面の状態は ViewModel が持つ（回転や再コンポーズで消えない・JVM テストから触れる）
+    implementation(libs.lifecycle.viewmodel.compose)
 
     // 台本を QR で配る（toB）。core は純 Java なので生成も解読も同じ 1 個で足りる。
     // **ZXing Android Embedded は使わない**（独自 Activity を持ち込み、画面の向きの
@@ -121,6 +123,8 @@ dependencies {
 
     // 座標変換は実機に載せる前に手元で検算する
     testImplementation(libs.junit)
+    // 進行係（Runner）は仮想時間で回して検算する
+    testImplementation(libs.kotlinx.coroutines.test)
     // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
     testImplementation(libs.org.json)
 }

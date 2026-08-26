@@ -1,0 +1,91 @@
+<mxfile host="65bd71144e">
+    <diagram name="ページ-1" id="OgVn-MWzSTRM5JraPXKT">
+        <mxGraphModel dx="500" dy="705" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-1" value="" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="40" y="120" width="240" height="440" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-2" value="&lt;font style=&quot;font-size: 23px;&quot;&gt;&lt;b&gt;&lt;u&gt;SABERA&lt;/u&gt;&lt;/b&gt;&lt;/font&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" parent="1" vertex="1">
+                    <mxGeometry x="130" y="140" width="60" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-3" value="&lt;font&gt;6DoFセンサ&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="180" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-4" value="&lt;font&gt;ジェスチャ&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="220" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-5" value="&lt;font&gt;マイク&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="60" y="260" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-glass-canvas" value="&lt;font&gt;キャンバス表示&lt;br&gt;&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" vertex="1" parent="1">
+                    <mxGeometry x="60" y="300" width="200" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-glass-note" value="※スピーカー・カメラ・磁力計は無い" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="60" y="565" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-7" value="" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="120" width="240" height="440" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-8" value="&lt;font style=&quot;font-size: 23px;&quot;&gt;&lt;b&gt;&lt;u&gt;スマホ&lt;/u&gt;&lt;/b&gt;&lt;/font&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" parent="1" vertex="1">
+                    <mxGeometry x="600" y="140" width="80" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-9" value="&lt;font&gt;GPS・時刻・磁気センサ&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="180" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-10" value="&lt;font&gt;星表・星座線・衛星の軌道要素&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="220" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-11" value="星座解説文" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="260" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-phone-calc" value="&lt;font&gt;座標変換・星座判定&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" vertex="1" parent="1">
+                    <mxGeometry x="540" y="300" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-phone-render" value="&lt;font&gt;星図の画像を作る&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" vertex="1" parent="1">
+                    <mxGeometry x="540" y="340" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-phone-sound" value="&lt;font&gt;読み上げ・BGM を鳴らす&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" vertex="1" parent="1">
+                    <mxGeometry x="540" y="380" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-phone-note" value="計算・通信・音はすべてスマホ側" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="540" y="420" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-up" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" edge="1" parent="1" source="QtFYEO3siiHDAuCYkq9X-1" target="QtFYEO3siiHDAuCYkq9X-7">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-up-label" value="ピッチ・ヨー・角速度の判定&lt;br&gt;ジェスチャ&lt;br&gt;マイク音声" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=bottom;rounded=0;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="290" y="165" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-ble" value="BLE" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontSize=19;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="350" y="305" width="100" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-down-label" value="星図の画像&lt;br&gt;星座名・解説の字幕&lt;br&gt;センサ開始／停止・時刻合わせ・明るさ" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=bottom;rounded=0;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="290" y="385" width="220" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-down" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="1" source="QtFYEO3siiHDAuCYkq9X-7" target="QtFYEO3siiHDAuCYkq9X-1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-12" value="" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="520" y="600" width="240" height="160" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-13" value="&lt;font style=&quot;font-size: 23px;&quot;&gt;OpenAI&lt;/font&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;fontStyle=5" parent="1" vertex="1">
+                    <mxGeometry x="600" y="610" width="80" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-14" value="&lt;font&gt;音声入力に対する回答&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="650" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="QtFYEO3siiHDAuCYkq9X-15" value="&lt;font&gt;読み上げ音声&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fontSize=12;" parent="1" vertex="1">
+                    <mxGeometry x="540" y="700" width="200" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-ai" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="QtFYEO3siiHDAuCYkq9X-7" target="QtFYEO3siiHDAuCYkq9X-12">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="arch-e-ai-label" value="通信&lt;div&gt;圏外の場合は、ローカルのデータを利用&lt;/div&gt;" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;fontSize=11;" vertex="1" parent="1">
+                    <mxGeometry x="650" y="555" width="200" height="50" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

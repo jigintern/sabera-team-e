@@ -7,18 +7,13 @@ import org.junit.Test
 
 class GlassGestureTest {
     @Test
-    fun `9状態と3ジェスチャーの割り当てを固定する`() {
+    fun `8状態と3ジェスチャーの割り当てを固定する`() {
         val cases = listOf(
             Case("読み込み中", state(page = GlassPage.LOADING), none()),
             Case(
                 "素の星図",
                 state(),
                 actions(GlassAction.NONE, GlassAction.START_EXPLANATION, GlassAction.START_VOICE),
-            ),
-            Case(
-                "タイムラプス",
-                state(timelapsePlaying = true),
-                actions(GlassAction.TIMELAPSE_LAND, GlassAction.START_EXPLANATION, GlassAction.START_VOICE),
             ),
             Case(
                 "案内中",
@@ -96,7 +91,6 @@ class GlassGestureTest {
         page: GlassPage = GlassPage.STAR_MAP,
         recordingVoice: Boolean = false,
         asking: Boolean = false,
-        timelapsePlaying: Boolean = false,
         guidanceActive: Boolean = false,
         guideRunning: Boolean = false,
         simulating: Boolean = false,
@@ -104,7 +98,6 @@ class GlassGestureTest {
         page = page,
         recordingVoice = recordingVoice,
         asking = asking,
-        timelapsePlaying = timelapsePlaying,
         guidanceActive = guidanceActive,
         guideRunning = guideRunning,
         simulating = simulating,

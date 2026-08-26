@@ -1,6 +1,5 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,14 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -88,30 +85,5 @@ fun LoadingPanel(
                 textAlign = TextAlign.Center,
             )
         }
-    }
-}
-
-/**
- * すでに絵が出ている上に重ねる小さな札。
- *
- * 転送中はグラスから絵が消えるので、**スマホのプレビューが「いま映っているもの」ではなくなる**。
- * その食い違いを黙って放置しないための札。
- */
-@Composable
-fun SendingChip(text: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xCC0C151D))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(12.dp),
-            color = SaberaGreen,
-            strokeWidth = 2.dp,
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(text, style = MaterialTheme.typography.labelSmall, color = SaberaGreen)
     }
 }

@@ -25,10 +25,13 @@
 
 | 知りたいこと | 読む先 |
 |---|---|
+| **言葉の定義**（用語集） | [CONTEXT.md](CONTEXT.md) |
 | **決まったこと / 未決定事項 / 実装状況** | [00_index.md](docs/team-e/00_index.md) |
 | **何ができないか**（SDK・ハードの制約） | [01_sdk.md](docs/team-e/01_sdk.md) |
 | 何をどれだけ出せるか（画像・テキスト・転送） | [02_glass-output.md](docs/team-e/02_glass-output.md) |
 | 座標変換・方位合わせ・星座判定 | [03_coordinate-system.md](docs/team-e/03_coordinate-system.md) |
+| 星図を空に重ねる精度（**見送った計画**） | [14_alignment-accuracy.md](docs/team-e/14_alignment-accuracy.md) |
+| **見送った案と残っている宿題** | [19_backlog.md](docs/team-e/19_backlog.md) |
 | **星図に何をどう描くか**（点・絵・空の濃さ） | [04_star-map-drawing.md](docs/team-e/04_star-map-drawing.md) |
 | 画面遷移・ジェスチャー・スマホ UI | [05_app-flow.md](docs/team-e/05_app-flow.md) |
 | **何を喋るか**（解説・一口メモ・声の質問） | [06_narration.md](docs/team-e/06_narration.md) |
@@ -37,7 +40,6 @@
 | **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
 | **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
 | **星空の再現**（場所・日時の指定・時間再生） | [17_sky-simulation.md](docs/team-e/17_sky-simulation.md) |
-| 声かけ中の状態案内（**取り下げた実装の引き継ぎ**） | [18_voice-state-guidance.md](docs/team-e/18_voice-state-guidance.md) |
 | **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
 | **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
 | 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |
@@ -80,12 +82,13 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 
 ## 外せない数値
 
-**詳細と測った条件は [12_measurements.md](docs/team-e/12_measurements.md)。**
+**正本は [12_measurements.md](docs/team-e/12_measurements.md)。** ここは毎回読む早見表で、
+食い違ったら台帳のほうが正しい（測った条件も向こうにある）。
 
 | | |
 |---|---|
 | パネル | **576×360**。画像 1 枚は **544×340 を試し、入らなければ 528×330** |
-| 画像バッファ | **380,000 バイト**（`width * height * 2` の合計で数える） |
+| 画像バッファ | **380,000 バイト**（`width * height * 2` **＋圧縮後サイズ**で数える） |
 | テキスト | **8 要素・合計 190 バイト** |
 | 転送 | 1 パケット 200 バイトで**実測 8〜9ms**。528×330 の 1 枚で 332〜390ms |
 | 描き直し | **0.18 秒静止 ＋ 前の絵から 6° 以上**。動きに追従させると点滅にしかならない |
@@ -93,7 +96,7 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 | 画角 | **仮の 35° 固定・未実測**（`ObservationDefaults.STAR_MAP_FOV_DEG`） |
 | 解説画面 | **1 枚 3 行・1 行 17 文字**を 1 行ずつ上へ流す（189 バイト・1 電文）。**見出しは 1 枚目だけ** |
 | 台本の QR | 1 枚 **2,953 バイト**（version 40・誤り訂正 L・生バイト）。本文 200 字で **10 段**。Base64 を挟むと 5 段に落ちる |
-| ヨードリフト | 静止中 **44°/分**。補正込みで実測 0.0°/分 |
+| ヨードリフト | 静止中 **−44°/分**（負が正常）。補正込みで実測 0.0°/分 |
 | 方位の残差 | 地磁気で **±5〜15°**。星座の同定（±20°）は成立、星図の重ね合わせ（±2〜3°）は**追わない** |
 
 ## 規約
