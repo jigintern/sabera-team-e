@@ -14,6 +14,9 @@ import android.os.VibratorManager
  * `LocalHapticFeedback` ではなく [Vibrator] を直に叩くのは、**強さを決められない**から。
  * 画面を見ずに屋外で受け取る合図なので、UI の軽いコツンでは気づかない（実機で弱すぎた）。
  * 揃った・刻み・崩れた・決まったで**強さと長さを変える**と、見なくても区別が付く。
+ *
+ * **強さは実機で 2 回振った。** UI のコツン（強さを選べない）では弱すぎ、
+ * 最大まで上げると今度は驚く。**その中間**に置いてある。
  */
 class HoldFeedback(context: Context) {
 
@@ -22,13 +25,13 @@ class HoldFeedback(context: Context) {
     }.getOrNull()
 
     /** 条件が揃って数えはじめた合図 */
-    fun start() = buzz(45, 200)
+    fun start() = buzz(30, 130)
 
     /** 満ちていく途中の刻み。**いちばん多く鳴るので、いちばん短く** */
-    fun tick() = buzz(35, 180)
+    fun tick() = buzz(22, 110)
 
     /** 崩れて 0 に戻った。**長く鈍く**して、進んだ合図と取り違えないようにする */
-    fun lost() = buzz(90, 130)
+    fun lost() = buzz(60, 90)
 
     /** 決まった。**2 回打つ**（押していないのに終わるので、終わりだと分かる形にする） */
     fun done() {
@@ -37,8 +40,8 @@ class HoldFeedback(context: Context) {
         runCatching {
             v.vibrate(
                 VibrationEffect.createWaveform(
-                    longArrayOf(0, 60, 70, 140),
-                    intArrayOf(0, 255, 0, 255),
+                    longArrayOf(0, 40, 60, 80),
+                    intArrayOf(0, 170, 0, 170),
                     -1,
                 ),
             )
