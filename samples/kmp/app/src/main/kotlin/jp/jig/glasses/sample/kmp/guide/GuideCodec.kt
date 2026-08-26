@@ -29,7 +29,7 @@ object GuideCodec {
     /**
      * QR 1 枚に入るバイト数。**version 40・誤り訂正 L・バイトモード**の上限。
      *
-     * 本文 200 字なら 10 段で埋まる（実測は docs/team-e/16_guide.md）。
+     * 本文 200 字なら 10 段で埋まる（実測は docs/team-e/37_guide.md）。
      * **段数の固定上限は置かない。** 文の長さで入る段数が変わるので、実測して止める。
      */
     const val QR_CAPACITY_BYTES = 2_953

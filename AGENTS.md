@@ -23,26 +23,35 @@
 
 ## ドキュメントの地図
 
+**仕様は [docs/team-e/](docs/team-e/) にあり、ファイル名の数字が読み順。**
+番号は 10 ごとの帯で役目を表す — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード /
+60 実機確認 / 70 記録**。足すときはその帯の末尾に続ける。
+
 | 知りたいこと | 読む先 |
 |---|---|
 | **言葉の定義**（用語集） | [CONTEXT.md](CONTEXT.md) |
-| **決まったこと / 未決定事項 / 実装状況** | [00_index.md](docs/team-e/00_index.md) |
-| **何ができないか**（SDK・ハードの制約） | [01_sdk.md](docs/team-e/01_sdk.md) |
-| 何をどれだけ出せるか（画像・テキスト・転送） | [02_glass-output.md](docs/team-e/02_glass-output.md) |
-| 座標変換・方位合わせ・星座判定 | [03_coordinate-system.md](docs/team-e/03_coordinate-system.md) |
-| 星図を空に重ねる精度（**見送った計画**） | [14_alignment-accuracy.md](docs/team-e/14_alignment-accuracy.md) |
-| **見送った案と残っている宿題** | [19_backlog.md](docs/team-e/19_backlog.md) |
-| **星図に何をどう描くか**（点・絵・空の濃さ） | [04_star-map-drawing.md](docs/team-e/04_star-map-drawing.md) |
-| 画面遷移・ジェスチャー・スマホ UI | [05_app-flow.md](docs/team-e/05_app-flow.md) |
-| **何を喋るか**（解説・一口メモ・声の質問） | [06_narration.md](docs/team-e/06_narration.md) |
-| 声と BGM の鳴らし方 | [07_sound.md](docs/team-e/07_sound.md) |
-| 人工衛星（軌道・選定・描き方） | [08_satellites.md](docs/team-e/08_satellites.md) / [09_satellite-drawing.md](docs/team-e/09_satellite-drawing.md) |
-| **どこに何のコードがあるか・ビルドの前提** | [10_code-map.md](docs/team-e/10_code-map.md) |
-| **星座ガイド**（台本・即興ガイド・受動再生） | [16_guide.md](docs/team-e/16_guide.md) |
-| **星空の再現**（場所・日時の指定・時間再生） | [17_sky-simulation.md](docs/team-e/17_sky-simulation.md) |
-| **踏んだ落とし穴**（実機・実装） | [11_pitfalls.md](docs/team-e/11_pitfalls.md) |
-| **実機で測った数字** | [12_measurements.md](docs/team-e/12_measurements.md) / [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
-| 実機で何を確かめるか | [13_field-check.md](docs/team-e/13_field-check.md) |
+| **決まったこと / 未決定事項**・ドキュメントの地図 | [00_index.md](docs/team-e/00_index.md) |
+| **いまどこまで動いているか**（実機で確認済みか） | [01_status.md](docs/team-e/01_status.md) |
+| **何ができないか**（SDK・ハードの制約） | [10_sdk.md](docs/team-e/10_sdk.md) |
+| 何をどれだけ出せるか（画像・テキスト・転送） | [11_glass-output.md](docs/team-e/11_glass-output.md) |
+| 座標変換・方位合わせ・星座判定 | [20_coordinate-system.md](docs/team-e/20_coordinate-system.md) |
+| **星図に何をどう描くか**（点・絵・空の濃さ） | [21_star-map-drawing.md](docs/team-e/21_star-map-drawing.md) |
+| 役割分担・画面遷移 | [30_app-flow.md](docs/team-e/30_app-flow.md) |
+| **何を触ると何が起きるか**（3 枠・字幕送り） | [31_gestures.md](docs/team-e/31_gestures.md) |
+| グラスに出す画面（星図・挨拶・読み込み・解説） | [32_glass-screens.md](docs/team-e/32_glass-screens.md) |
+| スマホ UI・設定の並べ方・通知の入切 | [33_phone-ui.md](docs/team-e/33_phone-ui.md) |
+| **何を喋るか**（解説・一口メモ・声の質問） | [34_narration.md](docs/team-e/34_narration.md) |
+| 声と BGM の鳴らし方 | [35_sound.md](docs/team-e/35_sound.md) |
+| **天体の案内**（矢印と文字で首を導く） | [36_object-guidance.md](docs/team-e/36_object-guidance.md) |
+| **星座ガイド**（台本・即興ガイド・受動再生） | [37_guide.md](docs/team-e/37_guide.md) |
+| **星空の再現**（場所・日時の指定・深い時代） | [38_sky-simulation.md](docs/team-e/38_sky-simulation.md) |
+| 人工衛星（軌道・選定・描き方） | [40_satellites.md](docs/team-e/40_satellites.md) / [41_satellite-drawing.md](docs/team-e/41_satellite-drawing.md) |
+| **どこに何のコードがあるか・ビルドの前提** | [50_code-map.md](docs/team-e/50_code-map.md) |
+| 実機で何を確かめるか | [60_field-check.md](docs/team-e/60_field-check.md) |
+| **実機で測った数字** | [70_measurements.md](docs/team-e/70_measurements.md) / [71_yaw-drift.md](docs/team-e/71_yaw-drift.md) |
+| **踏んだ落とし穴**（実機・実装） | [72_pitfalls.md](docs/team-e/72_pitfalls.md) |
+| **見送った案と残っている宿題** | [73_backlog.md](docs/team-e/73_backlog.md) |
+| 星図を空に重ねる精度（**見送った計画**） | [74_alignment-accuracy.md](docs/team-e/74_alignment-accuracy.md) |
 
 ## やってはいけないこと
 
@@ -50,20 +59,20 @@
 
 | やらない | なぜ | 詳細 |
 |---|---|---|
-| 確かめていないことを「動く」と書く | 実機とテストの区別が消えると、次の人が実機確認を飛ばす | [index](docs/team-e/00_index.md) |
+| 確かめていないことを「動く」と書く | 実機とテストの区別が消えると、次の人が実機確認を飛ばす | [status](docs/team-e/01_status.md) |
 | 未決定事項を勝手に埋める | 決めた記録が残らないと同じ議論を繰り返す | [index](docs/team-e/00_index.md) |
-| `data/**` を直接編集する | すべて生成物。次の生成で消える | [code-map](docs/team-e/10_code-map.md) |
-| 解説文を AI に生成させる（**再生時**） | **星を見に行く場所ほど電波が届かない。** 88 星座ぶん同梱してある。**ガイドの台本を作るときだけ例外**（4 条件） | [narration](docs/team-e/06_narration.md) / [guide](docs/team-e/16_guide.md) |
-| 声で聞き取った文を指示として扱う | 喋るだけで解説員の役割を上書きできてしまう（#38） | [narration](docs/team-e/06_narration.md) |
-| 話題を絞って断る | 「ISS って何？」に一言も答えられなかった。**迷ったら答えるほうへ倒す** | [narration](docs/team-e/06_narration.md) |
-| 天文の言葉をそのまま喋らせる | 初心者には何をすればよいか分からない（`SkyTipsTest` が検査） | [narration](docs/team-e/06_narration.md) |
-| 首の向きを命令に使う | 星図を出している間は**頭の向き＝見ている空**。例外は解説画面の字幕送りだけ | [pitfalls](docs/team-e/11_pitfalls.md) |
-| `yawDegrees` をそのまま方位に使う | 静止中に **44°/分**流れる。`sendNaviCourse` も答えにならない | [pitfalls](docs/team-e/11_pitfalls.md) |
-| RLE / Opus のコーデックを自前で書く | SDK 0.0.12 / 0.3.0 で入った | [pitfalls](docs/team-e/11_pitfalls.md) |
-| 画像を「枚数」で設計する／回るものを画像で描く | 先に尽きるのはバッファ。全画面 1 枚は 332〜390ms かかり点滅になる | [pitfalls](docs/team-e/11_pitfalls.md) |
-| 絵と根拠を別々に計算する | 「オリオン座」と出ているのに別の星座を喋った（#37） | [pitfalls](docs/team-e/11_pitfalls.md) |
-| `optString` を JSON の null に使う／`coroutineScope` の中で `SupervisorJob` を作る | **テストで落ちず実機だけで壊れる／テストが返ってこなくなる** | [pitfalls](docs/team-e/11_pitfalls.md) |
-| lint の detector を無効化して通す | ツールチェーンの不整合を隠すだけ | [code-map](docs/team-e/10_code-map.md) |
+| `data/**` を直接編集する | すべて生成物。次の生成で消える | [code-map](docs/team-e/50_code-map.md) |
+| 解説文を AI に生成させる（**再生時**） | **星を見に行く場所ほど電波が届かない。** 88 星座ぶん同梱してある。**ガイドの台本を作るときだけ例外**（4 条件） | [narration](docs/team-e/34_narration.md) / [guide](docs/team-e/37_guide.md) |
+| 声で聞き取った文を指示として扱う | 喋るだけで解説員の役割を上書きできてしまう（#38） | [narration](docs/team-e/34_narration.md) |
+| 話題を絞って断る | 「ISS って何？」に一言も答えられなかった。**迷ったら答えるほうへ倒す** | [narration](docs/team-e/34_narration.md) |
+| 天文の言葉をそのまま喋らせる | 初心者には何をすればよいか分からない（`SkyTipsTest` が検査） | [narration](docs/team-e/34_narration.md) |
+| 首の向きを命令に使う | 星図を出している間は**頭の向き＝見ている空**。例外は解説画面の字幕送りだけ | [gestures](docs/team-e/31_gestures.md) / [pitfalls](docs/team-e/72_pitfalls.md) |
+| `yawDegrees` をそのまま方位に使う | 静止中に **44°/分**流れる。`sendNaviCourse` も答えにならない | [pitfalls](docs/team-e/72_pitfalls.md) |
+| RLE / Opus のコーデックを自前で書く | SDK 0.0.12 / 0.3.0 で入った | [pitfalls](docs/team-e/72_pitfalls.md) |
+| 画像を「枚数」で設計する／回るものを画像で描く | 先に尽きるのはバッファ。全画面 1 枚は 332〜390ms かかり点滅になる | [pitfalls](docs/team-e/72_pitfalls.md) |
+| 絵と根拠を別々に計算する | 「オリオン座」と出ているのに別の星座を喋った（#37） | [pitfalls](docs/team-e/72_pitfalls.md) |
+| `optString` を JSON の null に使う／`coroutineScope` の中で `SupervisorJob` を作る | **テストで落ちず実機だけで壊れる／テストが返ってこなくなる** | [pitfalls](docs/team-e/72_pitfalls.md) |
+| lint の detector を無効化して通す | ツールチェーンの不整合を隠すだけ | [code-map](docs/team-e/50_code-map.md) |
 | `Co-Authored-By` にエージェントを入れる | コミットの作者は人間 | 下の規約 |
 | 秘密情報（PAT・API キー）をコミットする | `.env` は `.gitignore` 済み | [CONTRIBUTING](CONTRIBUTING.md) |
 
@@ -78,11 +87,11 @@ cd samples/kmp
 tools/pull-session-log.sh                # 実機の観測ログを取り出して要約する（--logcat / --clear）
 ```
 
-同梱データの作り直しとビルドの前提は [10_code-map.md](docs/team-e/10_code-map.md)。
+同梱データの作り直しとビルドの前提は [50_code-map.md](docs/team-e/50_code-map.md)。
 
 ## 外せない数値
 
-**正本は [12_measurements.md](docs/team-e/12_measurements.md)。** ここは毎回読む早見表で、
+**正本は [70_measurements.md](docs/team-e/70_measurements.md)。** ここは毎回読む早見表で、
 食い違ったら台帳のほうが正しい（測った条件も向こうにある）。
 
 | | |
@@ -119,7 +128,8 @@ tools/pull-session-log.sh                # 実機の観測ログを取り出し�
 - コードのコメントは「何をしているか」ではなく「なぜそうしたか」。既存ファイルの密度に合わせる
 - **ドキュメントは箇条書きと表で書く。** 1 つの文書は 1 つの役目だけを持ち、
   同じことを 2 か所に書かない（**この AGENTS.md は 200 行を超えない**）
-- **`docs/team-e/` のファイル名の数字は読み順。** 足すときは末尾に番号を続けるか、まとめて振り直す
+- **`docs/team-e/` のファイル名の数字は読み順**で、**10 ごとの帯が役目**を表す
+  （上の地図）。足すときは**その帯の末尾**に続ける。帯が埋まったらまとめて振り直す
 - SDK API の説明は複製せず、[上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を参照する
 - 秘密情報（PAT、API キー）をコミットしない
 - ライセンス — サンプル・ラッパーコードは Apache License 2.0。

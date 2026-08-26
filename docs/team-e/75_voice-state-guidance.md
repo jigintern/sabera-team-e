@@ -138,7 +138,7 @@ git show archive/voice-state-guidance:samples/kmp/app/src/main/kotlin/jp/jig/gla
 | いつ | 文言 | 根拠 |
 |---|---|---|
 | 最初 | `タップで星図へ戻る` | 実装当時の `toggleNarration` が解説画面のタップで星図へ帰していた |
-| main を取り込んだあと | `ダブルタップで星図へ戻る` | main が **「戻る」は `DOUBLE_TAP` だけ**（05_app-flow.md）に統一していた |
+| main を取り込んだあと | `ダブルタップで星図へ戻る` | main が **「戻る」は `DOUBLE_TAP` だけ**（31_gestures.md）に統一していた |
 | 実機確認のあと | `タップで星図へ戻る` | **実機では 1 回タップで戻れた**（`toggleNarration` は残っている）。少ない操作を書く |
 
 **この食い違いは 2026-08-26 に決着した。**
@@ -147,7 +147,7 @@ git show archive/voice-state-guidance:samples/kmp/app/src/main/kotlin/jp/jig/gla
 - `DOUBLE_TAP` は通常時の解説開始、ガイド中の次の段に使う
 - 録音中の `SINGLE_TAP` は送信せず、録音を捨てて星図へ戻る。送信は 2 回目の `HOLD`
 
-この決定は [画面遷移とジェスチャー](05_app-flow.md) を正とする。
+この決定は [ジェスチャーと首の操作](31_gestures.md) を正とする。
 
 ---
 
@@ -176,9 +176,9 @@ git show archive/voice-state-guidance:samples/kmp/app/src/main/kotlin/jp/jig/gla
 | **分かった** | main では**解説の途中でシングルタップすると星図へ戻れる** |
 | **分かっていない** | 上記以外すべて。クルクル・案内の読みやすさ・首フリックの合図・カウントダウンの見え方 |
 
-作り直したときの確認項目は、タグ側の `docs/team-e/13_field-check.md` の C2.7 に 20 項目ほど
+作り直したときの確認項目は、タグ側の `docs/team-e/60_field-check.md`（当時の C2.7・いまの C5）に 20 項目ほど
 書いてあるので、そこから拾う。
 
 ```bash
-git show archive/voice-state-guidance:docs/team-e/13_field-check.md
+git show archive/voice-state-guidance:docs/team-e/60_field-check.md
 ```

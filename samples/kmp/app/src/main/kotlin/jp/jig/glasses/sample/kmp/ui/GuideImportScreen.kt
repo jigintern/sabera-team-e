@@ -62,7 +62,7 @@ import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
  * カメラを断った人が詰まないよう、ファイルの口も必ず出す。
  *
  * **読み込む前に中身を見せる。** 「何を喋るのか分からないまま外へ持ち出させない」を
- * 受け取り側にも当てる（16_guide.md）。QR は誰でも作れるので、
+ * 受け取り側にも当てる（39_guide-authoring.md）。QR は誰でも作れるので、
  * **端末が読み上げる文がどこから来たのか、入れる前に本人が見られるようにする。**
  */
 @OptIn(ExperimentalMaterial3Api::class)

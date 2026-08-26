@@ -52,7 +52,7 @@ object GuidePlan {
      * 再生できる段だけを残す。**1 段も残らなければ空。**
      *
      * 呼ぶ側は空のときに「いま出ている星座がありません」を喋って畳む。
-     * **無言で終わらせない**（タップして無反応が一番よくない・05_app-flow.md）。
+     * **無言で終わらせない**（タップして無反応が一番よくない・31_gestures.md）。
      */
     fun playable(resolved: List<ResolvedStep>): List<ResolvedStep> = resolved.filter { it.playable }
 }

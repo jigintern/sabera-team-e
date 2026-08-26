@@ -87,7 +87,7 @@
 | `guide/GuideCodec.kt` | QR とファイルの出入口。圧縮と**形の上限**。**中身は見ない** |
 | `guide/AuthoredGuide.kt` | 編集中の台本（toB）。並べ替え・段の増減・上限の判定 |
 | `guide/GuideAsk.kt` | toB の対話で**通信の前に端末が断る**ところ。`narration/AskGuard` と同じ位置づけ |
-| `openai/OpenAiGuide.kt` | 即興ガイドの文を書かせる（一往復）。**「解説文を AI に生成させない」の例外**（[guide](16_guide.md) の 4 条件） |
+| `openai/OpenAiGuide.kt` | 即興ガイドの文を書かせる（一往復）。**「解説文を AI に生成させない」の例外**（[authoring](39_guide-authoring.md) の 4 条件） |
 | `openai/OpenAiGuideChat.kt` | 詳細ガイドを対話で作らせる（履歴を積む）。**候補の中からしか選ばせない** |
 | `support/QrCode.kt` | QR の生成と解読。**文字ではなく生バイトを運ぶ**（ISO-8859-1 経由でバイトモードにする） |
 | `support/Connectivity.kt` | いま通信できるか。**聞くのは台本を作る画面だけ**（再生中は通信しない） |
@@ -158,7 +158,7 @@ tools/build-demo-images.sh        # 全部（docs/images/ へ）
 - JDK 17 / Gradle 8.10.2（wrapper 同梱）/ Kotlin 2.3.10 / AGP 8.7.0
 - 実行時依存は **SDK・coroutines・Compose・activity・lifecycle** に加えて
   **zxing core 1 個 ＋ CameraX 4 個**（台本を QR で配るため）。
-  **ZXing Android Embedded と ML Kit は使わない**（理由は [guide](16_guide.md)）
+  **ZXing Android Embedded と ML Kit は使わない**（理由は [authoring](39_guide-authoring.md)）
 - Android `minSdk 31` / `compileSdk 36` / `targetSdk 36`
 - **BLE 実機が必須。エミュレータでは動作確認できない**
 - SDK は private な GitHub Packages 配布。**`read:packages` の PAT が無いとビルドが落ちる**

@@ -147,7 +147,7 @@ internal fun GuideProgressCard(
  *
  * 台本は星座名しか持たないので別の夜でも再生できるが、「沈む前に見ておく」ために決めた
  * 順番はその夜には合っておらず、段がいくつか飛ぶ。**それでも半分見られるなら回すほうがよい**
- * （止まらないことを優先する・16_guide.md）ので、止めずに選ばせる。
+ * （止まらないことを優先する・37_guide.md）ので、止めずに選ばせる。
  */
 @Composable
 internal fun GuideMismatchDialog(

@@ -26,7 +26,7 @@ object MeteorShowerAlarm {
     /**
      * 星図をグラスへ出している最中か。
      *
-     * **通知が出るとグラスの星図が消える**（`docs/team-e/02_glass-output.md`）ので、
+     * **通知が出るとグラスの星図が消える**（`docs/team-e/11_glass-output.md`）ので、
      * 観測中は鳴らさずに捨てる。**そもそも観測中の人は既に空の下にいる。**
      *
      * `SharedPreferences` に持たせない。アプリが落ちたときに true が残ると、

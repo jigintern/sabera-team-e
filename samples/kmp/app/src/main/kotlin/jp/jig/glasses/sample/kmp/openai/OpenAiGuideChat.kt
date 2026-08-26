@@ -24,7 +24,7 @@ data class GuideChatReply(val reply: String, val steps: List<GuideStep>?, val dr
  * 台本を対話で作らせる（詳細ガイド・toB）。
  *
  * [OpenAiGuide]（即興ガイド・一往復きり）と分けてあるのは、**積み上げる履歴を持つ**から。
- * 16_guide.md の 4 条件はここでも崩さない。
+ * 39_guide-authoring.md の 4 条件はここでも崩さない。
  *
  * - **通信するのは台本を作るときだけ。** 再生時は圏外でも最後まで喋る
  * - 失敗・圏外なら AI の口を出さず、同梱の文で組む（画面側）

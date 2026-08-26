@@ -59,7 +59,7 @@
   - 星座判定
   - 衛星の軌道計算（SGP4 / SDP4）
 
-最新の状態は [仕様書の入口](docs/team-e/00_index.md) を参照。
+最新の状態は [実装状況](docs/team-e/01_status.md) を参照（入口は [00_index.md](docs/team-e/00_index.md)）。
 
 ## 動かす
 
@@ -79,12 +79,13 @@ cd samples/kmp
 
 ## 開発者向けリンク
 
-- [仕様・実装状況](docs/team-e/00_index.md)
-- [グラス出力の制約](docs/team-e/02_glass-output.md)
-- [画面遷移とジェスチャー](docs/team-e/05_app-flow.md)
-- [コードとデータの地図](docs/team-e/10_code-map.md)
-- [実装上の落とし穴](docs/team-e/11_pitfalls.md)
-- [実機で測った数字](docs/team-e/12_measurements.md)
+- [仕様の入口（決まったこと・地図）](docs/team-e/00_index.md)
+- [実装状況](docs/team-e/01_status.md)
+- [グラス出力の制約](docs/team-e/11_glass-output.md)
+- [ジェスチャーと首の操作](docs/team-e/31_gestures.md)
+- [コードとデータの地図](docs/team-e/50_code-map.md)
+- [実装上の落とし穴](docs/team-e/72_pitfalls.md)
+- [実機で測った数字](docs/team-e/70_measurements.md)
 - [コントリビューションガイド](CONTRIBUTING.md)
 - [Sabera App SDK 公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)
 
