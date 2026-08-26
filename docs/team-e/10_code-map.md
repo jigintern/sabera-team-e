@@ -57,6 +57,7 @@
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
 | `glass/StarMap.kt` | 絵とラベルを 1 つの器で持つ。**解説の主役は `constellationNames()` の先頭**（#37） |
 | `glass/GuidanceIndicator.kt` | 天体案内の矢印・到着リングの共通形状。グラスとスマホのプレビューを同じ向き・比率にする（#61） |
+| `glass/CanvasBudget.kt` | **星図と案内矢印が画像バッファに同居できるか。** 溢れるなら矢印を捨てる。**焼く側と 130ms ごとの送信側が同じ判定を使う**（ずれると矢印が点滅する） |
 | `glass/GuidanceOverlay.kt` / `GuidanceOverlaySender.kt` | 共通形状を小画像へ焼き（左右120×56・上下56×120・到着80×80）、**全画面を送らず、この小画像だけ替える**。**枠が変わるときは先に消す**（#46・#61） |
 | `catalog/ConstellationLore.kt` | 88 星座の解説文。**解説に通信を使わない**（`data/constellation-lore.json`） |
 | `catalog/MeteorShowers.kt` | 流星群の引き当て。**日付だけで決まる**ので通信も要らない（年をまたぐ群がある） |
