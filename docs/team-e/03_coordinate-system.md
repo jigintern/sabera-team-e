@@ -10,9 +10,8 @@
 
 **グラスは表示とセンサーに徹し、計算はすべてスマホ側。**
 
-![システム構成](diagrams/system.drawio.svg)
-
-![座標変換パイプライン](diagrams/pipeline.drawio.svg)
+図 — [システムアーキテクチャ.drawio](diagrams/システムアーキテクチャ.drawio)（SABERA とスマホのやりとり）／
+[星座計算パイプライン.drawio](diagrams/星座計算パイプライン.drawio)（星図が出るまでの計算）
 
 | 項目 | 決定 |
 |---|---|

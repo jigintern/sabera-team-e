@@ -31,3 +31,6 @@ tools/.cache/
 
 # 実機から取り出した観測ログ（tools/pull-session-log.sh）
 logs/
+
+# draw.io が編集中に作る作業ファイル（.$図.drawio.bkp）
+.$*.bkp
