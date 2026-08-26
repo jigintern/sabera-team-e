@@ -45,7 +45,7 @@ import jp.jig.glasses.sample.kmp.openai.OpenAiGuide
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
-import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.glass.BundledData
 import jp.jig.glasses.sample.kmp.ui.component.AdvancedSection
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.LoadingPanel

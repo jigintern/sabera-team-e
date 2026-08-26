@@ -51,7 +51,7 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
-import jp.jig.glasses.sample.kmp.support.BundledData
+import jp.jig.glasses.sample.kmp.glass.BundledData
 import jp.jig.glasses.sample.kmp.support.Connectivity
 import jp.jig.glasses.sample.kmp.ui.component.CandidateCard
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground

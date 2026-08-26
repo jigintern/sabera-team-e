@@ -5,8 +5,8 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
-import jp.jig.glasses.sample.kmp.narration.Narrator
 import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
+import jp.jig.glasses.sample.kmp.openai.Pcm16FrameAssembler
 import jp.jig.glasses.sample.kmp.support.LoudnessBoost
 import jp.jig.glasses.sample.kmp.support.SingleFlight
 import kotlinx.coroutines.CancellationException
@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * 黙るのは機能の欠落になる。
  *
  * 発話は 1 本ずつ順に鳴らす。[say] は積んであるものを捨てて言い直し、[add] は後ろに続ける
- * （「〇〇座ですね」→ 解説、という [Narrator] の組み立てに合わせている）。
+ * （「〇〇座ですね」→ 解説、という narration.Narrator の組み立てに合わせている）。
  */
 class CloudVoice(
     context: Context,

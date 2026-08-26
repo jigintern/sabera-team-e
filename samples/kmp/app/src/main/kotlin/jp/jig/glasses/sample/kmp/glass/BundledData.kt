@@ -1,10 +1,9 @@
-package jp.jig.glasses.sample.kmp.support
+package jp.jig.glasses.sample.kmp.glass
 
 import android.content.Context
 import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
 import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
-import jp.jig.glasses.sample.kmp.glass.StarMapRenderer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
