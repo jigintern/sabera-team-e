@@ -59,9 +59,12 @@ import jp.jig.glasses.sample.kmp.alignment.HeadFlickDetector
 import jp.jig.glasses.sample.kmp.alignment.HeadMotion
 import jp.jig.glasses.sample.kmp.alignment.Located
 import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.LookLatch
 import jp.jig.glasses.sample.kmp.alignment.YawDriftCorrector
 import jp.jig.glasses.sample.kmp.catalog.ConstellationLore
 import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
+import jp.jig.glasses.sample.kmp.catalog.activeShower
+import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
@@ -91,6 +94,7 @@ import jp.jig.glasses.sample.kmp.glass.PREDICT_DAMPING
 import jp.jig.glasses.sample.kmp.glass.REDRAW_DEG
 import jp.jig.glasses.sample.kmp.glass.REDRAW_ROLL_DEG
 import jp.jig.glasses.sample.kmp.glass.ROLL_SMOOTHING
+import jp.jig.glasses.sample.kmp.glass.RedrawDecider
 import jp.jig.glasses.sample.kmp.glass.SETTLE_MS
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STILL_DEG
@@ -228,6 +232,8 @@ import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
 import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
 import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
+import jp.jig.glasses.sample.kmp.ui.starmap.LOG_LINES
+import jp.jig.glasses.sample.kmp.ui.starmap.ScreenLog
 import jp.jig.glasses.sample.kmp.voice.CloudVoice
 import jp.jig.glasses.sample.kmp.voice.DeviceVoice
 import jp.jig.glasses.sample.kmp.voice.GlassMic
@@ -296,24 +302,21 @@ fun StarMapScreen(
      * ここが入ったらクルクルを止めて理由を出す。
      */
     var loadingError by remember { mutableStateOf<String?>(null) }
-    val logs = remember { mutableStateListOf<LogLine>() }
-    val clock = remember { SimpleDateFormat("HH:mm:ss", Locale.JAPAN) }
-
-    // 画面のログは 40 行で、画面を出ると消える。ドリフト率のような長い計測が取れないので
-    // 同じ行をファイルにも残す（docs/team-e/03_coordinate-system.md の「実測しないと決められないこと」）
     val sessionLog = remember { SessionLog(context, scope) }
+    val screenLog = remember {
+        ScreenLog(
+            append = sessionLog::append,
+            // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
+            // 書き出しは屋外用で、机の上では logcat のほうが早い
+            logcat = { text, failed -> if (failed) Log.w(TAG, text) else Log.d(TAG, text) },
+        )
+    }
+    val logs = screenLog.lines
 
     // ファイルの大きさは Compose から見えないので、パネルを開いている間だけ拾う
     var logBytes by remember { mutableStateOf(0L) }
 
-    fun log(text: String, failed: Boolean = false) {
-        logs.add(0, LogLine(clock.format(Date()), text, failed))
-        while (logs.size > LOG_LINES) logs.removeAt(logs.lastIndex)
-        sessionLog.append(if (failed) "失敗  " + text else text)
-        // 有線で繋がっているなら `adb logcat -s StarMap` で生で流れる。
-        // 書き出しは屋外用で、机の上では logcat のほうが早い
-        if (failed) Log.w(TAG, text) else Log.d(TAG, text)
-    }
+    fun log(text: String, failed: Boolean = false) = screenLog.log(text, failed)
 
     // **アプリの生きている間 1 回だけ読む**（[BundledData]）。方位を合わせ直すたびに
     // 星表を読み直し、星座ごとの最輝星を全星と突き合わせ直していた
@@ -641,8 +644,8 @@ fun StarMapScreen(
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
 
-    // ツルをタップすると頭が動く。判定はタップ直前の視線から取りたいので、少し過去を持っておく
-    val lookHistory = remember { ArrayDeque<Triple<Long, Double, Double>>() }
+    // ツルをタップすると頭が動く。判定はタップ直前の視線から取る（LookLatch）
+    val lookLatch = remember { LookLatch() }
 
     DisposableEffect(commandManager) {
         val job: Job = scope.launch {
@@ -666,10 +669,7 @@ fun StarMapScreen(
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
-                lookHistory.addLast(Triple(lastImuAt, yawNow(), glassPitch))
-                while (lookHistory.isNotEmpty() && lastImuAt - lookHistory.first().first > HISTORY_MS) {
-                    lookHistory.removeFirst()
-                }
+                lookLatch.record(lastImuAt, yawNow(), glassPitch)
             }
         }
         onDispose {
@@ -835,22 +835,6 @@ fun StarMapScreen(
         }
     }
 
-    /**
-     * 放射点のいまの方位・高度。
-     *
-     * 放射点は **J2000 の赤経・赤緯**で持っている（星表と同じ座標系）。
-     * **星図の印と一口メモがここを共有する**ので、印の場所と喋る方角が食い違わない。
-     */
-    fun showerAt(observation: ObservationSnapshot): MeteorShowers.Shower? {
-        val local = Instant.ofEpochMilli(observation.epochMillis).atZone(observation.zoneId)
-        return showerCatalog.today(local.monthValue, local.dayOfMonth)
-    }
-
-    fun radiantAltAz(target: MeteorShowers.Shower, observation: ObservationSnapshot): DoubleArray {
-        val lst = localSiderealDeg(daysFromJ2000(observation.epochMillis), observation.site.lonDeg)
-        return toApparentAltAz(target.raDeg, target.decDeg, lst, observation.site.latDeg)
-    }
-
     fun look(): Look = Look(
         azimuthFromYaw(yawNow(), headingOffset),
         clampAltDeg(glassPitch + pitchOffset),
@@ -858,11 +842,10 @@ fun StarMapScreen(
 
     /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
     fun latchedLook(): Look {
-        val target = System.currentTimeMillis() - LATCH_MS
-        val entry = lookHistory.lastOrNull { it.first <= target } ?: return look()
+        val (yaw, pitch) = lookLatch.latched(System.currentTimeMillis()) ?: return look()
         return Look(
-            (normalizeDeg(entry.second + headingOffset) + 360.0) % 360.0,
-            clampAltDeg(entry.third + pitchOffset),
+            (normalizeDeg(yaw + headingOffset) + 360.0) % 360.0,
+            clampAltDeg(pitch + pitchOffset),
         )
     }
 
@@ -918,8 +901,8 @@ fun StarMapScreen(
                 }
             }
             // 放射点の印。**その日に活動している群があるときだけ**（無い日は何も増えない）
-            val radiants = showerAt(observation)?.let {
-                val aa = radiantAltAz(it, observation)
+            val radiants = showerCatalog.activeShower(observation)?.let {
+                val aa = it.radiantAltAz(observation)
                 listOf(MeteorRadiantMark(it.nameJa, aa[0], aa[1]))
             }.orEmpty()
             suspend fun renderAt(w: Int, h: Int) = withContext(Dispatchers.Default) {
@@ -1134,17 +1117,11 @@ fun StarMapScreen(
         if (renderer == null) return@LaunchedEffect
         var drawn: Look? = null
         var renderedObservationRevision = -1
-        var previous = look()
-        var movedAt = 0L
-        /** 先出しした時刻。**首を振り続けている間に何枚も先出ししない**ための間隔 */
-        var predictedAt = 0L
+        val decider = RedrawDecider()
         while (true) {
             val now = look()
             headMotion.add(System.currentTimeMillis(), now)
-            val step = max(abs(normalizeDeg(now.azDeg - previous.azDeg)), abs(now.altDeg - previous.altDeg))
-            if (step > STILL_DEG) movedAt = System.currentTimeMillis()
-            previous = now
-            settled = System.currentTimeMillis() - movedAt > STILL_MS
+            settled = decider.settle(System.currentTimeMillis(), now.azDeg, now.altDeg)
 
             // 解説画面の間は星図を送らない。文字の上に画像が重なるうえ、
             // 転送のあいだ（実測 332〜390ms）は文字ごと消える
@@ -1163,21 +1140,18 @@ fun StarMapScreen(
             // ここを見ないと地平線が傾いたまま残る
             val rolled = abs(normalizeDeg(glassRoll - drawnRoll))
             val observationChanged = renderedObservationRevision != observationRevision
-            if (settled && (observationChanged || drift > REDRAW_DEG || rolled > REDRAW_ROLL_DEG)) {
+            if (decider.shouldRedraw(settled, observationChanged, drift, rolled)) {
                 // 送れなかったとき（前の送信が居座っている・バッファ超過）に視線を進めると、
                 // 次に 6° 動くまで描き直しが来ない。モードを切り替えた直後に効いてくる
                 drawAndSend()?.let {
                     drawn = it
                     renderedObservationRevision = observationRevision
-                    predictedAt = 0L
+                    decider.onDrawn()
                 }
-            } else if (
-                drift > REDRAW_DEG && headMotion.slowing &&
-                System.currentTimeMillis() - predictedAt > PREDICT_COOLDOWN_MS
-            ) {
+            } else if (decider.shouldPredict(System.currentTimeMillis(), drift, headMotion.slowing)) {
                 // **止まる先へ 1 枚。** 行き過ぎるより届かないほうが安全なので割り引く
                 val aim = headMotion.predict(now, transferMs + SETTLE_MS, PREDICT_DAMPING)
-                predictedAt = System.currentTimeMillis()
+                decider.onPredicted(System.currentTimeMillis())
                 drawAndSend(aim)?.let {
                     drawn = it
                     renderedObservationRevision = observationRevision
@@ -3319,9 +3293,6 @@ private const val SPEECH_END_TIMEOUT_MS = 90_000L
  */
 private const val SUBTITLE_DRAIN_TIMEOUT_MS = 60_000L
 
-/** ログはこの行数だけ持つ */
-private const val LOG_LINES = 40
-
 /**
  * 質問を待っている間の画面（#38）。**1 行目は状態、2 行目は音量、3 行目は送信操作。**
  *
@@ -3441,11 +3412,6 @@ private fun overlayTracks(
 internal fun notableTracks(tracks: List<SkyTrack>): List<SkyTrack> =
     tracks.filter { track -> NOTABLE_SATELLITES.any { track.name.startsWith(it) } }
         .take(MAX_SATELLITES_IN_VIEW)
-
-private const val LATCH_MS = 500L
-
-/** 視線の履歴を持つ長さ。ラッチに使うぶんだけあればよい */
-private const val HISTORY_MS = 3_000L
 
 private const val TAG = "StarMap"
 

@@ -1,5 +1,9 @@
 package jp.jig.glasses.sample.kmp.glass
 
+import jp.jig.glasses.sample.kmp.sky.normalizeDeg
+import kotlin.math.abs
+import kotlin.math.max
+
 // 星図をいつ描き直すか（送るか）の方針の数値。**動きに追従させると点滅にしかならない**ので、
 // 「止まってから送る」「減速に入ったら止まる先へ 1 枚だけ先出しする」を数字で決めている。
 // 実測の根拠は docs/team-e/12_measurements.md。
@@ -71,3 +75,47 @@ const val PREDICT_COOLDOWN_MS = 1_200L
  * 10Hz で 0.2 なら、傾けてから 1 秒ほどで追いつく。
  */
 const val ROLL_SMOOTHING = 0.2
+
+/**
+ * 追従ループ 1 周ぶんの判断。**時刻は引数で受ける**ので JVM テストで固定できる。
+ *
+ * 判定だけを持ち、送る・焼くはしない（送る側の都合は StarMapScreen / FrameSender が知っている）。
+ */
+class RedrawDecider {
+
+    private var previousAz = Double.NaN
+    private var previousAlt = Double.NaN
+    private var movedAt = 0L
+    private var predictedAt = 0L
+
+    /**
+     * 首が止まっているか。**呼ぶたびに直前の視線が進む**ので 1 周に 1 回だけ呼ぶ。
+     * [STILL_DEG] を超えて動いたら「動いている」、そこから [STILL_MS] 静止で「止まった」。
+     */
+    fun settle(nowMillis: Long, azDeg: Double, altDeg: Double): Boolean {
+        if (!previousAz.isNaN()) {
+            val step = max(abs(normalizeDeg(azDeg - previousAz)), abs(altDeg - previousAlt))
+            if (step > STILL_DEG) movedAt = nowMillis
+        }
+        previousAz = azDeg
+        previousAlt = altDeg
+        return nowMillis - movedAt > STILL_MS
+    }
+
+    /** 止まっているとき、送り直す価値があるか（視線 6°・傾き 5°・観測条件の変化） */
+    fun shouldRedraw(settled: Boolean, observationChanged: Boolean, driftDeg: Double, rolledDeg: Double): Boolean =
+        settled && (observationChanged || driftDeg > REDRAW_DEG || rolledDeg > REDRAW_ROLL_DEG)
+
+    /** 減速に入ったら「止まる先」へ 1 枚だけ先出しするか。連発は [PREDICT_COOLDOWN_MS] で抑える */
+    fun shouldPredict(nowMillis: Long, driftDeg: Double, slowing: Boolean): Boolean =
+        driftDeg > REDRAW_DEG && slowing && nowMillis - predictedAt > PREDICT_COOLDOWN_MS
+
+    fun onPredicted(nowMillis: Long) {
+        predictedAt = nowMillis
+    }
+
+    /** ふつうの描き直しが通ったら、先出しの間隔は数えなおす */
+    fun onDrawn() {
+        predictedAt = 0L
+    }
+}

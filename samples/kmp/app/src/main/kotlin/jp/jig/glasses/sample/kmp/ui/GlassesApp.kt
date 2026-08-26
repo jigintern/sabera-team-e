@@ -176,15 +176,9 @@ fun GlassesApp(manager: GlassManager) {
      * ホームでは受けない。**そこは終わってよい場所**で、握るとアプリを閉じられなくなる。
      */
     BackHandler(enabled = screen != AppScreen.HOME) {
-        when (screen) {
-            AppScreen.HOME -> Unit
-            AppScreen.GUIDES -> screen = AppScreen.HOME
-            AppScreen.GUIDE_EDITOR -> screen = AppScreen.GUIDES
-            AppScreen.GUIDE_SHARE -> screen = AppScreen.GUIDES
-            AppScreen.GUIDE_IMPORT -> screen = AppScreen.GUIDES
-            AppScreen.CONNECTION -> screen = AppScreen.HOME
-            AppScreen.CALIBRATION -> screen = AppScreen.CONNECTION
-            AppScreen.STAR_MAP -> confirmLeaving = true
+        when (val back = backDestination(screen)) {
+            null -> if (screen == AppScreen.STAR_MAP) confirmLeaving = true
+            else -> screen = back
         }
     }
 
@@ -497,7 +491,7 @@ private fun ConnectionLostDialog(onConnectionCheck: () -> Unit) {
     }
 }
 
-private enum class AppScreen {
+internal enum class AppScreen {
     HOME,
 
     /** ガイドの台本を作る。**グラスをつなぐ前に通る**ので、接続の外側に置く */
