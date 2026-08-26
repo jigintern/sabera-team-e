@@ -129,16 +129,20 @@ python3 tools/pick-bgm-window.py <元曲.mp3>    # 切り出し位置を選び�
 
 ## ドキュメント用の画像
 
-**グラスに出ている絵は、実機なしで作り直せる。** 中身はアプリと同じコードで計算し、
-色を付けて文字を焼くところだけ JDK 単体実行に分けてある（AWT は Android のユニットテストから触れない）。
+**実機なしで作り直せる。** グラス側もスマホ側も**アプリと同じコードが描く**ので、
+見本と実物がずれない。置き場所と一覧は [docs/images/README.md](../images/README.md)。
 
 ```bash
-cd samples/kmp && ./gradlew :app:testDebugUnitTest --tests '*DocumentImagesTest*'   # 中身
-cd ../.. && java tools/compose-glass-images.java                                    # 絵（docs/images/）
-java -Djava.awt.headless=true tools/compose-phone-preview.java                      # スマホのホーム
+tools/build-demo-images.sh        # 全部（docs/images/ へ）
 ```
 
-- 見本は **2026-01-01 18:00 JST の鯖江から東の空**（`DocumentImagesTest` が
+| どこ | 何をする |
+|---|---|
+| `PhoneScreenshotTest` | **アプリの Compose をそのまま描いて撮る**（Robolectric・偽の 6DoF で星図まで走らせる） |
+| `DocumentImagesTest` | グラスへ送るのと同じ画像とテキスト枠を `build/doc-images/panels.txt` へ書き出す |
+| `tools/compose-glass-images.java` | それを空と街に重ねて絵にする（**文字を焼くには AWT が要り、Android のユニットテストからは触れない**） |
+
+- 見本のグラス側は **2026-01-01 18:00 JST の鯖江から東の空**（`DocumentImagesTest` が
   オリオン座の高度が 15° に近い時刻を選ぶ）
 - **パネルは視野全体ではない。** 広い視界（仮に 92°）の中に、パネルの画角（**仮の 35°**）を
   正面より 11° 上へ置く。四隅の向きを視界へ投影して矩形を出しているので、
@@ -146,15 +150,8 @@ java -Djava.awt.headless=true tools/compose-phone-preview.java                  
 - 背景の星は**星図と同じ投影**で置く（`project` / `projectionScale`）。
   **星座線の頂点と空の星が重なる**のが要点で、グラスの絵は塗りつぶさず**光として足す**
   （黒は光らないので下の景色が残る）
-- **点の大きさは等級から決め直す。** 星図の点は読ませるために大きく描いてあるので、
-  そのまま空の星に使うと実際よりずっと大きく見える
-- **街のシルエットと 5 等より暗い星は飾り**（`tools/compose-glass-images.java`・種は固定）。
-  位置に意味は無い。**これは写真ではない**ので、パネルのにじみ・明るさ・実機のフォントも出ない
-- スマホのホームは `compose-phone-preview.java` が実装と同じロゴ・色・配置から作る。
-  **星図画面はBLEがつながらないと進めない**ので、必要なら実機のスクリーンショットを使う
-- 図（`docs/team-e/diagrams/*.drawio`）は draw.io で開いて編集し、上書き保存する。
-  **SVG は書き出さない**（原本と書き出しで二重管理になり、片方だけ古くなる）。
-  文書から貼るときは画像ではなく `.drawio` へのリンクにする
+- スマホ側は BLE が要るので、`doc/FakeGlass.kt` が**つながったふりをする**
+  （SDK の口はすべて interface なので動的プロキシで受け流す）
 
 ## ビルドの前提
 

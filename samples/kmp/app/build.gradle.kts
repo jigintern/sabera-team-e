@@ -82,6 +82,12 @@ android {
         getByName("main").assets.srcDir(rootProject.file("../../data"))
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -127,4 +133,8 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     // android.jar の org.json はスタブで例外を投げるので、テストでは本物を先に読ませる
     testImplementation(libs.org.json)
+    testImplementation(libs.robolectric)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
 }

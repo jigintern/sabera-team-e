@@ -2731,6 +2731,10 @@ fun StarMapScreen(
             )
             Scaffold(
                 containerColor = Color.Transparent,
+                // **透ける下地には文字色が付いてこない。** Scaffold は containerColor から
+                // 文字色を引くので、Transparent だと既定の黒のまま——カードの外に置いた
+                // 見出しが夜空に溶けて読めなくなる
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 topBar = {
                     // **横画面ではバーを出さない。** 全幅 64dp のうち右半分は空なのに、
                     // その下の解説と設定はそのぶん低くなる（横の縦幅は 350dp ほどしかない）。

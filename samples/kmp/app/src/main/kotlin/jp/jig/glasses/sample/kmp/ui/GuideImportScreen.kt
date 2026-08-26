@@ -108,6 +108,10 @@ fun GuideImportScreen(
             SeasonalConstellationBackground(constellation, Modifier.fillMaxSize())
             Scaffold(
                 containerColor = Color.Transparent,
+                // **透ける下地には文字色が付いてこない。** Scaffold は containerColor から
+                // 文字色を引くので、Transparent だと既定の黒のまま——カードの外に置いた
+                // 見出しが夜空に溶けて読めなくなる
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 topBar = {
                     TopAppBar(
                         title = { Text("ガイドを受け取る") },
