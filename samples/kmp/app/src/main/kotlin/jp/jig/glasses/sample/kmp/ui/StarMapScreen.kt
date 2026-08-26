@@ -2613,11 +2613,16 @@ fun StarMapScreen(
             val cycleStarted = System.currentTimeMillis()
             val current = guidanceSession ?: break
             val now = System.currentTimeMillis()
+            // **空の時刻と場所は、いま描いている空から採る。** 実測位・実時刻で引き直すと、
+            // 再現中はグラスに出ている衛星と矢印の指す先が食い違う
+            // （候補を作る guidanceTargetsAt は既に観測条件から採っている・#37 と同型）。
+            // 進行の時刻（60 秒の打ち切りと update の nowMillis）は実時刻のままにする
+            val sky = observationSnapshot(now)
             val target = if (current.target.kind == GuidanceTargetKind.SATELLITE) {
                 if (!showSatellites) null else satellites?.refreshGuidanceTarget(
                     current.target,
-                    Observer(site.latDeg, site.lonDeg),
-                    now,
+                    Observer(sky.site.latDeg, sky.site.lonDeg),
+                    sky.epochMillis,
                 )
             } else {
                 current.target
