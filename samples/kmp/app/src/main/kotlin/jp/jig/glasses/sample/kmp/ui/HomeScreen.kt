@@ -115,36 +115,36 @@ fun HomeScreen(
     }
 }
 
-/** ひとことのために空けておく高さ。**3 行ぶん＋余白。できるまでは空のまま置く** */
-private val TIP_RESERVE = 116.dp
+/** ひとことのために空けておく高さ。**小さく 3 行ぶん。できるまでは空のまま置く** */
+private val TIP_RESERVE = 84.dp
 
 /** 今日のひとこと 1 枚。**背景の星に負けないよう、薄い板を敷いてから字を置く** */
 @Composable
 private fun TipCard(tip: SkyTip, modifier: Modifier = Modifier) {
     Column(
         modifier
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(Color.Black.copy(alpha = 0.42f))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Filled.AutoAwesome,
                 null,
                 tint = SaberaGreen,
-                modifier = Modifier.size(16.dp),
+                modifier = Modifier.size(13.dp),
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(5.dp))
             Text(
                 tip.header,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelSmall,
                 color = SaberaGreen,
             )
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             tip.text,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = Color.White.copy(alpha = 0.9f),
         )
     }

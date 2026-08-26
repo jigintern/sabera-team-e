@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -2803,8 +2807,8 @@ fun StarMapScreen(
                                 // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
                                 // スマホを見ないので、上のバーに常設する意味が無い
                                 if (!showDetails) {
-                                    TextButton(onClick = { phonePage = PhonePage.SETTINGS }) {
-                                        Text("設定", color = Color.White)
+                                    IconButton(onClick = { phonePage = PhonePage.SETTINGS }) {
+                                        Icon(Icons.Filled.Settings, "設定", tint = Color.White)
                                     }
                                 }
                             },
@@ -2969,46 +2973,8 @@ fun StarMapScreen(
                                         if (!landscape || guidanceFrame != null || guideProgress != null) {
                                             Spacer(Modifier.height(16.dp))
                                         }
-                                        TimeScrubControls(
-                                            // **つまんでいる間は「これから出す時刻」を出す。**
-                                            // 空はまだ変えていないので、いまの空の時刻を出しても手がかりにならない
-                                            label = scrubbingHours?.let { hours ->
-                                                val anchor = scrubAnchorMillis ?: observationSnapshot().epochMillis
-                                                observationSnapshot()
-                                                    .copy(
-                                                        epochMillis = scrubTargetMillis(anchor, hours),
-                                                        simulation = true,
-                                                    )
-                                                    .shortLabel()
-                                            } ?: observationSnapshot().shortLabel(),
-                                            detail = scrubbingHours?.let { scrubOffsetLabel(it) },
-                                            scrubbing = scrubbingHours != null,
-                                            // つまんでいる間は指の値、離したら実際の時刻から引き直す
-                                            offsetHours = scrubbingHours ?: timeScrubHours(),
-                                            // **1 回押して 1 枚だけ描き直す。** 自動で送り続けると点滅する
-                                            onStep = { step ->
-                                                if (scrubAnchorMillis == null) {
-                                                    scrubAnchorMillis = observationSnapshot().epochMillis
-                                                }
-                                                applyTimeScrub(
-                                                    (timeScrubHours() + step)
-                                                        .coerceIn(-TIME_SCRUB_HOURS, TIME_SCRUB_HOURS),
-                                                )
-                                            },
-                                            onScrub = {
-                                                if (scrubAnchorMillis == null) {
-                                                    scrubAnchorMillis = observationSnapshot().epochMillis
-                                                }
-                                                scrubbingHours = it
-                                            },
-                                            onScrubFinished = {
-                                                scrubbingHours?.let { applyTimeScrub(it) }
-                                                scrubbingHours = null
-                                            },
-                                        )
-
-                                        // **場所と日時の指定はメインに置く。** 「設定」ではなく「いま何を見るか」の操作で、
-                                        // 時間送り（上）と続きになっている。畳んであるので普段は 1 行
+                                        // **場所と日時の指定はメインに置く。** 「設定」ではなく
+                                        // 「いま何を見るか」の操作。**畳んであるので普段は 1 行**
                                         val simulation = observationMode as? ObservationMode.Simulation
                                         SkyConditionSettings(
                                             status = observationSnapshot().shortLabel(),
@@ -3016,11 +2982,6 @@ fun StarMapScreen(
                                             place = simulationPlace,
                                             era = simulationEra,
                                             time = simulationTime,
-                                            detailed = simulationDetailed,
-                                            cityText = simulationCityText,
-                                            eraText = simulationEraText,
-                                            dateText = simulationDateText,
-                                            timeText = simulationTimeText,
                                             message = if (satellitesSuppressedForSimulation) {
                                                 "指定日時ではTLEの精度を保証できないため、人工衛星を隠しています"
                                             } else {
@@ -3029,14 +2990,51 @@ fun StarMapScreen(
                                             onPlaceChange = { simulationPlace = it },
                                             onEraChange = { simulationEra = it },
                                             onTimeChange = { simulationTime = it },
-                                            onDetailedChange = { simulationDetailed = it },
-                                            onCityTextChange = { simulationCityText = it },
-                                            onEraTextChange = { simulationEraText = it },
-                                            onDateTextChange = { simulationDateText = it },
-                                            onTimeTextChange = { simulationTimeText = it },
                                             onApply = { submitSimulationForm() },
                                             onReturnLive = {
                                                 runPhoneCommand(SkyCommand.ReturnToLive, "現在の空に戻します")
+                                            },
+                                            // **時刻を動かすつまみも「いつの空か」の操作**なので同じ区画に束ねる。
+                                            // 畳んでいる間はメインが 1 画面に収まる
+                                            header = {
+                                                TimeScrubControls(
+                                                    // **つまんでいる間は「これから出す時刻」を出す。**
+                                                    // 空はまだ変えていないので、いまの空の時刻を出しても手がかりにならない
+                                                    label = scrubbingHours?.let { hours ->
+                                                        val anchor = scrubAnchorMillis ?: observationSnapshot().epochMillis
+                                                        observationSnapshot()
+                                                            .copy(
+                                                                epochMillis = scrubTargetMillis(anchor, hours),
+                                                                simulation = true,
+                                                            )
+                                                            .shortLabel()
+                                                    } ?: observationSnapshot().shortLabel(),
+                                                    detail = scrubbingHours?.let { scrubOffsetLabel(it) },
+                                                    scrubbing = scrubbingHours != null,
+                                                    // つまんでいる間は指の値、離したら実際の時刻から引き直す
+                                                    offsetHours = scrubbingHours ?: timeScrubHours(),
+                                                    // **1 回押して 1 枚だけ描き直す。** 自動で送り続けると点滅する
+                                                    onStep = { step ->
+                                                        if (scrubAnchorMillis == null) {
+                                                            scrubAnchorMillis = observationSnapshot().epochMillis
+                                                        }
+                                                        applyTimeScrub(
+                                                            (timeScrubHours() + step)
+                                                                .coerceIn(-TIME_SCRUB_HOURS, TIME_SCRUB_HOURS),
+                                                        )
+                                                    },
+                                                    onScrub = {
+                                                        if (scrubAnchorMillis == null) {
+                                                            scrubAnchorMillis = observationSnapshot().epochMillis
+                                                        }
+                                                        scrubbingHours = it
+                                                    },
+                                                    onScrubFinished = {
+                                                        scrubbingHours?.let { applyTimeScrub(it) }
+                                                        scrubbingHours = null
+                                                    },
+                                                )
+                                                Spacer(Modifier.height(8.dp))
                                             },
                                         )
 
@@ -3052,29 +3050,6 @@ fun StarMapScreen(
                                             // 解説の下が空いたままボタン 2 つが宙に浮く
                                             modifier = if (landscape) Modifier.weight(1f) else Modifier,
                                             maxTextHeight = if (landscape) null else 160.dp,
-                                        )
-                                        ObservationActions(
-                                            primaryLabel = when {
-                                                recordingVoice -> "質問を送信"
-                                                guideProgress != null -> "ガイドを止める"
-                                                guidanceSession != null -> "案内を終了"
-                                                narrator.busy || speaking -> "解説を止める"
-                                                else -> "この星空を解説する"
-                                            },
-                                            onPrimary = {
-                                                when {
-                                                    recordingVoice -> submitVoiceQuestion()
-                                                    guideProgress != null ->
-                                                        stopGuide("スマホからガイドを終了", "ガイドを終わります。")
-                                                    else -> toggleNarration()
-                                                }
-                                            },
-                                            // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
-                                            // 作るのはホーム画面の「ガイドを作る」から。
-                                            // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
-                                            secondaryLabel = "ガイドを始める"
-                                                .takeIf { guides.isNotEmpty() && guideProgress == null },
-                                            onSecondary = { showGuidePicker = true },
                                         )
                                     } else if (phonePage == PhonePage.SETTINGS) {
                                         // **設定を触っている間もグラスの中身を見せる。** 濃さや星座絵を変える
@@ -3166,7 +3141,7 @@ fun StarMapScreen(
                                             onClick = { phonePage = PhonePage.DEVELOPER },
                                             modifier = Modifier.fillMaxWidth(),
                                         ) {
-                                            Text("ログを見る（開発者用画面）")
+                                            Text("開発者用画面")
                                         }
 
                                         // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
@@ -3240,13 +3215,33 @@ fun StarMapScreen(
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
                                 }
-                                // **流れる中身の外。** 星図の画面では画面のいちばん下に貼り付けて、
-                                // 解説が伸びても消えないようにする（設定と開発者用では出さない）
+                                // **押すものは流れる中身の外に置く。** メインを 1 画面に収め、
+                                // 流れるのは星空の条件と解説だけにする（設定と開発者用では出さない）
                                 if (phonePage == PhonePage.MAIN) {
-                                    RecalibrateButton(
-                                        onRecalibrate,
-                                        Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                    ObservationActions(
+                                        primaryLabel = when {
+                                            recordingVoice -> "質問を送信"
+                                            guideProgress != null -> "ガイドを止める"
+                                            guidanceSession != null -> "案内を終了"
+                                            narrator.busy || speaking -> "解説を止める"
+                                            else -> "この星空を解説する"
+                                        },
+                                        onPrimary = {
+                                            when {
+                                                recordingVoice -> submitVoiceQuestion()
+                                                guideProgress != null ->
+                                                    stopGuide("スマホからガイドを終了", "ガイドを終わります。")
+                                                else -> toggleNarration()
+                                            }
+                                        },
+                                        // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
+                                        // 作るのはホーム画面の「ガイドを作る」から。
+                                        // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
+                                        secondaryLabel = "ガイドを始める"
+                                            .takeIf { guides.isNotEmpty() && guideProgress == null },
+                                        onSecondary = { showGuidePicker = true },
                                     )
+                                    RecalibrateButton(onRecalibrate, Modifier.padding(bottom = 4.dp))
                                 }
                             }
                         }
@@ -3342,7 +3337,9 @@ private fun LandscapeActions(stopLabel: String?, onStop: () -> Unit, onSettings:
             TextButton(onClick = onStop) { Text(stopLabel, color = Color.White) }
         }
         if (onSettings != null) {
-            TextButton(onClick = onSettings) { Text("設定", color = Color.White) }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Filled.Settings, "設定", tint = Color.White)
+            }
         }
     }
 }

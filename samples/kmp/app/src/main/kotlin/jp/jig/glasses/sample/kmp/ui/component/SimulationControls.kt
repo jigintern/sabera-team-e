@@ -5,6 +5,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,10 +19,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -217,27 +216,20 @@ internal fun SkyConditionSettings(
     place: SkyPreset,
     era: SkyPreset,
     time: SkyPreset,
-    detailed: Boolean,
-    cityText: String,
-    eraText: String,
-    dateText: String,
-    timeText: String,
     message: String?,
     onPlaceChange: (SkyPreset) -> Unit,
     onEraChange: (SkyPreset) -> Unit,
     onTimeChange: (SkyPreset) -> Unit,
-    onDetailedChange: (Boolean) -> Unit,
-    onCityTextChange: (String) -> Unit,
-    onEraTextChange: (String) -> Unit,
-    onDateTextChange: (String) -> Unit,
-    onTimeTextChange: (String) -> Unit,
     onApply: () -> Unit,
     onReturnLive: () -> Unit,
+    /** 見出しのすぐ下に置くもの（時刻を動かすつまみ）。**同じ「いつの空か」の操作なので束ねる** */
+    header: @Composable ColumnScope.() -> Unit = {},
 ) {
     // **普段は「いまの空」で足りる。** 見出しに状態を出したうえで畳んでおき、
     // 場所や時代を変えたい人だけが開く（開閉は覚えない＝次に開いたときは畳んである）
     CollapsibleSection("星空の条件", Icons.Filled.Schedule, status) {
         Column(Modifier.fillMaxWidth()) {
+            header()
             PresetRow("場所", SkyPresets.places, place, onPlaceChange)
             PresetRow("時代", SkyPresets.eras, era, onEraChange)
             PresetRow("時刻", SkyPresets.times, time, onTimeChange)
@@ -256,57 +248,6 @@ internal fun SkyConditionSettings(
                     Text("現在の空に戻る")
                 }
             }
-
-            TextButton(onClick = { onDetailedChange(!detailed) }) {
-                Text(if (detailed) "細かい指定を閉じる" else "細かく指定する")
-            }
-            if (detailed) {
-                // **打ったほうを優先する。** わざわざ開いて入れた指定を、
-                // 上の選択肢が黙って上書きしたら開いた意味がない
-                Text(
-                    "打った欄が優先されます。空欄なら上の選択肢を使います",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    value = cityText,
-                    onValueChange = onCityTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("都市") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = eraText,
-                    onValueChange = onEraTextChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("時代") },
-                    placeholder = { Text("紀元前3000年 / 2000年後") },
-                    singleLine = true,
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = dateText,
-                        onValueChange = onDateTextChange,
-                        modifier = Modifier.weight(1f),
-                        label = { Text("日付") },
-                        placeholder = { Text("2026/8/24") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = timeText,
-                        onValueChange = onTimeTextChange,
-                        modifier = Modifier.weight(0.72f),
-                        label = { Text("時刻") },
-                        placeholder = { Text("20:30") },
-                        singleLine = true,
-                    )
-                }
-            }
-            Text(
-                "都市データと日時計算は圏外でも使えます",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
