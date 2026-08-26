@@ -44,8 +44,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -62,6 +60,7 @@ import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimate
 import jp.jig.glasses.sample.kmp.alignment.CalibrationEstimator
 import jp.jig.glasses.sample.kmp.alignment.CalibrationMarker
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
+import jp.jig.glasses.sample.kmp.alignment.HoldFeedback
 import jp.jig.glasses.sample.kmp.alignment.Compass
 import jp.jig.glasses.sample.kmp.alignment.CompassGate
 import jp.jig.glasses.sample.kmp.alignment.Locator
@@ -136,7 +135,7 @@ fun CalibrationScreen(
     val vm = viewModel<CalibrationViewModel>()
 
     // 顔の前にかざしている人は画面を読めないので、進み具合は手へも返す
-    val haptics = LocalHapticFeedback.current
+    val feedback = remember(context) { HoldFeedback(context) }
     DisposableEffect(Unit) { onDispose { vm.leave() } }
 
 
@@ -328,12 +327,12 @@ fun CalibrationScreen(
         if (!ready) {
             // **崩れたことも手に返す。** 顔の前のスマホは見えないので、
             // 進み具合が 0 に戻ったことを画面で知らせても届かない
-            if (vm.holdProgress > 0f) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            if (vm.holdProgress > 0f) feedback.lost()
             vm.resetHold()
             return@LaunchedEffect
         }
         // **揃った瞬間に 1 回。** ここから数えはじめる合図
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        feedback.start()
         val startedAt = System.currentTimeMillis()
         var notches = 0
         while (true) {
@@ -343,7 +342,7 @@ fun CalibrationScreen(
             val notch = (vm.holdProgress * HOLD_NOTCHES).toInt()
             if (notch > notches) {
                 notches = notch
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                feedback.tick()
             }
             if (held >= AUTO_CONFIRM_MS) break
             delay(AUTO_CONFIRM_TICK_MS)
@@ -351,7 +350,7 @@ fun CalibrationScreen(
         // 待っている数秒で崩れていることがあるので、確定の直前にもう一度見る
         val measured = estimate?.takeIf { it.stable } ?: return@LaunchedEffect
         // **決まったときだけ強く。** 押していないのに終わるので、終わった合図が要る
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        feedback.done()
         commit(measured)
     }
 

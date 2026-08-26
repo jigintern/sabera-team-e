@@ -23,6 +23,10 @@
     -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- 方位合わせの進み具合を手へ返す。**画面を読めない姿勢で受け取る合図**なので、
+         UI の軽いコツンでは弱く、強さを決められる Vibrator を使う（インストール時に付く） -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
