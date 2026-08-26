@@ -1,5 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -224,12 +226,16 @@ private fun IconToggle(
     modifier: Modifier = Modifier,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    // **1 つずつ独立したボタンに見せる。** 敷いた緑が隣とつながると、
+    // 3 つで 1 本の帯に見えて、どれが入っているのか読めなくなる
+    val shape = RoundedCornerShape(10.dp)
     Column(
         modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(shape)
             .background(if (checked) SaberaSelected else Color.Transparent)
+            .border(1.dp, if (checked) SaberaSelected else SaberaFinePrint.copy(alpha = 0.45f), shape)
             .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 6.dp),
+            .padding(vertical = 8.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         val tint = if (checked) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
@@ -453,7 +459,10 @@ internal fun SkyViewSettings(
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             IconToggle("星座絵", Icons.Filled.AutoAwesome, showArt, Modifier.weight(1f), onArtChange)
             IconToggle("目印", Icons.Filled.Explore, showGuides, Modifier.weight(1f), onGuidesChange)
             IconToggle(
