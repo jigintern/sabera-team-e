@@ -202,7 +202,10 @@ fun GlassesApp(manager: GlassManager) {
         val client = observingClient ?: return@LaunchedEffect
         val watch = ConnectionWatch()
         while (true) {
-            if (watch.sample(client.connected.value, SystemClock.elapsedRealtime())) connectionLost = true
+            // 接続状態の正は connectedDevice。保持した client は猶予のあいだ見るための控えなので、
+            // どちらかが切れていれば切れたものとして数え始める
+            val alive = manager.connectedDevice.value != null && client.connected.value
+            if (watch.sample(alive, SystemClock.elapsedRealtime())) connectionLost = true
             delay(CONNECTION_CHECK_INTERVAL_MS)
         }
     }
