@@ -148,6 +148,7 @@ import jp.jig.glasses.sample.kmp.openai.OpenAiSpeech
 import jp.jig.glasses.sample.kmp.satellite.Observer
 import jp.jig.glasses.sample.kmp.satellite.SatelliteScene
 import jp.jig.glasses.sample.kmp.satellite.SkyTrack
+import jp.jig.glasses.sample.kmp.notification.MeteorShowerAlarm
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_CONFIRMATION_MS
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_LOW_ALTITUDE_DEG
 import jp.jig.glasses.sample.kmp.sky.GUIDANCE_REFRESH_MIN_DELAY_MS
@@ -236,8 +237,10 @@ import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
 import jp.jig.glasses.sample.kmp.ui.component.SkyConditionSettings
 import jp.jig.glasses.sample.kmp.ui.component.InkSettings
+import jp.jig.glasses.sample.kmp.ui.component.NotificationSettings
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
 import jp.jig.glasses.sample.kmp.ui.component.VoiceSettings
+import jp.jig.glasses.sample.kmp.ui.component.rememberMeteorShowerNotice
 import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
 import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.PreviewFrame
@@ -1326,6 +1329,19 @@ fun StarMapScreen(
             log = { text, failed -> log(text, failed) },
         )
     }
+    /**
+     * 流星群の予告（#70）の入／切。**ホームと同じ手順**で動かす。
+     *
+     * ついでに、**この画面にいる間は予告を鳴らさない**ことを受信器へ伝える。
+     * 通知が出るとグラスの星図が消える（`docs/team-e/02_glass-output.md`）うえ、
+     * ここまで来た人は既に空の下にいるので、今夜がピークだと知らせる意味がない。
+     */
+    val meteorShowerNotice = rememberMeteorShowerNotice()
+    DisposableEffect(Unit) {
+        MeteorShowerAlarm.observing = true
+        onDispose { MeteorShowerAlarm.observing = false }
+    }
+
     // 端末の読み上げを選んだ人に毎回選び直させない。**選ぶ理由は場所で変わらない**
     var aiVoice by remember { mutableStateOf(soundPrefs.aiVoice) }
     LaunchedEffect(aiVoice) { voice.enabled = aiVoice }
@@ -3074,6 +3090,11 @@ fun StarMapScreen(
                                                 )
                                             },
                                         )
+
+                                        // **切りたくなるのはたいていその場。** 入れるのは出かける前
+                                        // （ホーム）だが、屋外で「今夜はいい」と思ったときに戻らせない。
+                                        // **開発者用画面へは送らない**（普通に使う人が触る設定）
+                                        NotificationSettings(meteorShowerNotice)
 
                                         // **台本を作る口はホームだけではない。** つないだあとで
                                         // 「ガイドを始めたい」と思った人が、戻らずに作りに行ける

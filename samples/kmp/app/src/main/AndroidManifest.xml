@@ -27,6 +27,14 @@
          UI の軽いコツンでは弱く、強さを決められる Vibrator を使う（インストール時に付く） -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!--
+        流星群の予告（#70）。既定は切ってあり、ホームでトグルを入れたときに初めて聞く。
+        起動時の BLE の許可ダイアログへ積むと、両方とも読まずに閉じられる。
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 端末を再起動するとアラームの予約が消えるので、起きたときに取り直す -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
@@ -57,6 +65,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            流星群の予告（#70）。**`BOOT_COMPLETED` はシステムが送る**ので exported が要る。
+            自前のアラームは `MeteorShowerAlarm.ACTION_NOTIFY` を明示指定した Intent で届くため、
+            intent-filter には出さない（外から鳴らされないようにする）。
+        -->
+        <receiver
+            android:name=".notification.MeteorShowerReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name="app.jigglass.ble.BleCompanionDeviceService"

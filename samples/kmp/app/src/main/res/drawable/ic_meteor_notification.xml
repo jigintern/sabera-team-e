@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    通知バーの小アイコン（#70）。
+
+    ランチャーのアイコンは使えない。**小アイコンは透明地に白一色のシルエットへ潰される**ので、
+    色や階調を持つ絵を渡すと白い塊になる。流れ星を頭（ひし形）と尾（先細りの帯）の 2 本の
+    パスだけで描く。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M18,2.6 L20.4,5.2 L18,7.8 L15.6,5.2 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16.6,6.6 L17.6,7.6 L6.0,18.8 L3.0,21.0 L5.0,18.0 Z" />
+</vector>

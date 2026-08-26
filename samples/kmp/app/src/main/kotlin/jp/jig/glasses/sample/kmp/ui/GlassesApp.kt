@@ -50,6 +50,7 @@ import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.narration.SkyTip
 import jp.jig.glasses.sample.kmp.narration.SkyTips
 import jp.jig.glasses.sample.kmp.narration.tonightSky
+import jp.jig.glasses.sample.kmp.notification.MeteorShowerAlarm
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import jp.jig.glasses.sample.kmp.sky.sunAltitudeDeg
@@ -74,7 +75,7 @@ import kotlin.random.Random
  * SDKの汎用サンプル画面は撤去済み。APIの使い方は上流SDKの公開ドキュメントを参照する。
  */
 @Composable
-fun GlassesApp(manager: GlassManager) {
+fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
     var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
 
     // 台本の画面へ入ってきた側。**戻るで返す先**（ホームから来たか、観測中に来たか）
@@ -117,10 +118,28 @@ fun GlassesApp(manager: GlassManager) {
      * つながるまで空欄だと、スマホ側にはほとんど出ないことになる。
      */
     var splashTipText by remember { mutableStateOf<SkyTip?>(null) }
-    LaunchedEffect(splashTip) {
+    LaunchedEffect(splashTip, fromMeteorShowerNotice) {
         // 観測地は既定値（**まだ測位していない**）。場所で変わるメモは少しずれるが、ここは挨拶
         val sky = tonightSky(context, ObservationDefaults.site, System.currentTimeMillis())
-        splashTipText = SkyTips.of(sky, splashTip)
+        splashTipText = if (fromMeteorShowerNotice) {
+            // **予告から開いたときは巡回しない。** 「今夜はふたご座流星群」で呼び出したのに
+            // 惑星の話が出ると、呼んだ理由が消える（#37 と同じ形の食い違い）。
+            // 流星群のメモは `candidates` の先頭にいる（活動中でなければ空の暗さに落ちる）
+            SkyTips.candidates(sky).first()
+        } else {
+            SkyTips.of(sky, splashTip)
+        }
+    }
+
+    /**
+     * 予告の予約を取り直す（#70）。
+     *
+     * **強制停止されるとアラームは消える。** 端末の再起動（`BOOT_COMPLETED`）まで待つと
+     * その間の予告が丸ごと落ちるので、アプリを開いたときにも取り直しておく。
+     * 入れていない人は [MeteorShowerAlarm.reschedule] の中で素通りする。
+     */
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.Default) { MeteorShowerAlarm.reschedule(context) }
     }
 
     /**
