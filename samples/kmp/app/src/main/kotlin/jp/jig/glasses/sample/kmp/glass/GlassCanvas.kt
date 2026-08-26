@@ -52,8 +52,14 @@ internal fun StarMap.compressedSizeBytes(): Int {
     return bytes
 }
 
-/** SDK が画像バッファの上限判定に使うサイズ。 */
-internal fun StarMap.canvasBufferUsageBytes(): Int = width * height * 2 + compressedSizeBytes()
+/**
+ * SDK が画像バッファの上限判定に使うサイズ。
+ *
+ * [compressed] を渡せば数え直さない。**1 枚あたり 18 万画素を走る**ので、
+ * 同じ絵について何度も呼ぶときは一度数えた値を回す。
+ */
+internal fun StarMap.canvasBufferUsageBytes(compressed: Int = compressedSizeBytes()): Int =
+    width * height * 2 + compressed
 
 /**
  * 星座名を、重なりを除いたキャンバスのテキスト要素へ変換する。
@@ -183,3 +189,6 @@ internal fun CommandManager.CanvasElement.byteSize(): Int = 12 + text.toByteArra
 
 private infix fun CommandManager.CanvasElement.overlaps(other: CommandManager.CanvasElement): Boolean =
     x < other.x + other.width && other.x < x + width && y < other.y + other.height && other.y < y + height
+
+/** 3bit 緑の最上段。**中間の階調は屋外で消える**ので、目立たせたいものはこの値で描く */
+const val INK_LIT = 255

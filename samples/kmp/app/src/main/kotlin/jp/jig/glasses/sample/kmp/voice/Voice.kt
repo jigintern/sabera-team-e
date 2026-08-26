@@ -1,10 +1,9 @@
 package jp.jig.glasses.sample.kmp.voice
 
-import jp.jig.glasses.sample.kmp.narration.Narrator
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * 喋る先。**[Narrator] を JVM テストで回すために切ってある**
+ * 喋る先。**解説側（narration.Narrator）を JVM テストで回すために切ってある**
  * （`TextToSpeech` は端末が要るので、テストでは差し替える）。
  */
 interface Voice {
@@ -20,7 +19,7 @@ interface Voice {
 /**
  * 読み上げの状態。**画面に出すためだけ**にある。
  *
- * [Voice] と分けているのは、JVM テストの差し替え（[Narrator] の検算）に状態が要らないから。
+ * [Voice] と分けているのは、JVM テストの差し替え（narration.Narrator の検算）に状態が要らないから。
  */
 interface VoiceStatus {
     val speaking: StateFlow<Boolean>

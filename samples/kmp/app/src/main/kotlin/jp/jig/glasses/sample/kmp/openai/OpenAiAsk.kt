@@ -1,8 +1,8 @@
 package jp.jig.glasses.sample.kmp.openai
 
-import jp.jig.glasses.sample.kmp.narration.AskGuard
 import jp.jig.glasses.sample.kmp.sky.ObservedStarFact
 import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
+import jp.jig.glasses.sample.kmp.support.NANOS_PER_MILLI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -55,7 +55,7 @@ class OpenAiAsk(
                     attempt = 1,
                     requestId = requestId(connection),
                     firstByteMs = null,
-                    totalMs = (System.nanoTime() - startedAt) / 1_000_000,
+                    totalMs = (System.nanoTime() - startedAt) / NANOS_PER_MILLI,
                     bytes = bytes,
                     completed = bytes > 0,
                 ),
@@ -113,7 +113,7 @@ class OpenAiAsk(
                     attempt = 1,
                     requestId = requestId(connection),
                     firstByteMs = null,
-                    totalMs = (System.nanoTime() - startedAt) / 1_000_000,
+                    totalMs = (System.nanoTime() - startedAt) / NANOS_PER_MILLI,
                     bytes = bytes,
                     completed = bytes > 0,
                 ),

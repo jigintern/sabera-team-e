@@ -142,7 +142,7 @@ fun moonPosition(epochMillis: Long): BodyPosition {
     return BodyPosition(
         lonDeg = norm360(lon),
         latDeg = lat,
-        distanceAu = distance * EARTH_RADIUS_KM / AU_KM,
+        distanceAu = distance * EARTH_EQUATORIAL_RADIUS_KM / AU_KM,
         magnitude = moonMagnitude(norm360(lon) - sunLon),
     )
 }
@@ -248,13 +248,19 @@ fun eclipticToEquatorial(lonDeg: Double, latDeg: Double, epochMillis: Long): Dou
  * **地心視差と大気差を両方入れる。** 月の視差は最大 57′ で、これを落とすとアライメントの
  * 基準が 1° 狂う（惑星は 0.5″ 未満なので無視できるが、同じ式で通しても害はない）。
  */
-fun bodyAltAz(body: SolarSystemBody, site: Site, epochMillis: Long): DoubleArray {
-    val position = bodyPosition(body, epochMillis)
+fun bodyAltAz(body: SolarSystemBody, site: Site, epochMillis: Long): DoubleArray =
+    bodyAltAz(bodyPosition(body, epochMillis), site, epochMillis)
+
+/**
+ * 位置を求め直さない版。**明るさで先に絞ってから方位を出す**ときに使う
+ * （bodyPosition はケプラー方程式を 5 回まわし、木星と土星では摂動の級数まで足す）。
+ */
+fun bodyAltAz(position: BodyPosition, site: Site, epochMillis: Long): DoubleArray {
     val equatorial = eclipticToEquatorial(position.lonDeg, position.latDeg, epochMillis)
     val lst = localSiderealDeg(daysFromJ2000(epochMillis), site.lonDeg)
     val horizontal = toAltAz(equatorial[0], equatorial[1], lst, site.latDeg)
     val parallax = asin(
-        (EARTH_RADIUS_KM / (position.distanceAu * AU_KM)).coerceIn(-1.0, 1.0),
+        (EARTH_EQUATORIAL_RADIUS_KM / (position.distanceAu * AU_KM)).coerceIn(-1.0, 1.0),
     ) * DEG
     // 視差は天体を地平線の方向へ押し下げる。方位は動かない（同じ垂直圏の上を動く）
     val geometric = horizontal[1] - parallax * cosD(horizontal[1])
@@ -468,7 +474,7 @@ fun bodiesInView(
     return SolarSystemBody.entries.mapNotNull { body ->
         val position = bodyPosition(body, epochMillis)
         if (position.magnitude > limitMagnitude) return@mapNotNull null
-        val aa = bodyAltAz(body, site, epochMillis)
+        val aa = bodyAltAz(position, site, epochMillis)
         if (aa[1] < 0.0) return@mapNotNull null
         val distance = angleBetweenDeg(enu(aa[0], aa[1]), center)
         if (distance > fovDeg / 2.0) return@mapNotNull null
@@ -492,7 +498,7 @@ fun bodiesUp(
 ): List<ObservedStarFact> = SolarSystemBody.entries.mapNotNull { body ->
     val position = bodyPosition(body, epochMillis)
     if (position.magnitude > limitMagnitude) return@mapNotNull null
-    val aa = bodyAltAz(body, site, epochMillis)
+    val aa = bodyAltAz(position, site, epochMillis)
     if (aa[1] < 0.0) return@mapNotNull null
     ObservedStarFact(body.nameJa, position.magnitude, aa[0], aa[1], distanceFromCenterDeg = 0.0)
 }.sortedBy { it.magnitude }
@@ -513,5 +519,3 @@ const val NAKED_EYE_MAGNITUDE = 6.0
 private const val SYNODIC_MONTH_DAYS = 29.53059
 
 private const val KEPLER_ITERATIONS = 5
-private const val EARTH_RADIUS_KM = 6378.137
-private const val AU_KM = 149_597_870.7
