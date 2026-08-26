@@ -1,7 +1,10 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
 import android.graphics.Bitmap
+import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.glass.StarMap
+import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -12,7 +15,19 @@ import kotlin.math.roundToInt
  * [visibleHeight] は、この絵がパネルの何画素ぶんを映しているか（[cropToLit] で切った後の高さ）。
  * **案内の矢印を同じ大きさで重ねるのに要る**（切ったぶんだけ拡大して見えている）。
  */
-internal class PreviewFrame(val bitmap: Bitmap, val visibleHeight: Int)
+internal class PreviewFrame(
+    val bitmap: Bitmap,
+    val visibleHeight: Int,
+    /** 絵の上に重ねる名前。**グラスに出したものと同じ**（[toCanvasElements] の結果から作る） */
+    val labels: List<PreviewLabel> = emptyList(),
+)
+
+/**
+ * プレビューに重ねる名前 1 つ。位置は**絵の中の割合**（0..1）で持つ。
+ *
+ * 画素で持つと、切ったぶんや画面の大きさが変わるたびに合わなくなる。
+ */
+internal class PreviewLabel(val text: String, val fx: Float, val fy: Float)
 
 /**
  * スマホに出すプレビュー。**実機の緑 8 階調に寄せる。**
@@ -44,7 +59,32 @@ internal fun StarMap.toPreviewBitmap(): PreviewFrame {
         }
     }
     val full = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-    return cropToLit(full, halfWidth, halfHeight)
+    val crop = cropToLit(full, halfWidth, halfHeight)
+    return PreviewFrame(crop.bitmap, crop.visibleHeight, previewLabels(crop))
+}
+
+/**
+ * 絵に重ねる名前を、**グラスへ送るのと同じ並び**から作る。
+ *
+ * **同伴者が見るのはこの画面。** 名前を出さないと、点の集まりが何なのか分からない
+ * （グラス側はテキスト枠で重ねているので、画像には焼かれていない）。
+ * 別に選び直すと、グラスと違う名前が並ぶ（#37 と同じ壊れ方）。
+ */
+private fun StarMap.previewLabels(crop: PreviewFrame): List<PreviewLabel> {
+    // 名前の位置はパネルの座標。絵は中央に置いてあるので、そのぶんを引いて絵の中へ戻す
+    val offsetX = (PANEL_WIDTH - width) / 2
+    val offsetY = (PANEL_HEIGHT - height) / 2
+    val left = (width - crop.bitmap.width) / 2
+    val top = (height - crop.bitmap.height) / 2
+    return toCanvasElements().map { element ->
+        val centerX = element.x + element.width / 2 - offsetX - left
+        val centerY = element.y + element.height / 2 - offsetY - top
+        PreviewLabel(
+            text = element.text,
+            fx = (centerX / crop.bitmap.width.toFloat()).coerceIn(0f, 1f),
+            fy = (centerY / crop.bitmap.height.toFloat()).coerceIn(0f, 1f),
+        )
+    }
 }
 
 /**

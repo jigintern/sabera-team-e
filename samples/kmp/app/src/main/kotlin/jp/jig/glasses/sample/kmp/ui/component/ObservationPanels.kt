@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,9 @@ import jp.jig.glasses.sample.kmp.glass.guidanceTurnText
 import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
 import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
 import jp.jig.glasses.sample.kmp.sky.GuidanceStage
+
+/** 実機のパネルと同じ緑（[toPreviewBitmap] が絵に使っているのと同じ色） */
+private val PANEL_GREEN = Color(0xFF38FF74)
 
 @Composable
 internal fun ObservationPreview(
@@ -71,6 +75,18 @@ internal fun ObservationPreview(
                     text = if (sending) "1 枚目を送信中（約 $transferMs ms）" else "送信を待っている",
                     hint = "首の動きが緩んだら送り始めます",
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // **名前は絵に焼かれていない**（グラスはテキスト枠で重ねている）ので、
+            // ここでも同じ位置に重ねる。出さないと、点の集まりが何なのか分からない
+            frame?.labels?.forEach { label ->
+                Text(
+                    label.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PANEL_GREEN,
+                    modifier = Modifier
+                        .align(BiasAlignment(label.fx * 2f - 1f, label.fy * 2f - 1f))
+                        .padding(horizontal = 2.dp),
                 )
             }
             // **送信中の札は出さない。** 0.4 秒ごとに出ては消えるので、
