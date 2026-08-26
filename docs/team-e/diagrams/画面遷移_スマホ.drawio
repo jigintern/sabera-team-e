@@ -4,17 +4,17 @@
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
-                <mxCell id="B3E80mseKHlNSgOZrolK-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="B3E80mseKHlNSgOZrolK-1" target="B3E80mseKHlNSgOZrolK-2" edge="1">
+                <mxCell id="B3E80mseKHlNSgOZrolK-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="B3E80mseKHlNSgOZrolK-1" target="B3E80mseKHlNSgOZrolK-conn" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-1" value="&lt;b&gt;&lt;u&gt;スタート画面&lt;/u&gt;&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・ロゴ / タイトル&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・スタートボタン&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・ガイド作成ボタン&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="40" y="40" width="100" height="160" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-2" value="&lt;b&gt;&lt;u&gt;方位あわせ&lt;/u&gt;&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・方位あわせの的&lt;br&gt;&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・精度情報&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・ホームに戻る&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="40" y="270" width="100" height="160" as="geometry"/>
+                    <mxGeometry x="40" y="500" width="100" height="160" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-4" value="&lt;b&gt;&lt;u&gt;メイン&lt;/u&gt;&lt;/b&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・見えているもの&lt;br&gt;&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・解説表示&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・シミュレーション&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・再方位あわせ&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・設定ボタン&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="40" y="500" width="100" height="160" as="geometry"/>
+                    <mxGeometry x="40" y="730" width="100" height="160" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0;exitY=0.75;exitDx=0;exitDy=0;entryX=1;entryY=0.75;entryDx=0;entryDy=0;" parent="1" source="B3E80mseKHlNSgOZrolK-6" target="B3E80mseKHlNSgOZrolK-4" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -25,10 +25,10 @@
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-6" value="&lt;b&gt;&lt;u&gt;設定&lt;/u&gt;&lt;/b&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・見え方&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・SABERAの明るさ&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・BGM音量調整&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;font-size: 10px;&quot;&gt;・ログを見る&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;span style=&quot;font-size: 10px;&quot;&gt;・出典、ライセンス&lt;/span&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="240" y="500" width="100" height="160" as="geometry"/>
+                    <mxGeometry x="240" y="730" width="100" height="160" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-9" value="&lt;b&gt;&lt;u&gt;開発者用画面&lt;/u&gt;&lt;/b&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・チャットログ&lt;br&gt;&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・ログ一覧&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="440" y="500" width="100" height="160" as="geometry"/>
+                    <mxGeometry x="440" y="730" width="100" height="160" as="geometry"/>
                 </mxCell>
                 <mxCell id="B3E80mseKHlNSgOZrolK-11" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" parent="1" source="B3E80mseKHlNSgOZrolK-4" target="B3E80mseKHlNSgOZrolK-6" edge="1">
                     <mxGeometry width="50" height="50" relative="1" as="geometry">
@@ -88,7 +88,13 @@
                         <mxPoint x="-13" y="4" as="offset"/>
                     </mxGeometry>
                 </mxCell>
-            </root>
+              <mxCell id="B3E80mseKHlNSgOZrolK-conn" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;b&gt;&lt;u&gt;接続確認&lt;/u&gt;&lt;/b&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・接続の状態&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・グラスを選ぶ&lt;/font&gt;&lt;/div&gt;&lt;div&gt;&lt;font style=&quot;font-size: 10px;&quot;&gt;・ホームに戻る&lt;/font&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="160" width="100" x="40" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="B3E80mseKHlNSgOZrolK-conn-e" parent="1" source="B3E80mseKHlNSgOZrolK-conn" target="B3E80mseKHlNSgOZrolK-2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
         </mxGraphModel>
     </diagram>
 </mxfile>
