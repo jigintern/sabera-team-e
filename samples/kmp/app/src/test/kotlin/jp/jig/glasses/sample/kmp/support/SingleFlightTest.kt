@@ -80,4 +80,35 @@ class SingleFlightTest {
         keepRunning.cancel()
         scope.cancel()
     }
+
+    /**
+     * **キャンセルした先読みの登録を残さない。**
+     *
+     * 後始末は `finally { gate.withLock { ... } }` に置いてあるが、`withLock` は suspend 関数で、
+     * **キャンセル済みのコルーチンでは中身に入らず即座に投げる**。囲わずにいると登録が残り、
+     * 死んだ `Deferred` が使い回されて**そのキーが二度と走らない**（`await` が即キャンセルで返る）。
+     *
+     * いまのアプリは `cancelAll()`（自分で `running` を空にする）しか呼ばないので踏まないが、
+     * 個別に止める呼び出しが 1 つ足された時点で壊れる。
+     */
+    @Test
+    fun `個別にキャンセルしたキーはやり直せる`() = runBlocking {
+        val scope = CoroutineScope(Job() + Dispatchers.Unconfined)
+        try {
+            val singleFlight = SingleFlight<String>(scope)
+            val calls = AtomicInteger()
+
+            val running = singleFlight.getOrStart("おとめ座") {
+                calls.incrementAndGet()
+                CompletableDeferred<Unit>().await()
+            }
+            running.cancel()
+
+            val retried = singleFlight.getOrStart("おとめ座") { calls.incrementAndGet() }
+            retried.await()
+            assertEquals("キャンセルした Deferred が使い回された", 2, calls.get())
+        } finally {
+            scope.cancel()
+        }
+    }
 }
