@@ -4,10 +4,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * 同じキーの非同期処理を1本だけ走らせ、呼び出し側で結果を共有する。
@@ -32,8 +34,15 @@ internal class SingleFlight<K>(caller: CoroutineScope) {
             try {
                 block()
             } finally {
-                gate.withLock {
-                    if (running[key] === created) running.remove(key)
+                // **キャンセルされても登録は消す。** `withLock` は suspend 関数なので、
+                // 鍵が空いていれば素通りするが、**塞がっていればキャンセル済みのコルーチンは
+                // そこで投げて後始末に入れない**。残った `Deferred` は死んだまま使い回され、
+                // そのキーが二度と走らなくなる（`await` が即キャンセルで返る）。
+                // 消す相手は `created` 自身だけなので、待たせても新しい登録は壊さない。
+                withContext(NonCancellable) {
+                    gate.withLock {
+                        if (running[key] === created) running.remove(key)
+                    }
                 }
             }
         }
