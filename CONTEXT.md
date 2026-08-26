@@ -3,8 +3,9 @@
 このリポジトリで使う言葉の定義。**ここは用語集だけ。**
 
 - 仕様と決めたことは [docs/team-e/00_index.md](docs/team-e/00_index.md)
-- どこに何のコードがあるかは [10_code-map.md](docs/team-e/10_code-map.md)
-- **数値の正本は [12_measurements.md](docs/team-e/12_measurements.md)**
+- いまどこまで動いているかは [01_status.md](docs/team-e/01_status.md)
+- どこに何のコードがあるかは [50_code-map.md](docs/team-e/50_code-map.md)
+- **数値の正本は [70_measurements.md](docs/team-e/70_measurements.md)**
 
 同じ説明を 2 か所に書かない。ここには「その言葉が何を指すか」と、対応するコードの名前だけを置く。
 
@@ -27,7 +28,7 @@
 | 言葉 | 意味 | コード |
 |---|---|---|
 | **方位合わせ** | 観測を始める前に、グラスの向きとスマホの方位を突き合わせて基準を作ること。**1 回だけ** | `ui/CalibrationScreen.kt` |
-| **ヨードリフト** | 静止していても `yawDegrees` が流れていく現象。**そのまま方位に使えない** | [15_yaw-drift.md](docs/team-e/15_yaw-drift.md) |
+| **ヨードリフト** | 静止していても `yawDegrees` が流れていく現象。**そのまま方位に使えない** | [71_yaw-drift.md](docs/team-e/71_yaw-drift.md) |
 | **ヨー補正** | 動いている間だけヨーの差分を足し、静止中は足さないことでドリフトを消す仕組み | `YawDriftCorrector` |
 | **静止判定** | 首が止まったとみなす条件。止まってから星図を送る | `RedrawDecider.settle` |
 | **視線ラッチ** | タップの反動を避けるため、少し過去の視線で星座を判定すること | `LookLatch` |
@@ -65,7 +66,7 @@
 |---|---|---|
 | **案内**（天体案内） | 「あれはどこ？」に対して、矢印で目標の方向へ導くこと | `sky/CelestialGuidance.kt` / `GuidanceTracker.kt` |
 | **到着** | 案内の目標が視野の中心近くに入り、一定時間留まった状態 | `GuidanceStage.ARRIVED` |
-| **ガイド** | 決めた順に星座をめぐって解説するツアー | [16_guide.md](docs/team-e/16_guide.md) |
+| **ガイド** | 決めた順に星座をめぐって解説するツアー | [37_guide.md](docs/team-e/37_guide.md) |
 | **台本** | ガイド 1 本ぶんの中身。段の並びと本文を持ち、端末に保存される | `StarGuide` / `GuideStore` |
 | **段**（ステップ） | 台本の 1 項目。1 つの星座への案内と、その解説 | `GuideStep` |
 | **即興ガイド** | その場の空から台本を組むこと（toC）。**圏外なら同梱の解説で組む** | `ImpromptuGuide` / `GuideMaker` |

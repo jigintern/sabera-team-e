@@ -3,7 +3,7 @@ package jp.jig.glasses.sample.kmp.satellite
 /**
  * いま空にいる人工衛星 1 機。星図と同じ座標系に乗せるために使う。
  *
- * **軌跡の線は描かない**（決定。`docs/team-e/09_satellite-drawing.md`）。線を引くと画面が線で埋まって
+ * **軌跡の線は描かない**（決定。`docs/team-e/41_satellite-drawing.md`）。線を引くと画面が線で埋まって
  * 「どれが衛星か」が読めなかったので、出すのは
  * **「大体どの辺にいるか」の点と、そのそばに置く輪郭**だけ。
  *
