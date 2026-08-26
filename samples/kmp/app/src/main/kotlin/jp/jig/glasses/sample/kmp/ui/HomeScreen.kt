@@ -22,6 +22,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -38,6 +39,7 @@ import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
+import jp.jig.glasses.sample.kmp.ui.component.rememberMeteorShowerNotice
 
 /**
  * 入口の画面。
@@ -104,6 +106,10 @@ fun HomeScreen(
             ) {
                 Text("ガイドを作る", color = Color.White)
             }
+
+            // **通知を決めるのは出かける前。** グラスをかけてからでは、その夜はもう始まっている。
+            // ここが入り口なので、切るためのもう 1 か所は観測画面の設定パネルに置いてある
+            MeteorShowerNoticeRow()
         }
 
         // **できるまで何も置かない。** 枠だけ先に出すと、開いた瞬間に空の箱が見える。
@@ -124,6 +130,40 @@ fun HomeScreen(
 private val TIP_RESERVE = 116.dp
 
 /** 今日のひとこと 1 枚。**背景の星に負けないよう、薄い板を敷いてから字を置く** */
+/**
+ * 流星群の予告（#70）の入／切。
+ *
+ * **ボタンにしない。** 押して何かが起きるものではなく、いま入っているかどうかが読めればよい。
+ * 許可を聞くのも予約を取り直すのも [rememberMeteorShowerNotice] の中。
+ */
+@Composable
+private fun MeteorShowerNoticeRow() {
+    val notice = rememberMeteorShowerNotice()
+    Row(
+        modifier = Modifier
+            .widthIn(max = 320.dp)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                "流星群を知らせる",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White,
+            )
+            Text(
+                "いちばんよく流れる夜の、前日と当日の夕方に",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.7f),
+            )
+        }
+        Switch(checked = notice.enabled, onCheckedChange = notice.onChange)
+    }
+}
+
 @Composable
 private fun TipCard(tip: SkyTip, modifier: Modifier = Modifier) {
     Column(

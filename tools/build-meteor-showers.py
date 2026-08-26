@@ -12,6 +12,8 @@
 - 出現数（ZHR）は**理想条件の値**。実際には空の暗さと放射点の高度で減る。
   アプリ側では「空が暗ければ」と断って使う
 - 値の出どころは IMO（国際流星機構）の年間カレンダー。極大は年によって半日ほど動く
+- **通知（#70）で知らせる群の下限もここが持つ**（`NOTIFY_ZHR_THRESHOLD`）。
+  アプリ側に定数を置くと、群を足したときに二重管理になる
 
 `python3 tools/build-meteor-showers.py` で作り直す。
 """
@@ -37,6 +39,12 @@ SHOWERS: list[tuple[str, tuple[int, int], tuple[int, int], tuple[int, int], int,
 
 # 極大の前後何日を「極大のころ」として扱うか。アプリ側の言い方が変わる
 PEAK_WINDOW_DAYS = 2
+
+# 通知（#70）で知らせる群の下限 ZHR。
+#
+# **ZHR 5 の群で人を夜の屋外に呼び出すと、次から通知ごと切られる。** 50 で残るのは
+# しぶんぎ座・みずがめ座エータ・ペルセウス座・ふたご座の 4 群（前日と当日で年 8 通）。
+NOTIFY_ZHR_THRESHOLD = 50
 
 
 def day_of_year(month: int, day: int) -> int:
@@ -71,6 +79,7 @@ def main() -> int:
             "zhr は理想条件の 1 時間あたりの出現数"
         ),
         "peakWindowDays": PEAK_WINDOW_DAYS,
+        "notifyZhrThreshold": NOTIFY_ZHR_THRESHOLD,
         "showers": [
             {
                 "nameJa": name,

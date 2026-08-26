@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MusicOff
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SatelliteAlt
@@ -587,6 +588,28 @@ internal fun SoundSettings(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SoundDetails(aiVoice, onAiVoiceChange, bgmOn, bgmPinned, onBgmPinnedChange)
+    }
+}
+
+/**
+ * 流星群の予告（#70）。
+ *
+ * **入れるのは出かける前（ホーム）だが、切りたくなるのはたいていその場。**
+ * 屋外で「うるさいから今夜はいい」と思ったときに、ホームまで戻らせない。
+ * 覚える・許可を聞く・予約を取り直すのは [rememberMeteorShowerNotice] が持つ。
+ */
+@Composable
+internal fun NotificationSettings(notice: MeteorShowerNoticeState) {
+    SettingsSection(
+        "おしらせ",
+        Icons.Filled.NotificationsActive,
+        "いちばんよく流れる夜の、前日と当日の夕方に知らせる",
+    ) {
+        SettingSwitch(
+            if (notice.enabled) "流星群の予告を出す" else "流星群の予告は出さない",
+            notice.enabled,
+            notice.onChange,
+        )
     }
 }
 
