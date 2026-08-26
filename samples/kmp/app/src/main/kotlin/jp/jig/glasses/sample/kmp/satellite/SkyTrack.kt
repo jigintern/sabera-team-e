@@ -36,7 +36,7 @@ class SkyMotion(
     val nextAltDeg: Double? = null,
 )
 
-class SkyTrack(
+data class SkyTrack(
     val name: String,
     /** いまの位置 */
     val nowAzDeg: Double,
