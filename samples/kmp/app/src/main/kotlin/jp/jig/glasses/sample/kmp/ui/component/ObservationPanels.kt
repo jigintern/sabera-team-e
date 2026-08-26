@@ -207,6 +207,8 @@ internal fun NarrationPanel(
             if (status.isNotEmpty()) {
                 Text(status, color = MaterialTheme.colorScheme.primary)
             }
+            // **名前は動かさない。** 本文だけが下の枠の中を流れるので、
+            // 読んでいる途中でも「何の話か」が画面から消えない
             if (subject.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(subject, style = MaterialTheme.typography.titleLarge)
@@ -217,8 +219,13 @@ internal fun NarrationPanel(
                 modifier = Modifier.fillMaxWidth()
                     // 直に null を見る（fill 経由だとスマートキャストが効かない）
                     .then(
-                        if (maxTextHeight == null) Modifier.weight(1f)
-                        else Modifier.heightIn(max = maxTextHeight),
+                        if (maxTextHeight == null) {
+                            Modifier.weight(1f)
+                        } else {
+                            // **高さを決め打つ。** 短い解説で枠が縮むと、次の 1 文が届くたびに
+                            // 下のボタンが動く。流す場所は最初から同じ大きさで空けておく
+                            Modifier.heightIn(min = maxTextHeight, max = maxTextHeight)
+                        },
                     )
                     .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyLarge,
@@ -232,7 +239,6 @@ internal fun NarrationPanel(
 internal fun ObservationActions(
     primaryLabel: String,
     onPrimary: () -> Unit,
-    onRecalibrate: () -> Unit,
     /** 主ボタンの次に置くもの（いまはガイドの開始）。**要らないときは出さない** */
     secondaryLabel: String? = null,
     onSecondary: () -> Unit = {},
@@ -253,9 +259,17 @@ internal fun ObservationActions(
             Text(secondaryLabel)
         }
     }
-    // **やり直しの逃げ道はいちばん下のまま。** 押す機会がいちばん少ないので、
-    // 上に来ると誤って押される（押すと方位合わせからやり直しになる）
-    OutlinedButton(onClick = onRecalibrate, modifier = Modifier.fillMaxWidth()) {
+}
+
+/**
+ * 方位を合わせ直す。**画面のいちばん下に固定する**（流れる中身の外に置く）。
+ *
+ * 押す機会はいちばん少ないので上には置かない（誤って押すと方位合わせからやり直しになる）。
+ * それでも**流れて消えてはいけない** — 星図がずれていると気づいたときに探させることになる。
+ */
+@Composable
+internal fun RecalibrateButton(onRecalibrate: () -> Unit, modifier: Modifier = Modifier) {
+    OutlinedButton(onClick = onRecalibrate, modifier = modifier.fillMaxWidth()) {
         Text("方位を合わせ直す")
     }
 }

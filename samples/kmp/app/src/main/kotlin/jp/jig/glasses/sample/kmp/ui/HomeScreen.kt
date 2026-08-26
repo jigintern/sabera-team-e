@@ -64,11 +64,9 @@ fun HomeScreen(
         )
 
         Column(
-            // 下はひとことのぶんを**最初から空けておく**。あとから足すと、
-            // 読み込みが終わった瞬間にボタンが飛び上がる（押そうとした先が動く）
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = TIP_RESERVE),
+                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
         ) {
@@ -85,6 +83,15 @@ fun HomeScreen(
                 color = Color.White.copy(alpha = 0.82f),
                 textAlign = TextAlign.Center,
             )
+            // **ひとことはスタートの手前に置く。** 押したあとの画面へ行ってしまう位置では読まれない。
+            // **できる前から高さだけ空けておく**（あとから足すと、押そうとした先が動く）
+            Box(
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).height(TIP_RESERVE),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (tip != null) TipCard(tip)
+            }
+
             Button(
                 onClick = onStart,
                 modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
@@ -105,22 +112,10 @@ fun HomeScreen(
                 Text("ガイドを作る", color = Color.White)
             }
         }
-
-        // **できるまで何も置かない。** 枠だけ先に出すと、開いた瞬間に空の箱が見える。
-        // 下に寄せるのは、**ボタンの位置を動かさない**ため（中央の列に足すと押す場所がずれる）
-        if (tip != null) {
-            TipCard(
-                tip,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 24.dp, vertical = 20.dp)
-                    .widthIn(max = 420.dp),
-            )
-        }
     }
 }
 
-/** ひとことのために空けておく高さ。**3 行ぶん＋余白** */
+/** ひとことのために空けておく高さ。**3 行ぶん＋余白。できるまでは空のまま置く** */
 private val TIP_RESERVE = 116.dp
 
 /** 今日のひとこと 1 枚。**背景の星に負けないよう、薄い板を敷いてから字を置く** */

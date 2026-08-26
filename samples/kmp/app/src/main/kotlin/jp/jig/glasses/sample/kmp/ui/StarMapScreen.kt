@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -45,15 +46,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.jigglass.glass.CommandManager
 import app.jigglass.glass.GestureType
 import app.jigglass.glass.GlassClient
 import jp.jig.glasses.sample.kmp.BuildConfig
+import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.alignment.CalibrationResult
 import jp.jig.glasses.sample.kmp.alignment.HeadFlick
 import jp.jig.glasses.sample.kmp.alignment.HeadFlickDetector
@@ -172,7 +176,8 @@ import jp.jig.glasses.sample.kmp.support.SessionLog
 import jp.jig.glasses.sample.kmp.ui.component.AskHistoryCard
 import jp.jig.glasses.sample.kmp.ui.component.BACKGROUND_LABEL_CLEARANCE
 import jp.jig.glasses.sample.kmp.ui.component.BrightnessSettings
-import jp.jig.glasses.sample.kmp.ui.component.CreditsCard
+import jp.jig.glasses.sample.kmp.ui.component.BgmSettings
+import jp.jig.glasses.sample.kmp.ui.component.CreditsFootnote
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.GuidanceCard
 import jp.jig.glasses.sample.kmp.ui.component.GuideMismatchDialog
@@ -186,13 +191,15 @@ import jp.jig.glasses.sample.kmp.ui.component.NightRecordCard
 import jp.jig.glasses.sample.kmp.ui.component.ObservationActions
 import jp.jig.glasses.sample.kmp.ui.component.ObservationPreview
 import jp.jig.glasses.sample.kmp.ui.component.ObservationStatusCard
+import jp.jig.glasses.sample.kmp.ui.component.RecalibrateButton
 import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
 import jp.jig.glasses.sample.kmp.ui.component.SaberaTypography
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SessionLogCard
 import jp.jig.glasses.sample.kmp.ui.component.SkyConditionSettings
+import jp.jig.glasses.sample.kmp.ui.component.InkSettings
 import jp.jig.glasses.sample.kmp.ui.component.SkyViewSettings
-import jp.jig.glasses.sample.kmp.ui.component.SoundSettings
+import jp.jig.glasses.sample.kmp.ui.component.VoiceSettings
 import jp.jig.glasses.sample.kmp.ui.component.TIME_SCRUB_HOURS
 import jp.jig.glasses.sample.kmp.ui.component.TimeScrubControls
 import jp.jig.glasses.sample.kmp.ui.component.toPreviewBitmap
@@ -2758,6 +2765,10 @@ fun StarMapScreen(
                                         ) {
                                             Text("戻る", color = Color.White)
                                         }
+                                    } else {
+                                        // **どのアプリを使っているかを星図の画面にも残す。**
+                                        // 印だけにするのは、題（星空）と二重に名前を出さないため
+                                        AppMark(Modifier.padding(start = 12.dp))
                                     }
                                 }
                             },
@@ -3029,8 +3040,9 @@ fun StarMapScreen(
                                             },
                                         )
 
-                                        Text("星座解説", style = MaterialTheme.typography.titleMedium)
-                                        Spacer(Modifier.height(4.dp))
+                                        // 見出しは置かない。**枠の中の名前が見出しそのもの**で、
+                                        // 「星座解説」と重ねると本文に使える高さがそのぶん減る
+                                        Spacer(Modifier.height(8.dp))
                                         NarrationPanel(
                                             status = if (landscape) "" else narrationStatus,
                                             subject = narration.constellation,
@@ -3057,7 +3069,6 @@ fun StarMapScreen(
                                                     else -> toggleNarration()
                                                 }
                                             },
-                                            onRecalibrate = onRecalibrate,
                                             // **台本が無いときは出さない**（押しても何も選べないボタンを置かない）。
                                             // 作るのはホーム画面の「ガイドを作る」から。
                                             // ガイド中も出さない（主ボタンが「ガイドを止める」になっている）
@@ -3101,14 +3112,6 @@ fun StarMapScreen(
                                                 drawnLook = null
                                                 log(if (it) "目印を出す" else "目印を消す")
                                             },
-                                            ink = ink,
-                                            onInkChange = { next ->
-                                                val changed = StarMapLayer.entries
-                                                    .firstOrNull { next.level(it) != ink.level(it) }
-                                                ink = next
-                                                drawnLook = null
-                                                changed?.let { log("${it.label}の濃さ: 段 ${next.level(it)}") }
-                                            },
                                         )
 
                                         BrightnessSettings(
@@ -3122,7 +3125,7 @@ fun StarMapScreen(
                                             },
                                         )
 
-                                        SoundSettings(
+                                        VoiceSettings(
                                             aiVoice = aiVoice,
                                             onAiVoiceChange = {
                                                 aiVoice = it
@@ -3133,6 +3136,9 @@ fun StarMapScreen(
                                             voiceVolume = voiceVolume,
                                             onVoiceVolumeChange = { voiceVolume = it },
                                             onVoiceVolumeCommit = { soundPrefs.voiceVolume = voiceVolume },
+                                        )
+
+                                        BgmSettings(
                                             bgmOn = bgmOn,
                                             onBgmChange = {
                                                 bgmOn = it
@@ -3164,7 +3170,7 @@ fun StarMapScreen(
                                         }
 
                                         // CC BY 4.0 は帰属の表示が条件（曲と星座絵）
-                                        CreditsCard()
+                                        CreditsFootnote()
                                     } else {
                                         // **開発者用画面。** 数字とログはここだけ。設定から入り、戻るで設定へ帰る
 
@@ -3191,6 +3197,14 @@ fun StarMapScreen(
                                                     log("声のやり取りを消した")
                                                 },
                                             )
+                                        }
+
+                                        InkSettings(ink) { next ->
+                                            val changed = StarMapLayer.entries
+                                                .firstOrNull { next.level(it) != ink.level(it) }
+                                            ink = next
+                                            drawnLook = null
+                                            changed?.let { log("${it.label}の濃さ: 段 ${next.level(it)}") }
                                         }
 
                                         ObservationStatusCard(
@@ -3225,6 +3239,14 @@ fun StarMapScreen(
                                         )
                                     }
                                     if (showDetails) Spacer(Modifier.height(24.dp))
+                                }
+                                // **流れる中身の外。** 星図の画面では画面のいちばん下に貼り付けて、
+                                // 解説が伸びても消えないようにする（設定と開発者用では出さない）
+                                if (phonePage == PhonePage.MAIN) {
+                                    RecalibrateButton(
+                                        onRecalibrate,
+                                        Modifier.padding(top = 8.dp, bottom = 4.dp),
+                                    )
                                 }
                             }
                         }
@@ -3267,6 +3289,17 @@ fun StarMapScreen(
  * 操作は [LandscapeActions] が右ペインの頭に置き、**この行と同じ高さで並ぶ**ので、
  * 見た目は 1 本のバーのまま高さは 1 行ぶんで済む。
  */
+/** 星しるべの印。**題の左**に置く（アプリの名前は文字で出さない） */
+@Composable
+private fun AppMark(modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(R.drawable.hoshishirube_mark),
+        contentDescription = "星しるべ",
+        contentScale = ContentScale.Fit,
+        modifier = modifier.height(26.dp),
+    )
+}
+
 @Composable
 private fun LandscapeHeader(title: String, onBack: (() -> Unit)?) {
     Row(
@@ -3275,6 +3308,8 @@ private fun LandscapeHeader(title: String, onBack: (() -> Unit)?) {
     ) {
         if (onBack != null) {
             TextButton(onClick = onBack) { Text("戻る", color = Color.White) }
+        } else {
+            AppMark(Modifier.padding(end = 8.dp))
         }
         Text(
             title,
