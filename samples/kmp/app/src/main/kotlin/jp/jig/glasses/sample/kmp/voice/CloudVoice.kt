@@ -150,6 +150,11 @@ class CloudVoice(
     /** 積んである数。0 になった時点で「喋り終わった」と判断する */
     private val queued = AtomicInteger(0)
 
+    /**
+     * いま鳴らしている 1 本。**worker が書き、画面側の [stop] / [shutdown] が読んで止める**ので、
+     * 同じクラスの他のフィールドと同じく `@Volatile` が要る（付け忘れていた）。
+     */
+    @Volatile
     private var current: Job? = null
 
     private val _speaking = MutableStateFlow(false)
