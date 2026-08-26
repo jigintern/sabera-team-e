@@ -77,39 +77,6 @@ object GlassTextArt {
         return StarMap(width, height, toGray(bitmap), emptyList())
     }
 
-    /**
-     * 1 行を**枠いっぱいの大きさ**で焼く（タイムラプスの年号・#45）。
-     *
-     * **テキスト枠では字の大きさを変えられない**ので、大きく出したいものはここを通す。
-     * [splash] と違って**毎フレーム作り直す**ため、折り返しも行送りもしない。
-     * 入らなければ入る大きさまで落とす（「紀元前 10000 年」がいちばん長い）。
-     */
-    fun bigLine(text: String, width: Int, height: Int): StarMap {
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        // **黒は透明。** 塗りつぶしておくと、前に出ていた絵が透けない
-        canvas.drawColor(Color.BLACK)
-
-        val usable = width - 2 * BIG_LINE_MARGIN
-        val linePaint = paint(height * BIG_LINE_HEIGHT_RATIO)
-        while (linePaint.textSize > BIG_LINE_MIN_SIZE &&
-            linePaint.measureText(text) > usable
-        ) {
-            linePaint.textSize -= 2f
-        }
-        // 中央へ。**上下も真ん中**にしたいので、字の高さの半分だけベースラインを下げる
-        val metrics = linePaint.fontMetrics
-        val baseline = height / 2f - (metrics.ascent + metrics.descent) / 2f
-        canvas.drawText(text, width / 2f, baseline, linePaint)
-
-        return StarMap(width, height, toGray(bitmap), emptyList())
-    }
-
-    /** 枠の高さに対する字の大きさ。上下に余白が要るので目いっぱいにはしない */
-    private const val BIG_LINE_HEIGHT_RATIO = 0.62f
-    private const val BIG_LINE_MARGIN = 12
-    private const val BIG_LINE_MIN_SIZE = 16f
-
     private fun paint(size: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = size

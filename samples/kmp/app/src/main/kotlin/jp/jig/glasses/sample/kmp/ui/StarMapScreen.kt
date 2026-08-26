@@ -111,8 +111,6 @@ import jp.jig.glasses.sample.kmp.glass.SUBTITLE_LAST_HOLD_MS
 import jp.jig.glasses.sample.kmp.glass.StarMapInk
 import jp.jig.glasses.sample.kmp.glass.StarMapLayer
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
-import jp.jig.glasses.sample.kmp.glass.TimelapseWindow
-import jp.jig.glasses.sample.kmp.glass.TimelapseSender
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_WIDTH
@@ -179,7 +177,6 @@ import jp.jig.glasses.sample.kmp.sky.SkyCommandResult
 import jp.jig.glasses.sample.kmp.sky.SkyDarkness
 import jp.jig.glasses.sample.kmp.sky.SkyPlace
 import jp.jig.glasses.sample.kmp.sky.SkyPresets
-import jp.jig.glasses.sample.kmp.sky.Timelapse
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.sky.SolarSystemBody
 import jp.jig.glasses.sample.kmp.sky.azimuthFromYaw
@@ -427,11 +424,8 @@ fun StarMapScreen(
             .snapshot(liveSite = site, nowMillis = epochMillis)
 
     /** 時代を送っている最中か。**`SINGLE_TAP` は「元に戻る」＝即着地**になる（#45） */
-    var timelapsePlaying by remember { mutableStateOf(false) }
 
     /** タイムラプスの打ち切り。古い合図を溜めないよう 1 件だけ持つ */
-    val timelapseSkips = remember { Channel<Unit>(Channel.CONFLATED) }
-    val timelapseSender = remember { TimelapseSender(commandManager) }
 
     /** 聞き返して持ち越している条件。**次の `HOLD` の答えと合流させる**（#45） */
     var pendingSkyRequest by remember { mutableStateOf<PendingSkyRequest?>(null) }
@@ -2043,52 +2037,6 @@ fun StarMapScreen(
     }
 
     /**
-     * 時代を送るところを見せる（#45）。
-     *
-     * **全画面ではやらない。** 転送時間の下限は面積 ÷ 32 で決まり、528×330 は真っ黒でも
-     * 231ms かかって 4fps にしかならない。**星を減らしても背景ぶんは減らない**ので、
-     * 精度ではなく枠の大きさで稼ぐ（240×160 で 20fps）。
-     *
-     * 星図は確認表示のときに消えているので、ここでは窓だけを出す。
-     * バッファも星図（348,480）と窓 2 枚（153,600）は同居できない。
-     */
-    suspend fun playTimelapse(fromEpochMillis: Long, target: SkyCommand.ShowSky) {
-        val frames = Timelapse.frames(fromEpochMillis, target.epochMillis, target.place.zoneId)
-        if (frames.isEmpty()) return
-        // 前の打ち切りが残っていると、始まった瞬間に終わる
-        while (timelapseSkips.tryReceive().isSuccess) Unit
-        timelapsePlaying = true
-        log("タイムラプス開始 ${frames.size}枚 → ${SkyCommandParser.yearLabel(frames.last().year)}")
-        try {
-            sendGate.withLock {
-                for (frame in frames) {
-                    if (timelapseSkips.tryReceive().isSuccess) {
-                        log("タップでタイムラプスを打ち切り")
-                        break
-                    }
-                    // **星は描かない。** 流れている間は誰も星を読めないので、
-                    // 年号だけを大きく出したほうが速く、しかも時代が飛んでいることは伝わる。
-                    // テキスト枠では字の大きさを変えられないので画像に焼く
-                    val map = withContext(Dispatchers.Default) {
-                        GlassTextArt.bigLine(
-                            SkyCommandParser.yearLabel(frame.year),
-                            TimelapseWindow.WIDTH,
-                            TimelapseWindow.HEIGHT,
-                        )
-                    }
-                    val waitMs = withContext(NonCancellable) { timelapseSender.show(map) }
-                    // **積まずに待つ。** 送信は呼び出し直後に返るので、待たないと
-                    // 転送が追いつかず古い枚が順番待ちで残る
-                    delay(waitMs)
-                }
-            }
-        } finally {
-            withContext(NonCancellable) { timelapseSender.clear() }
-            timelapsePlaying = false
-        }
-    }
-
-    /**
      * いま出ている空が、基準時刻から何時間ずれているか。**つまみの位置はここから出す。**
      *
      * 別に持った値を離すたびに 0 へ戻していたときは、**動かしてもつまみが中央へ跳ね返って
@@ -2119,13 +2067,13 @@ fun StarMapScreen(
         simulationMessage = observationSnapshot().shortLabel()
     }
 
-    /** 時代が大きく動くときだけ、送るところを見せてから切り替える。 */
-    suspend fun applySkyCommandShowing(command: SkyCommand): String? {
-        if (command is SkyCommand.ShowSky) {
-            playTimelapse(observationSnapshot().epochMillis, command)
-        }
-        return applySkyCommand(command)
-    }
+    /**
+     * 指定された空へ**すぐ移す**。
+     *
+     * 時代を送るところを見せるタイムラプスは撤去した。**見たいのは着いた先の空**で、
+     * 年号が流れるあいだ（星図を消して数秒）は待たされているだけだった。
+     */
+    suspend fun applySkyCommandShowing(command: SkyCommand): String? = applySkyCommand(command)
 
     /** スマホ操作も音声と同じ確認表示と許可済みコマンドを通す。 */
     fun runPhoneCommand(command: SkyCommand, confirmation: String) {
@@ -2525,15 +2473,10 @@ fun StarMapScreen(
      * 画面ごとに戻り方が違うと、**戻りたいときに何を押すか毎回考えることになる**。
      * 戻る口はここ 1 つだけにして、上から順に 1 つだけ効かせる。
      *
-     * **順番は「かぶせた順」の逆。** タイムラプスは星図の上に出ているので先に降り、
-     * 再現（場所と時刻の入れ替え）はいちばん下なので最後に戻す。
+     * **順番は「かぶせた順」の逆。** 再現（場所と時刻の入れ替え）はいちばん下なので最後に戻す。
      */
     fun goBack() {
         when {
-            // 流れている途中は待たせずに即着地させる
-            timelapsePlaying -> {
-                timelapseSkips.trySend(Unit)
-            }
             recordingVoice -> {
                 stopNarration()
                 log("2回タップで音声入力をやめる")
