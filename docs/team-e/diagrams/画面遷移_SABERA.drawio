@@ -62,7 +62,7 @@
             <mxPoint x="700" y="260" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="GK8hg9urBfB_4MkSQuvG-13" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-10" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="タップ" vertex="1">
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-13" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-10" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="ダブルタップ" vertex="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint y="11" as="offset" />
           </mxGeometry>
@@ -73,7 +73,7 @@
             <mxPoint x="720" y="270" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="GK8hg9urBfB_4MkSQuvG-14" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-11" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="タップ&lt;div&gt;読み上げ後 5 秒&lt;/div&gt;" vertex="1">
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-14" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-11" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ&lt;div&gt;最終行＋読み上げ後 5 秒&lt;/div&gt;" vertex="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint y="15" as="offset" />
           </mxGeometry>
@@ -87,7 +87,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="flow-lbl-guide-back" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-27" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="タップ×2" vertex="1">
+        <mxCell id="flow-lbl-guide-back" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-27" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ" vertex="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint y="14" as="offset" />
           </mxGeometry>
@@ -104,7 +104,7 @@
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="GK8hg9urBfB_4MkSQuvG-28" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-25" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="タップ×2" vertex="1">
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-28" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-25" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="シングルタップ" vertex="1">
           <mxGeometry relative="1" x="-0.2" as="geometry">
             <mxPoint y="14" as="offset" />
           </mxGeometry>
@@ -129,7 +129,7 @@
             <mxPoint x="520" y="370" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="GK8hg9urBfB_4MkSQuvG-24" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-22" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="タップで送信" vertex="1">
+        <mxCell id="GK8hg9urBfB_4MkSQuvG-24" connectable="0" parent="GK8hg9urBfB_4MkSQuvG-22" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=11;" value="長押しで送信" vertex="1">
           <mxGeometry relative="1" as="geometry">
             <mxPoint x="-36" as="offset" />
           </mxGeometry>

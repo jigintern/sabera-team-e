@@ -7,10 +7,10 @@ import org.junit.Test
 
 class VoiceInputPromptTest {
     @Test
-    fun `グラスの録音表示にタップで送信を含める`() {
+    fun `グラスの録音表示に長押しで送信を含める`() {
         val lines = askPrompt(0.5f).lines()
 
-        assertEquals(listOf("質問をどうぞ。", "●●●●○○○○ 4/8", "タップで送信"), lines)
+        assertEquals(listOf("質問をどうぞ。", "●●●●○○○○ 4/8", "長押しで送信"), lines)
         assertTrue(lines.all { it.length <= GlassTextPage.lineChars })
     }
 
@@ -31,5 +31,12 @@ class VoiceInputPromptTest {
     fun `音量は数でも出す`() {
         assertTrue(askPrompt(0f).lines()[1].endsWith(" 0/8"))
         assertTrue(askPrompt(1f).lines()[1].endsWith(" 8/8"))
+    }
+
+    @Test
+    fun `自動復帰は5秒から1秒まで表示する`() {
+        assertEquals("5秒後に星図へ戻ります", returnCountdown(5))
+        assertEquals("1秒後に星図へ戻ります", returnCountdown(1))
+        assertTrue((5 downTo 1).all { returnCountdown(it).length <= GlassTextPage.lineChars })
     }
 }

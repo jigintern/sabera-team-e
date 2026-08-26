@@ -29,6 +29,7 @@
 | `guide/` | **星座ガイドの台本。** 形と読み書き・再生前の解決・即興ガイドの組み立て・詳細ガイドの編集・配る形。**Android に触るのは保存だけ** |
 | `voice/` | **どう鳴らす・どう録るか。** AI 音声、端末の読み上げ、グラスのマイク |
 | `openai/` | **通信するのはここだけ。** 圏外で何が失われるかがここを見れば分かる。聞き取った文と返ってきた文の検査（`AskGuard`）もここ |
+| `notification/` | **スマホの通知。** 流星群の予告（#70）の文面・予約・受信。**文面と予定は Android に触らない**ので JVM テストで固定できる |
 | `sound/` | BGM。**場面（`BgmScene`）と曲（`BgmTrack`）を分けてある**。選曲は `BgmTrack.kt` の `BgmPlaylist` |
 | `support/` | どこにも属さない道具（観測ログ・声のやり取りの履歴・音量の持ち上げ・重複送信の抑止・時間の換算）。**アプリ内の他パッケージに依存しない** |
 | `ui/` | 4 画面（ホーム・接続・方位合わせ・星図）＋ガイド 4 画面（一覧・詳細エディタ・配る・受け取る）。画面の状態は `*ViewModel`、`ui/component/` は部品と色、`ui/starmap/` は観測画面から切り出した道具 |
@@ -75,6 +76,8 @@
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
 | `narration/SkyTips.kt` | 読み込み画面の一言。**通信も生成も要らない**（時刻と場所から端末が組む） |
+| `notification/MeteorShowerSchedule.kt` | 次にいつ何を知らせるか。**予約は常に次の 1 件だけ**（再起動で消えるため）（#70） |
+| `notification/MeteorShowerAlarm.kt` | `setAndAllowWhileIdle` で予約。**正確アラームの権限は要らない。** `observing` は**グラス接続中に鳴らさない**ための印で、`SharedPreferences` に持たせない（#70） |
 | `guide/StarGuide.kt` | 台本の形と JSON。**方角は持たせない**（再生時に引き直す） |
 | `guide/GuidePlan.kt` | 台本をいまの空へ突き合わせる。**出ていない星座を飛ばす** |
 | `guide/ImpromptuGuide.kt` | 即興ガイドの選定と文面。**選ぶのは端末**（AI に星座を選ばせない） |

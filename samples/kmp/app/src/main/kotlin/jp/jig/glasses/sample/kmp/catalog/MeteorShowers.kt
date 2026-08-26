@@ -18,7 +18,16 @@ import kotlin.math.abs
  * 実体は `data/meteor-showers.json`（生成物）で、値は `tools/build-meteor-showers.py` が持つ。
  * **引き当ては [Shower] 側にあり Android に触らない**ので、JVM テストで日付を固定できる。
  */
-class MeteorShowers(val showers: List<Shower>, private val peakWindowDays: Int) {
+class MeteorShowers(
+    val showers: List<Shower>,
+    private val peakWindowDays: Int,
+    /**
+     * 通知（#70）で知らせる群の下限 ZHR。**正本は `meteor-showers.json`**（既定は取りこぼし防止の保険）。
+     *
+     * アプリ側に定数を置くと、群を足したときにデータと二重管理になる。
+     */
+    private val notifyZhrThreshold: Int = 50,
+) {
 
     /**
      * 流星群 1 つ。放射点は **J2000 の赤経・赤緯**で、星表と同じ座標系。
@@ -73,8 +82,34 @@ class MeteorShowers(val showers: List<Shower>, private val peakWindowDays: Int) 
     fun nearPeak(shower: Shower, month: Int, day: Int): Boolean =
         abs(shower.daysToPeak(month, day)) <= peakWindowDays
 
+    /**
+     * その日に通知で知らせることがあるか。無ければ null。
+     *
+     * **知らせるのは「いちばんよく流れる夜」の前日と当日だけ。** 活動期間はひと月あることも
+     * あるが、毎晩鳴らせば通知ごと切られる。[nearPeak] の前後 2 日ですら通知には広い。
+     *
+     * **数の少ない群では鳴らさない**（[notifyZhrThreshold]）。1 時間に 5 個の群で人を
+     * 夜の屋外へ呼び出すと、次からもう見てもらえない。
+     *
+     * **Android に触らない**ので、日付を固定して JVM テストできる。
+     */
+    fun noticeOn(month: Int, day: Int): Notice? = showers
+        .filter { it.zhr >= notifyZhrThreshold }
+        .mapNotNull { shower ->
+            when (shower.daysToPeak(month, day)) {
+                0 -> Notice(shower, onPeakDay = true)
+                1 -> Notice(shower, onPeakDay = false)
+                else -> null
+            }
+        }
+        // 前日と当日が重なる日（極大が 2 日続く群を足したとき）は**今夜のほうを採る**
+        .minWithOrNull(compareBy({ if (it.onPeakDay) 0 else 1 }, { -it.shower.zhr }))
+
+    /** 通知 1 通ぶん。[onPeakDay] が false なら「明日の夜」の予告 */
+    class Notice(val shower: Shower, val onPeakDay: Boolean)
+
     companion object {
-        val empty = MeteorShowers(emptyList(), 0)
+        val empty = MeteorShowers(emptyList(), 0, 0)
 
         private const val DAYS_IN_YEAR = 365
 
@@ -111,7 +146,11 @@ class MeteorShowers(val showers: List<Shower>, private val peakWindowDays: Int) 
                     decDeg = entry.getDouble("decDeg"),
                 )
             }
-            return MeteorShowers(showers, json.optInt("peakWindowDays", 2))
+            return MeteorShowers(
+                showers = showers,
+                peakWindowDays = json.optInt("peakWindowDays", 2),
+                notifyZhrThreshold = json.optInt("notifyZhrThreshold", 50),
+            )
         }
     }
 }

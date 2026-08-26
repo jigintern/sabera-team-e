@@ -101,6 +101,64 @@ class MeteorShowersTest {
         assertFalse(catalog.nearPeak(perseids, 8, 9))
     }
 
+    /**
+     * **通知は前日と当日だけ。** 活動期間はひと月あることもあるが、毎晩鳴らせば通知ごと切られる。
+     */
+    @Test
+    fun `通知は前日と当日だけ出す`() {
+        val catalog = MeteorShowers(listOf(geminids), peakWindowDays = 2, notifyZhrThreshold = 50)
+
+        assertNull("2 日前に鳴った", catalog.noticeOn(12, 12))
+        assertEquals("前日が出ない", false, catalog.noticeOn(12, 13)?.onPeakDay)
+        assertEquals("当日が出ない", true, catalog.noticeOn(12, 14)?.onPeakDay)
+        assertNull("極大を過ぎても鳴った", catalog.noticeOn(12, 15))
+    }
+
+    /** しぶんぎ座は極大が 1/4。**前日は年をまたいだ 1/3** */
+    @Test
+    fun `年をまたぐ群でも前日と当日を出す`() {
+        val catalog = MeteorShowers(listOf(quadrantids), peakWindowDays = 2, notifyZhrThreshold = 50)
+
+        assertEquals("しぶんぎ座流星群", catalog.noticeOn(1, 3)?.shower?.nameJa)
+        assertEquals(false, catalog.noticeOn(1, 3)?.onPeakDay)
+        assertEquals(true, catalog.noticeOn(1, 4)?.onPeakDay)
+        assertNull("大晦日に鳴った", catalog.noticeOn(12, 31))
+    }
+
+    /** **1 時間に 5 個の群で夜の屋外へ呼び出さない。** 次から通知ごと切られる */
+    @Test
+    fun `数の少ない群では鳴らさない`() {
+        val catalog = MeteorShowers(
+            listOf(southernTaurids),
+            peakWindowDays = 2,
+            notifyZhrThreshold = 50,
+        )
+
+        assertNull(catalog.noticeOn(11, 4))
+        assertNull(catalog.noticeOn(11, 5))
+    }
+
+    /** 同じ日に 2 つ当たったら**今夜のほう**を採る（前日の予告より優先する） */
+    @Test
+    fun `前日と当日が重なったら今夜を採る`() {
+        val eve = MeteorShowers.Shower(
+            nameJa = "架空の群",
+            peakMonth = 12, peakDay = 15,
+            startMonth = 12, startDay = 1,
+            endMonth = 12, endDay = 20,
+            zhr = 200, raDeg = 0.0, decDeg = 0.0,
+        )
+        val catalog = MeteorShowers(
+            listOf(eve, geminids),
+            peakWindowDays = 2,
+            notifyZhrThreshold = 50,
+        )
+
+        val notice = catalog.noticeOn(12, 14)
+        assertEquals("ふたご座流星群", notice?.shower?.nameJa)
+        assertEquals(true, notice?.onPeakDay)
+    }
+
     @Test
     fun `通日は月をまたいで増える`() {
         assertEquals(1, MeteorShowers.dayOfYear(1, 1))
