@@ -4,12 +4,10 @@ import android.content.Context
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
-import jp.jig.glasses.sample.kmp.sky.cardinalDirection16
 import jp.jig.glasses.sample.kmp.sky.enu
 import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
 import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 /**
  * いま空にいる人工衛星を集めて、星図に重ねられる形にする。
@@ -49,42 +47,6 @@ class SatelliteScene(
     }
 
     /** 空にいる衛星 1 機ぶんの情報。スマホ側の一覧にも使う */
-    class Sighting(
-        val name: String,
-        val azDeg: Double,
-        val altDeg: Double,
-        val rangeKm: Double,
-        val sunlit: Boolean,
-        val named: Boolean,
-        val motion: SkyMotion? = null,
-    ) {
-
-        /**
-         * 「上昇中・最接近まで 3 分」のような一言。
-         *
-         * **点だけ見せても「待てばいいのか」が分からない**ので、時間を出す。
-         */
-        val timing: String
-            get() {
-                val m = motion ?: return ""
-                if (m.stationary) return "ほぼ静止（同じ場所に見え続ける）"
-                val minutes = m.closestInMinutes
-                val direction = if (m.rising) "上昇中" else "下降中"
-                return when {
-                    minutes == null -> direction
-                    minutes > 0.5 -> "$direction・最接近まで ${kotlin.math.ceil(minutes).toInt()} 分"
-                    minutes > -0.5 -> "$direction・いま最接近"
-                    else -> "$direction・最接近は ${kotlin.math.ceil(-minutes).toInt()} 分前"
-                }
-            }
-
-        /** 「南南西 高度 45° 720km」のような表示 */
-        val where: String
-            get() {
-                return "${cardinalDirection16(azDeg)} 高度 ${altDeg.roundToInt()}° ${rangeKm.roundToInt()}km"
-            }
-    }
-
     /** 視野に入っている衛星を返す */
     fun tracksInView(
         observer: Observer,
@@ -137,26 +99,6 @@ class SatelliteScene(
             .mapNotNull { (_, sgp4) -> track(sgp4, observer, epochMillis, labelled = false)?.track }
 
         return namedTracks + starlinkTracks
-    }
-
-    /** スマホ側の一覧に出すぶん。視野に関係なく、空に出ているものを高い順に */
-    fun aboveHorizon(observer: Observer, epochMillis: Long, limit: Int = 12): List<Sighting> {
-        val sightings = ArrayList<Sighting>()
-        for (sgp4 in named) {
-            val state = sgp4.at(epochMillis) ?: continue
-            val look = observer.look(state, epochMillis)
-            if (look.altDeg <= 0.0) continue
-            sightings += Sighting(
-                name = sgp4.tle.name,
-                azDeg = look.azDeg,
-                altDeg = look.altDeg,
-                rangeKm = look.rangeKm,
-                sunlit = isSunlit(state, epochMillis),
-                named = true,
-                motion = motion(sgp4, observer, epochMillis),
-            )
-        }
-        return sightings.sortedByDescending { it.altDeg }.take(limit)
     }
 
     /** 名前付き衛星を案内候補へ変える。地平線の下も断る根拠として返す。 */
