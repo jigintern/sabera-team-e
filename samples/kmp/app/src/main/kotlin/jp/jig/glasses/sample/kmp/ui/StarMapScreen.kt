@@ -2974,19 +2974,6 @@ fun StarMapScreen(
                                         if (!landscape || guidanceFrame != null || guideProgress != null) {
                                             Spacer(Modifier.height(16.dp))
                                         }
-                                        // 見出しは置かない。**枠の中の名前が見出しそのもの**で、
-                                        // 「星座解説」と重ねると本文に使える高さがそのぶん減る
-                                        Spacer(Modifier.height(8.dp))
-                                        NarrationPanel(
-                                            status = if (landscape) "" else narrationStatus,
-                                            subject = narration.constellation,
-                                            text = narration.text,
-                                            failed = narration.phase == NarrationPhase.FAILED,
-                                            // **横は残りの高さを本文に吸わせる。** そうしないと
-                                            // 解説の下が空いたままボタン 2 つが宙に浮く
-                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
-                                            maxTextHeight = if (landscape) null else 160.dp,
-                                        )
                                         // **場所と日時の指定はメインに置く。** 「設定」ではなく
                                         // 「いま何を見るか」の操作。**畳んであるので普段は 1 行**
                                         val simulation = observationMode as? ObservationMode.Simulation
@@ -3041,7 +3028,19 @@ fun StarMapScreen(
                                                 Spacer(Modifier.height(8.dp))
                                             },
                                         )
-
+                                        // 見出しは置かない。**枠の中の名前が見出しそのもの**で、
+                                        // 「星座解説」と重ねると本文に使える高さがそのぶん減る
+                                        Spacer(Modifier.height(8.dp))
+                                        NarrationPanel(
+                                            status = if (landscape) "" else narrationStatus,
+                                            subject = narration.constellation,
+                                            text = narration.text,
+                                            failed = narration.phase == NarrationPhase.FAILED,
+                                            // **横は残りの高さを本文に吸わせる。** そうしないと
+                                            // 解説の下が空いたままボタン 2 つが宙に浮く
+                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
+                                            maxTextHeight = if (landscape) null else 160.dp,
+                                        )
                                     } else if (phonePage == PhonePage.SETTINGS) {
                                         SkyViewSettings(
                                             density = density,
