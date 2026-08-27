@@ -9,7 +9,7 @@
 
 - 上流 = [jig-SABERA/sabera-sdk](https://github.com/jig-SABERA/sabera-sdk) /
   公開ドキュメント = <https://jig-sabera.github.io/sabera-sdk/>
-- **`f3db995`（SDK 0.6.0）時点まで取り込み済み**
+- **`90339c0`（SDK 0.7.3）時点まで取り込み済み**
 - どのメソッドがどの版から使えるかは上流リポジトリの `docs/api-history.md`
 - **iOS は追わない。** `Package.swift` は上流でも SDK 0.0.10 のままで、team-e では撤去した
 
@@ -20,7 +20,7 @@
 **`read:packages` の PAT があれば誰でも取れる**（0.0.10 以降のどの版にもある）。
 
 ```bash
-cd ~/.gradle/caches/modules-2/files-2.1/jp.jig.sabera.app.sdk/sabera-app-core-android/0.6.0
+cd ~/.gradle/caches/modules-2/files-2.1/jp.jig.sabera.app.sdk/sabera-app-core-android/0.7.3
 unzip -o */*-sources.jar -d /tmp/sabera-src && ls /tmp/sabera-src/commonMain/app/jigglass/glass
 ```
 
@@ -34,7 +34,7 @@ unzip -o */*-sources.jar -d /tmp/sabera-src && ls /tmp/sabera-src/commonMain/app
 
 ### SDK を更新する手順
 
-1. `samples/kmp/app/build.gradle.kts` の SDK バージョンを更新する
+1. `samples/kmp/gradle/libs.versions.toml` の `saberaSdk` を更新する
 2. 上流の公開ドキュメント、`docs/api-history.md`、取得した `sources.jar` で破壊的変更を確認する
 3. 必要な変更だけを team-e のアプリへ手動で反映する
 4. `:app:testDebugUnitTest` と `:app:assembleDebug` を実行する
@@ -111,6 +111,9 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 
 その他の版の動き：
 
+- **0.7.0 で充電状態の `charging` が増えた。** 接続時に SDK が状態を要求するため、
+  アプリは購読するだけでよい。ただし **0.7.0 の AAR は Opus のネイティブライブラリが欠け、
+  `startMicStreaming` で落ちる。0.7.3 で直ったため、0.7.0 は使わない**
 - **0.0.14 で `enterAIPage` / `enterMeetingPage` / `enterNotificationPage` が撤去された**（ファーム非対応）
 - **0.5.0 でアプリ本体に実装が無いメソッドがまとめて撤去された** — `sendMeeting` /
   `sendAIContent` / `sendAiChatSender` / `sendEmptyScreenStatus` / `sendTeleprompterGenerating` /
@@ -158,13 +161,13 @@ val micStreaming: StateFlow<Boolean>
 `gestureEvents` で `SINGLE_TAP` / `DOUBLE_TAP` / `HOLD`。**3 枠すべて埋まっている**
 （[ジェスチャーと首の操作](31_gestures.md)）。
 
-- SDK 0.6.0 の `GestureType` はこの3値だけで、**押下開始・押下中・指を離したイベントが無い**
+- SDK 0.7.3 の `GestureType` はこの3値だけで、**押下開始・押下中・指を離したイベントが無い**
 - `HOLD` は確定後に1回届くだけなので、アプリは**実際に触れている時間を測れない**
 - したがって「ホールド中だけ録音し、離したら終了」は公開 API では実装できない。
   現在は **`HOLD` で開始し、もう一度の `HOLD` で送信**する。押し忘れは30秒で安全終了する
 
 **リモコンのイベントリスナーは 0.5.0 で撤去された。** `RemoteControlListener`
-（`onPrev` / `onNext` / `onEsc`）ごと 0.6.0 の AAR から消えているので、
+（`onPrev` / `onNext` / `onEsc`）ごと 0.7.3 の AAR にも無いので、
 **リモコン操作をアプリで拾う手段は無い**。
 
 ### 逃げ道 — 生の電文
@@ -177,7 +180,7 @@ val micStreaming: StateFlow<Boolean>
 `cancelPendingPackets()` は名前のとおりなら**古い星図フレームを積ませずに捨てられる**。
 `要確認` 実際の挙動。
 
-## 取れないもの（0.6.0 時点）
+## 取れないもの（0.7.3 時点）
 
 | | 状況 |
 |---|---|

@@ -34,3 +34,6 @@ logs/
 
 # draw.io が編集中に作る作業ファイル（.$図.drawio.bkp）
 .$*.bkp
+
+# エージェントの下書きと作業ツリー（.claude/worktrees/ は git の作業ツリーそのもの）
+.claude/

@@ -16,8 +16,8 @@ class TiltGaugeTest {
     }
 
     @Test
-    fun `スマホが上を向いていると水平線は下に出る`() {
-        // 見たまま手を動かせば 0 に近づく向き。**ここが逆だと直すたびに悪くなる**
+    fun `グラスが上を向いていると水平線は下に出る`() {
+        // 上を向くほど空が広がる向き。**ここが逆だと「上を向いたのに地面」になる**
         assertTrue(tiltGaugeGeometry(5.0).horizonOffset > 0f)
         assertTrue(tiltGaugeGeometry(-5.0).horizonOffset < 0f)
     }

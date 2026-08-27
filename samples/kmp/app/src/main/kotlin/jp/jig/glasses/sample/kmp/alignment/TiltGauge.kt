@@ -12,8 +12,8 @@ data class TiltGaugeGeometry(
     /**
      * 水平線の中心からのずれ。-1..1 で、**正なら水平線が中心より下**。
      *
-     * スマホが上を向きすぎているとき下に出るので、**スマホを下げると水平線が中心へ上がる**。
-     * 航空機の姿勢計と同じ向きで、見たまま手を動かせば 0 に近づく。
+     * **グラスが上を向いていると下に出る**ので、上を向くほど空が広がる。
+     * 動かしているのは首なので、**見た色がそのまま自分の向き**になる向きに取ってある。
      */
     val horizonOffset: Float,
     /** 端に張り付いているか。**まだ先があること**を別の形で見せるために要る */
@@ -23,7 +23,7 @@ data class TiltGaugeGeometry(
 )
 
 /**
- * 符号付きの仰角差[度]（スマホ − グラス、上向きが正）から姿勢計の形を出す。
+ * 符号付きの仰角差[度]（**グラス − スマホ**、上向きが正）から姿勢計の形を出す。
  */
 fun tiltGaugeGeometry(differenceDeg: Double): TiltGaugeGeometry = TiltGaugeGeometry(
     horizonOffset = (differenceDeg / TILT_GAUGE_RANGE_DEG).coerceIn(-1.0, 1.0).toFloat(),
