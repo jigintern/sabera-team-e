@@ -26,7 +26,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -2902,15 +2901,14 @@ fun StarMapScreen(
                                 // スマホを見ないので、上のバーに常設する意味が無い
                                 if (!showDetails) {
                                     // **歯車は右端に据え置く。** 押し慣れた位置を動かさないため、
-                                    // 足すぶんはその左へ。印は「Bluetooth が切れる」ことが
-                                    // そのまま形になっているものを選ぶ（電源の印は
-                                    // 「アプリを終了する」に見える）
-                                    IconButton(onClick = onRequestLeave) {
-                                        Icon(
-                                            Icons.Filled.BluetoothDisabled,
-                                            "SABERAとの接続を切る",
-                                            tint = Color.White,
-                                        )
+                                    // 足すぶんはその左へ。
+                                    //
+                                    // **印ではなく文字にする。** Bluetooth の印を歯車の隣へ置いたら、
+                                    // 観測を終える口ではなく **BLE の設定に見えた**（実機）。
+                                    // **2 文字にとどめる** — 横の右ペインは 262dp しかなく、
+                                    // 解説中は「解説を止める」と歯車に挟まれて左から欠ける
+                                    TextButton(onClick = onRequestLeave) {
+                                        Text("終了", color = Color.White)
                                     }
                                     IconButton(onClick = { phonePage = PhonePage.SETTINGS }) {
                                         Icon(Icons.Filled.Settings, "設定", tint = Color.White)
@@ -3455,11 +3453,9 @@ private fun LandscapeActions(
         if (stopLabel != null) {
             TextButton(onClick = onStop) { Text(stopLabel, color = Color.White) }
         }
-        // 縦のバーと同じ並び（歯車が右端、切断はその左）。**左右で位置を変えない**
+        // 縦のバーと同じ並び（歯車が右端、「終了」はその左）。**左右で位置を変えない**
         if (onDisconnect != null) {
-            IconButton(onClick = onDisconnect) {
-                Icon(Icons.Filled.BluetoothDisabled, "SABERAとの接続を切る", tint = Color.White)
-            }
+            TextButton(onClick = onDisconnect) { Text("終了", color = Color.White) }
         }
         if (onSettings != null) {
             IconButton(onClick = onSettings) {
