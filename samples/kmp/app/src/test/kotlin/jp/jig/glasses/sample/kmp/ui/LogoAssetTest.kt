@@ -18,14 +18,28 @@ class LogoAssetTest {
         )
 
         assertEquals(920, image.width)
-        assertEquals(260, image.height)
+        assertEquals(422, image.height)
         assertTrue("透過チャンネルが無い", image.hasAlpha)
     }
 
     @Test
-    fun `ランチャーマークは正方形で透過している`() {
+    fun `印は正方形で透過していて、余白を持たない`() {
+        val file = File(repoRoot, "samples/kmp/app/src/main/res/drawable-nodpi/hoshishirube_mark.png")
+        val image = pngHeader(file)
+
+        assertEquals(432, image.width)
+        assertEquals(432, image.height)
+        assertTrue("透過チャンネルが無い", image.hasAlpha)
+    }
+
+    /**
+     * **ランチャーだけ別素材にしてある。** 印に安全域ぶんの余白を焼き込むと、
+     * 星図のバーへ置いたときに dp の 6 割しか絵が出ず、指定より小さく見える。
+     */
+    @Test
+    fun `ランチャーの前景は安全域の内側に収まる`() {
         val image = pngHeader(
-            File(repoRoot, "samples/kmp/app/src/main/res/drawable-nodpi/hoshishirube_mark.png"),
+            File(repoRoot, "samples/kmp/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png"),
         )
 
         assertEquals(432, image.width)

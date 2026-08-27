@@ -25,7 +25,7 @@
 
 ### スマホ
 
-<img src="docs/images/phone-home.png" alt="星しるべのホーム画面" width="240"> <img src="docs/images/phone-star-map.png" alt="観測中のスマホ画面" width="240">
+<img src="docs/images/phone-home.png" alt="星導のホーム画面" width="240"> <img src="docs/images/phone-star-map.png" alt="観測中のスマホ画面" width="240">
 
 ## ライセンス
 

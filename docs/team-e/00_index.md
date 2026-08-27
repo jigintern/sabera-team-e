@@ -109,6 +109,7 @@
 | パーミッション | `ACCESS_FINE_LOCATION` ＋ `ACCESS_COARSE_LOCATION` を起動時にまとめて聞く | — |
 | 星表 | 自前計算。データは同梱の `data/`（d3-celestial / XHIP。帰属は `NOTICE`） | [coordinate-system](20_coordinate-system.md) |
 | 星座判定 | 解説の主役は**グラスに出したラベルの先頭**。IAU 境界表は代用に格下げ | [narration](34_narration.md) |
+| **アプリ名は「星導」**（2026-08-26） | ランチャー・グラスの起動画面・星図のバーで共用する。**画面に名前を文字で出すのはグラスの起動画面だけ**（スマホは印と題で足りる） | [glass-screens](32_glass-screens.md) |
 | スマホ側 UI | ホーム → 接続 → 方位合わせ → 星図の 4 画面＋ホームから開くガイド 4 画面。設定は**使う機能だけ** | [phone-ui](33_phone-ui.md) |
 | 星座の解説 | `DOUBLE_TAP` で開始、`SINGLE_TAP` で終了。**同梱の解説文**を読み上げ、解説専用画面へ出す（#40） | [narration](34_narration.md) |
 | 読み上げの声 | **`gpt-4o-mini-tts` / `alloy`**。圏外・キー未設定・失敗時は端末の `TextToSpeech` | [sound](35_sound.md) |
