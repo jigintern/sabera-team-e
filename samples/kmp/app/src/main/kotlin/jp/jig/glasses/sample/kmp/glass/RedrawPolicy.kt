@@ -1,8 +1,7 @@
 package jp.jig.glasses.sample.kmp.glass
 
-import jp.jig.glasses.sample.kmp.sky.normalizeDeg
-import kotlin.math.abs
-import kotlin.math.max
+import jp.jig.glasses.sample.kmp.sky.angleBetweenDeg
+import jp.jig.glasses.sample.kmp.sky.enu
 
 // 星図をいつ描き直すか（送るか）の方針の数値。**動きに追従させると点滅にしかならない**ので、
 // 「止まってから送る」「減速に入ったら止まる先へ 1 枚だけ先出しする」を数字で決めている。
@@ -16,7 +15,13 @@ import kotlin.math.max
  */
 const val PACKET_MS_DEFAULT = 9f
 
-/** この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない */
+/**
+ * この幅を超えて動いたら「動いている」とみなす。6DoF のふらつきは 1 度に届かない。
+ *
+ * ここも空の上の隔たりで測る（[lookSeparationDeg]）。方位の生の差で測っていたころは、
+ * **天頂に近いほど同じ首の揺れが大きな数字になり**、真上を見ている間だけ
+ * 「止まった」と判定されにくかった。
+ */
 const val STILL_DEG = 1.0
 
 /**
@@ -32,6 +37,8 @@ const val STILL_MS = 180L
  *
  * 送り直すたびグラスは転送中の約 0.4 秒黙るので、少し動いたくらいでは送らない。
  * 画角 35° に対しておよそ 1/6。
+ *
+ * **測るのは空の上の隔たり**（[lookSeparationDeg]）。方位の差をそのまま使わない。
  */
 const val REDRAW_DEG = 6.0
 
@@ -81,6 +88,19 @@ const val ROLL_SMOOTHING = 0.2
  *
  * 判定だけを持ち、送る・焼くはしない（送る側の都合は StarMapScreen / FrameSender が知っている）。
  */
+/**
+ * 2 つの視線の、**空の上での隔たり**[度]。
+ *
+ * **方位の差をそのまま使わない。** 天頂に近いほど方位は同じ首の動きで大きく動くので、
+ * 高度 80° では方位 6° が空の上では 1.0° にしかならない。生の差で測ると、
+ * **空がほとんど動いていないのに 0.4 秒の暗転（転送）が走る**。逆に真上では
+ * わずかな揺れが 1° を超えて「動いている」になり、星図が出てこない。
+ *
+ * [HeadMotion] は最初から cos(高度) を掛けて測っているので、判定側をそちらへ揃える。
+ */
+fun lookSeparationDeg(fromAzDeg: Double, fromAltDeg: Double, toAzDeg: Double, toAltDeg: Double): Double =
+    angleBetweenDeg(enu(fromAzDeg, fromAltDeg), enu(toAzDeg, toAltDeg))
+
 class RedrawDecider {
 
     private var previousAz = Double.NaN
@@ -94,7 +114,7 @@ class RedrawDecider {
      */
     fun settle(nowMillis: Long, azDeg: Double, altDeg: Double): Boolean {
         if (!previousAz.isNaN()) {
-            val step = max(abs(normalizeDeg(azDeg - previousAz)), abs(altDeg - previousAlt))
+            val step = lookSeparationDeg(previousAz, previousAlt, azDeg, altDeg)
             if (step > STILL_DEG) movedAt = nowMillis
         }
         previousAz = azDeg

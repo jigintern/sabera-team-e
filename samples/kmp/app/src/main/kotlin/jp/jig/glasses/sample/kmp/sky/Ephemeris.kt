@@ -112,7 +112,9 @@ fun moonPosition(epochMillis: Long): BodyPosition {
     var lat = atan2(zh, hypot(xh, yh)) * DEG
     var distance = sqrt(xh * xh + yh * yh + zh * zh)
 
-    // 摂動の引数。太陽との位置関係で決まる
+    // 摂動の引数。太陽との位置関係で決まる。
+    // **ここの `sunLon` は平均黄経**（Schlyter の摂動項がその定義で作られている）。
+    // 満ち欠けに使う離角は真黄経で測るので、混ぜない（下の [moonMagnitude] を見よ）
     val sunMean = norm360(356.0470 + 0.9856002585 * d)
     val sunPerihelion = 282.9404 + 4.70935e-5 * d
     val sunLon = sunMean + sunPerihelion
@@ -143,7 +145,9 @@ fun moonPosition(epochMillis: Long): BodyPosition {
         lonDeg = norm360(lon),
         latDeg = lat,
         distanceAu = distance * EARTH_EQUATORIAL_RADIUS_KM / AU_KM,
-        magnitude = moonMagnitude(norm360(lon) - sunLon),
+        // **離角は真黄経で測る。** 摂動の引数に使う平均黄経で測ると中心差のぶん最大 1.9° ずれ、
+        // [moonPhase] が出す満ち欠けと食い違う（同じ月の明るさと形が別の位相を指す）
+        magnitude = moonMagnitude(norm360(lon) - sunEcliptic(d)[0]),
     )
 }
 
@@ -462,23 +466,38 @@ fun sunEclipticLonDeg(epochMillis: Long): Double = sunEcliptic(schlyterDays(epoc
  *
  * 別々に作ると「絵には出ているのに解説では触れない」「解説だけが言う」が起きる。
  * 見えていないものの話をさせないのが AI 解説の前提なので、そこは崩さない。
+ *
+ * **視野は円ではなくパネルの長方形で切る**（[withinPanel]）。円で切っていたときは、
+ * 中心の真上 12〜17° の惑星が「視野内」として AI に渡るのにグラスには描かれなかった。
+ * 縦横比は焼く側の都合なので呼び出し側から渡す（`sky` はパネルの寸法を知らない）。
+ *
+ * @param rollDeg 焼いた絵と同じ首の傾き。**枠ごと回るので、渡さないと傾けたときだけ答えがずれる**
  */
 fun bodiesInView(
     site: Site,
     epochMillis: Long,
     look: Look,
     fovDeg: Double,
+    panelAspect: Double,
+    rollDeg: Double = 0.0,
     limitMagnitude: Double = BODY_LIMIT_MAGNITUDE,
 ): List<ObservedStarFact> {
     val center = enu(look.azDeg, look.altDeg)
+    val basis = Basis(look.azDeg, look.altDeg, rollDeg)
     return SolarSystemBody.entries.mapNotNull { body ->
         val position = bodyPosition(body, epochMillis)
         if (position.magnitude > limitMagnitude) return@mapNotNull null
         val aa = bodyAltAz(position, site, epochMillis)
         if (aa[1] < 0.0) return@mapNotNull null
-        val distance = angleBetweenDeg(enu(aa[0], aa[1]), center)
-        if (distance > fovDeg / 2.0) return@mapNotNull null
-        ObservedStarFact(body.nameJa, position.magnitude, aa[0], aa[1], distance)
+        val direction = enu(aa[0], aa[1])
+        if (!withinPanel(direction, basis, fovDeg, panelAspect)) return@mapNotNull null
+        ObservedStarFact(
+            body.nameJa,
+            position.magnitude,
+            aa[0],
+            aa[1],
+            angleBetweenDeg(direction, center),
+        )
     }.sortedBy { it.distanceFromCenterDeg }
 }
 

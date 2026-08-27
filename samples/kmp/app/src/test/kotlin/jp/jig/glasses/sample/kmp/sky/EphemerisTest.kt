@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.cos
 
 /**
  * 月と惑星は「実際に空のどこにあったか」を外から確かめられる。
@@ -115,18 +116,40 @@ class EphemerisTest {
             .first { bodyAltAz(SolarSystemBody.MOON, site, it)[1] > 20.0 }
         val moon = bodyAltAz(SolarSystemBody.MOON, site, at)
 
-        val looking = bodiesInView(site, at, Look(moon[0], moon[1]), fovDeg = 35.0)
+        val looking = bodiesInView(site, at, Look(moon[0], moon[1]), FOV_DEG, PANEL_ASPECT)
         assertTrue("見ている先の月は入る", looking.any { it.nameJa == "月" })
         assertTrue("中心なので距離はほぼ 0", looking.first { it.nameJa == "月" }.distanceFromCenterDeg < 0.01)
 
-        val away = bodiesInView(site, at, Look((moon[0] + 120.0) % 360.0, moon[1]), fovDeg = 35.0)
+        val away = bodiesInView(site, at, Look((moon[0] + 120.0) % 360.0, moon[1]), FOV_DEG, PANEL_ASPECT)
         assertTrue("反対を向いていれば入らない", away.none { it.nameJa == "月" })
 
         // 地平線の下にあるものは返さない
-        for (fact in bodiesInView(site, at, Look(moon[0], moon[1]), fovDeg = 180.0)) {
+        for (fact in bodiesInView(site, at, Look(moon[0], moon[1]), fovDeg = 120.0, panelAspect = 1.0)) {
             assertTrue("${fact.nameJa} が地平線の下", fact.altDeg >= 0.0)
             assertTrue("${fact.nameJa} が暗すぎる", fact.magnitude <= BODY_LIMIT_MAGNITUDE)
         }
+    }
+
+    /**
+     * **視野は円ではなくパネルの長方形。**
+     *
+     * 星図は横長（横 ±17.5°・縦 ±11.0°）なので、半径 fov/2 の円で切っていたころは
+     * 中心の真上 12〜17° の惑星が「視野内」として AI に渡るのに絵には描かれなかった（#37）。
+     */
+    @Test
+    fun `視野の判定は円ではなくパネルの長方形`() {
+        val site = Site(35.9432, 136.1846)
+        val at = (0 until 24 * 30).map { utc("2026-01-01T00:00:00Z") + it * 3_600_000L }
+            .first { bodyAltAz(SolarSystemBody.MOON, site, it)[1] > 40.0 }
+        val moon = bodyAltAz(SolarSystemBody.MOON, site, at)
+
+        // 月を真横 14° に置く。横は ±17.5° あるので入る
+        val beside = bodiesInView(site, at, Look(moon[0] + 14.0 / cos(moon[1] * RAD), moon[1]), FOV_DEG, PANEL_ASPECT)
+        assertTrue("横 14° は画面に入る", beside.any { it.nameJa == "月" })
+
+        // 同じ 14° でも真上なら画面の外（縦は ±11.0° しかない）
+        val above = bodiesInView(site, at, Look(moon[0], moon[1] - 14.0), FOV_DEG, PANEL_ASPECT)
+        assertTrue("縦 14° は画面の外", above.none { it.nameJa == "月" })
     }
 
     /** 水星は太陽から離れられない。**軌道長半径を打ち間違えるとここで破れる**（最大離角 28°） */
@@ -197,5 +220,12 @@ class EphemerisTest {
             maximum = maxOf(maximum, separationFromSunDeg(planetPosition(SolarSystemBody.VENUS, at).lonDeg, at))
         }
         assertTrue("内惑星なので最大離角は 45〜48°: $maximum", maximum in 44.0..48.0)
+    }
+
+    private companion object {
+        const val FOV_DEG = 35.0
+
+        /** 星図の縦横比（544×340）。`glass` に依存させないため、ここでは数字で持つ */
+        const val PANEL_ASPECT = 340.0 / 544.0
     }
 }

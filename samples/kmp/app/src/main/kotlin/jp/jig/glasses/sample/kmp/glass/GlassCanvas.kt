@@ -25,6 +25,15 @@ const val STAR_MAP_HEIGHT = 330
 const val STAR_MAP_MAX_WIDTH = 544
 const val STAR_MAP_MAX_HEIGHT = 340
 
+/**
+ * 星図の縦横比（高さ ÷ 幅）。**画角の縦の広がりはこれで決まる。**
+ *
+ * パネル（576×360）も星図の 2 段（544×340・528×330）も同じ 0.625 なので、
+ * どのサイズで焼いても視野の形は変わらない。横 35° なら**縦は 11.0°**しかない。
+ * 「視野に入っているか」を円で測ると絵とずれる（`sky.withinPanel`）。
+ */
+const val STAR_MAP_ASPECT = STAR_MAP_MAX_HEIGHT.toDouble() / STAR_MAP_MAX_WIDTH
+
 const val STAR_MAP_IMAGE_ID = 0
 const val CANVAS_TEXT_SLOTS = 8
 const val CANVAS_TEXT_BUDGET_BYTES = 190

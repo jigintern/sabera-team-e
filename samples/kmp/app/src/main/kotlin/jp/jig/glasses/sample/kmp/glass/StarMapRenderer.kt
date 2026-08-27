@@ -30,6 +30,7 @@ import jp.jig.glasses.sample.kmp.sky.sunPosition
 import jp.jig.glasses.sample.kmp.sky.toAltAz
 import jp.jig.glasses.sample.kmp.sky.toApparentAltAz
 import jp.jig.glasses.sample.kmp.sky.toRaDec
+import jp.jig.glasses.sample.kmp.sky.withinPanel
 import kotlin.math.PI
 import kotlin.math.acos
 import kotlin.math.asin
@@ -518,12 +519,21 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         return boundaries.nameAtB1875(b1875[0], b1875[1])
     }
 
-    /** 視野に実際に入る固有名つきの明るい星を、中心に近い順で返す。 */
+    /**
+     * 視野に実際に入る固有名つきの明るい星を、中心に近い順で返す。
+     *
+     * **切るのは円ではなくパネルの長方形**（[withinPanel]）。ここは解説と声の質問が読む並びなので、
+     * 円で切ると**絵に無い星の名前を AI が言う**（#37）。
+     *
+     * @param rollDeg 焼いた絵と同じ首の傾き。渡さないと傾けたときだけ答えがずれる
+     */
     fun visibleNamedStars(
         site: Site,
         epochMillis: Long,
         look: Look,
         fovDeg: Double,
+        panelAspect: Double,
+        rollDeg: Double = 0.0,
         max: Int = 5,
     ): List<ObservedStarFact> {
         if (max <= 0) return emptyList()
@@ -531,6 +541,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val lst = localSiderealDeg(d, site.lonDeg)
         val precessed = precessed(d)
         val target = enu(look.azDeg, look.altDeg)
+        val basis = Basis(look.azDeg, look.altDeg, rollDeg)
         // **名前のある星の側から引く。** 星表を頭から走ると数千件を当たることになるが、
         // 固有名を持つのは 25 件ほどしかない（結びと同じ HIP の索引を使う）
         val byHip = hipIndex()
@@ -538,8 +549,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             val index = byHip[hip] ?: return@mapNotNull null
             val position = precessed.stars[index]
             val aa = toApparentAltAz(position[0], position[1], lst, site.latDeg)
-            val distance = acos((enu(aa[0], aa[1]) dot target).coerceIn(-1.0, 1.0)) * DEG
-            if (distance > fovDeg / 2.0) return@mapNotNull null
+            val direction = enu(aa[0], aa[1])
+            if (!withinPanel(direction, basis, fovDeg, panelAspect)) return@mapNotNull null
+            val distance = acos((direction dot target).coerceIn(-1.0, 1.0)) * DEG
             ObservedStarFact(name, catalog.stars[index].magnitude, aa[0], aa[1], distance)
         }.sortedBy { it.distanceFromCenterDeg }.take(max).toList()
     }
@@ -1142,7 +1154,7 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         val from = doubleArrayOf(at[0] + ux * skip, at[1] + uy * skip)
         val tip = doubleArrayOf(at[0] + ux * (skip + width * ARROW_LENGTH), at[1] + uy * (skip + width * ARROW_LENGTH))
         line(gray, width, height, from, tip, ARROW_VALUE, 0)
-        // かえし。左右に 30° 開く
+        // かえし。軸から左右に 30° 開く（軸の向きから 150° 回した先へ引く）
         val head = width * ARROW_HEAD
         for (sign in intArrayOf(1, -1)) {
             val a = kotlin.math.atan2(uy, ux) + sign * 150.0 * RAD

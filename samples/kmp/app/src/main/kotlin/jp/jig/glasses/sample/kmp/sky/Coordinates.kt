@@ -161,8 +161,12 @@ fun toAltAz(raDeg: Double, decDeg: Double, lstDeg: Double, latDeg: Double): Doub
 }
 
 /**
- * 標準大気での Bennett の近似式。地平線では約 0.48° 持ち上がり、10°以上では 0.1°未満になる。
+ * 標準大気での Sæmundsson の近似式（**真高度 → 見かけの高度**の向き）。
+ * 地平線では約 0.48° 持ち上がり、10°以上では 0.1°未満になる。
  * 気温・気圧が無いので低高度の完全補正ではないが、補正しない場合の系統誤差を減らす。
+ *
+ * **Bennett の式と取り違えない。** あちらは見かけ → 真の向きで、係数も 7.31 / 4.4 と違う。
+ * 逆向きが要るときは [geometricAltitudeDeg]（この式を反復で戻す）を使う。
  */
 fun apparentAltitudeDeg(geometricAltitudeDeg: Double): Double {
     if (geometricAltitudeDeg < -1.0 || geometricAltitudeDeg >= 90.0) return geometricAltitudeDeg
@@ -279,6 +283,29 @@ fun project(v: Vec3, b: Basis, k: Double, w: Int, h: Int): DoubleArray? {
 
 /** 2 方向のなす角[度]。視野に入っているかを度で判定するのに使う */
 fun angleBetweenDeg(a: Vec3, b: Vec3): Double = acos((a dot b).coerceIn(-1.0, 1.0)) * DEG
+
+/**
+ * 横画角 [fovDeg]・縦横比 [panelAspect]（高さ ÷ 幅）のパネルに、この向きが入るか。
+ *
+ * **円で切らない。** 星図は横長で、544×340・画角 35° なら**横は ±17.5° あるのに縦は ±11.0°**、
+ * 隅は 20.6° まで届く。半径 fov/2 の円で切ると、**上下は絵に無いものを拾い、隅は絵にあるものを
+ * 落とす**。AI へ渡す根拠がそこで絵とずれる（#37）。
+ *
+ * 判定は [project] の枠内判定そのもので、画素に直す前の長さで測るだけ
+ * （画面 x が 0..w に入る ⇔ |r·x/len| ≤ (w/2)/k = 2 tan(fov/4)）。
+ * **[projectionScale] と同じ式を使うので、星図の幅が 544 でも 528 でも答えは変わらない。**
+ */
+fun withinPanel(v: Vec3, b: Basis, fovDeg: Double, panelAspect: Double): Boolean {
+    val cosTheta = v dot b.forward
+    if (cosTheta <= 0.0) return false
+    val x = v dot b.right
+    val y = v dot b.up
+    val len = hypot(x, y)
+    val halfWidth = 2.0 * tan(fovDeg * RAD / 4.0)
+    if (len < 1e-12) return true
+    val r = 2.0 * tan(acos(cosTheta.coerceIn(-1.0, 1.0)) / 2.0)
+    return abs(r * x / len) <= halfWidth && abs(r * y / len) <= halfWidth * panelAspect
+}
 
 /** 横 fovDeg が幅 w に収まるときの倍率。r = 2 tan(θ/2) の θ = fov/2 が w/2 に来る */
 fun projectionScale(w: Int, fovDeg: Double): Double = (w / 2.0) / (2.0 * tan(fovDeg * RAD / 4.0))
