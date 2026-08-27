@@ -77,6 +77,7 @@ import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
@@ -1149,6 +1150,59 @@ fun StarMapScreen(
     }
 
     /**
+     * 解説の裏に星座絵を敷く（#127）。
+     *
+     * **1 枚送って置いておくだけ。** 字幕はテキスト枠で流すので、流している間この絵は触らない
+     * （画像を送り直すと 1 枚 0.4 秒かかり、そのあいだ絵が消えて点滅になる）。
+     *
+     * [nameJa] は `NarrationState.constellation`。**星座でない名前**（人工衛星の機体名）や、
+     * 見出しを出さない声の質問（#38）では絵を消す。**関係のない星座の絵を残さない。**
+     */
+    suspend fun sendExplanationArt(nameJa: String) {
+        // 焼くのも数えるのも 17 万画素を走るので、まとめて別スレッドへ出す
+        val art = if (nameJa.isBlank()) null else renderer?.let { r ->
+            withContext(Dispatchers.Default) {
+                r.explanationArt(
+                    nameJa = nameJa,
+                    width = STAR_MAP_WIDTH,
+                    height = STAR_MAP_HEIGHT,
+                    value = ink.behindTextValue(StarMapLayer.ART),
+                )?.let { map -> map to map.canvasBufferUsageBytes() }
+            }
+        }
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                if (art == null) {
+                    runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
+                    return@withContext
+                }
+                val (map, used) = art
+                // 星図と同じ式で先に数える。**溢れたら絵だけ捨てる**（SDK は上限を超えると
+                // 例外を投げるので、数えずに送ると解説そのものが出なくなる）
+                if (used > CANVAS_IMAGE_BUFFER_BYTES) {
+                    log("星座絵が入らないので文字だけで出す（${used}バイト）", failed = true)
+                    runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
+                    return@withContext
+                }
+                runCatching {
+                    commandManager.sendCanvasImage(
+                        id = EXPLANATION_ART_IMAGE_ID,
+                        x = (PANEL_WIDTH - map.width) / 2,
+                        y = (PANEL_HEIGHT - map.height) / 2,
+                        width = map.width,
+                        height = map.height,
+                        grayscale = map.gray,
+                    )
+                }.onFailure {
+                    log("星座絵を送れなかった: ${it.message}", failed = true)
+                }.onSuccess {
+                    log("${nameJa}の星座絵を敷いた（${used}バイト）")
+                }
+            }
+        }
+    }
+
+    /**
      * 解説画面をやめて星図へ戻す。
      *
      * **読み上げは止めない。** 首を振って戻したときは「空を見たいが話は聞いている」なので、
@@ -1441,6 +1495,9 @@ fun StarMapScreen(
                 runCatching { guidanceOverlaySender.removeWhileLocked() }
             }
         }
+        // **いま裏に敷いてある絵の星座。** 本文は SSE で伸びるたびに collectLatest が
+        // 走り直すので、ここを collect の外に置かないと**チャンクごとに絵を送り直す**
+        var shownArt: String? = null
         narrator.state.distinctUntilChangedBy { it.text to it.constellation }.collectLatest { state ->
             // 話が切り替わってすぐ送らない。畳まれた古い本文を 1 枚出してしまう
             delay(EXPLANATION_SEND_DEBOUNCE_MS)
@@ -1459,6 +1516,15 @@ fun StarMapScreen(
                 if (index != shown) {
                     sendTextPage(pages[index])
                     shown = index
+                }
+                // **見出しを出したあとで裏の絵を送る**（#127）。1 枚 0.4 秒かかるので、
+                // 先に送ると星座名が出るのがそのぶん遅れる（AI を待つ 1〜3 秒は
+                // 名前だけで持たせている）。話が変わらない限り送り直さない。
+                // **覚えるのは送り終えたあと。** 先に覚えると、送る前に次のチャンクで
+                // 畳まれたときに「敷いたつもり」で絵が出ないまま進む
+                if (state.constellation != shownArt) {
+                    sendExplanationArt(state.constellation)
+                    shownArt = state.constellation
                 }
                 val last = index == pages.lastIndex
                 explanationPaging = !last
@@ -1496,13 +1562,18 @@ fun StarMapScreen(
 
     // 星図へ戻るときは文字を先に消す。画像が届くまでの 0.4 秒、解説が星図に重なって見える
     LaunchedEffect(glassPage) {
-        if (glassPage != GlassPage.STAR_MAP || shownElements.isEmpty()) return@LaunchedEffect
+        if (glassPage != GlassPage.STAR_MAP) return@LaunchedEffect
         sendGate.withLock {
             withContext(NonCancellable) {
-                for (batch in emptyList<CommandManager.CanvasElement>().batched(shownElements)) {
-                    commandManager.sendCanvasElements(batch)
+                if (shownElements.isNotEmpty()) {
+                    for (batch in emptyList<CommandManager.CanvasElement>().batched(shownElements)) {
+                        commandManager.sendCanvasElements(batch)
+                    }
+                    shownElements = emptyList()
                 }
-                shownElements = emptyList()
+                // **解説の裏に敷いた星座絵を持ち越さない**（#127）。星図とは別の id なので、
+                // 消さないと星図の裏に前の星座の絵が残ったままになる
+                runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
             }
         }
     }

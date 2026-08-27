@@ -35,6 +35,19 @@ const val STAR_MAP_MAX_HEIGHT = 340
 const val STAR_MAP_ASPECT = STAR_MAP_MAX_HEIGHT.toDouble() / STAR_MAP_MAX_WIDTH
 
 const val STAR_MAP_IMAGE_ID = 0
+
+/**
+ * 解説画面の裏に敷く星座絵の画像 id（#127）。
+ *
+ * **星図（[STAR_MAP_IMAGE_ID]）とは別の id にする。** 解説画面へ入るときに星図を消し、
+ * 星図へ戻るときにこちらを消す。同じ id を使い回すと、**枠の大きさが変わる瞬間に
+ * 前の絵が消え残る**（案内オーバーレイで踏んだのと同じ・#46）。
+ */
+const val EXPLANATION_ART_IMAGE_ID = 2
+
+/** 解説画面の星座絵を、枠の内側に置くときの余白 */
+const val EXPLANATION_ART_MARGIN_PX = 24
+
 const val CANVAS_TEXT_SLOTS = 8
 const val CANVAS_TEXT_BUDGET_BYTES = 190
 const val CANVAS_PACKET_BYTES = 200
