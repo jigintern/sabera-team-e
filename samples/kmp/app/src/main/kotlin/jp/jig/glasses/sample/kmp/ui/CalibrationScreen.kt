@@ -45,11 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.text.style.TextAlign
@@ -64,7 +66,10 @@ import jp.jig.glasses.sample.kmp.alignment.HoldFeedback
 import jp.jig.glasses.sample.kmp.alignment.Compass
 import jp.jig.glasses.sample.kmp.alignment.CompassGate
 import jp.jig.glasses.sample.kmp.alignment.Locator
+import jp.jig.glasses.sample.kmp.alignment.MAX_TILT_DIFFERENCE_DEG
 import jp.jig.glasses.sample.kmp.alignment.MagneticQuality
+import jp.jig.glasses.sample.kmp.alignment.TILT_GAUGE_RANGE_DEG
+import jp.jig.glasses.sample.kmp.alignment.tiltGaugeGeometry
 import jp.jig.glasses.sample.kmp.glass.PANEL_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.PANEL_WIDTH
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
@@ -257,8 +262,9 @@ fun CalibrationScreen(
         }
     }
 
+    // **符号を捨てない。** 姿勢計が「上げるのか下げるのか」を出すのに向きが要る
     val tiltDifference = if (phonePitch != null && glassPitch != null) {
-        abs(phonePitch!! - glassPitch!!)
+        phonePitch!! - glassPitch!!
     } else {
         null
     }
@@ -268,7 +274,7 @@ fun CalibrationScreen(
     // 見せてしまうと、ずれた方位で合わせたことが誰にも分からなくなる
     val compassAccurate = compassAccuracy >= SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM
     val compassReady = compassGate.ready(compassAccurate)
-    val facingReady = tiltDifference != null && tiltDifference <= MAX_TILT_DIFFERENCE_DEG
+    val facingReady = tiltDifference != null && abs(tiltDifference) <= MAX_TILT_DIFFERENCE_DEG
     val stabilityReady = estimate?.stable == true
     // OS の「磁気精度は高い」はキャリブレーションが済んだかしか言わない。
     // 土地の期待値と比べて明らかに歪んでいるかは、こちらで見る
@@ -493,6 +499,7 @@ fun CalibrationScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // **方角と仰角を縦に積む。** この画面は縦固定なので横並びは作らない
                         Column(
                             modifier = Modifier.weight(0.38f),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -506,11 +513,22 @@ fun CalibrationScreen(
                             CompassDial(
                                 headingDegrees = phoneHeading,
                                 ready = headingReady && compassReady,
-                                modifier = Modifier.size(108.dp),
+                                modifier = Modifier.size(DIAL_SIZE_DP.dp),
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "仰角差",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.68f),
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            TiltGauge(
+                                differenceDegrees = tiltDifference,
+                                modifier = Modifier.size(DIAL_SIZE_DP.dp),
                             )
                         }
                         VerticalDivider(
-                            modifier = Modifier.height(150.dp).padding(horizontal = 10.dp),
+                            modifier = Modifier.height(DIAL_COLUMN_HEIGHT_DP.dp).padding(horizontal = 10.dp),
                             color = Color.White.copy(alpha = 0.18f),
                         )
                         Column(Modifier.weight(0.62f)) {
@@ -521,9 +539,11 @@ fun CalibrationScreen(
                                 color = Color.White.copy(alpha = 0.68f),
                                 textAlign = TextAlign.Start,
                             )
+                            // **符号を出す。** 隣の姿勢計とずれの向きが食い違うと、どちらを
+                            // 信じるか分からなくなる（実機での切り分けに数値そのものは残す）
                             PrecisionRow(
                                 "仰角差",
-                                tiltDifference?.let { "%.1f°".format(it) } ?: "取得中",
+                                tiltDifference?.let { "%+.1f°".format(it) } ?: "取得中",
                                 facingReady,
                             )
                             PrecisionRow("6DoF", if (imuFresh) "受信中" else "待機中", imuFresh)
@@ -662,6 +682,108 @@ private fun CompassDial(
                     color = Color.White.copy(alpha = 0.68f),
                 )
             }
+        }
+    }
+}
+
+/**
+ * 仰角差の姿勢計。**水平線が中心へ上がってくれば合っている。**
+ *
+ * 数字の「仰角差 2.4°」だけでは、あとどれだけ・**どちらへ倒すか**が手の動きにならない。
+ * 航空機の姿勢計と同じで、**中心の機体マークは固定、水平線だけが動く**。
+ * スマホが上を向きすぎていれば水平線は下に出るので、見たまま下げれば 0 に近づく。
+ */
+@Composable
+private fun TiltGauge(
+    differenceDegrees: Double?,
+    modifier: Modifier = Modifier,
+) {
+    val geometry = differenceDegrees?.let { tiltGaugeGeometry(it) }
+    // 生値は 10Hz で飛ぶ。的の外周と同じだけ均す
+    val offset by animateFloatAsState(
+        targetValue = geometry?.horizonOffset ?: 0f,
+        animationSpec = tween(durationMillis = GAUGE_TWEEN_MS),
+        label = "tilt",
+    )
+    val within = geometry?.within == true
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = size.minDimension / 2f - 3.dp.toPx()
+            val ringColor = if (within) SaberaGreen else Color.White.copy(alpha = 0.42f)
+
+            if (geometry != null) {
+                // 円の中だけを塗る。**外へはみ出すと隣のダイヤルと地続きに見える**
+                val face = Path().apply {
+                    addOval(Rect(center - Offset(radius, radius), center + Offset(radius, radius)))
+                }
+                clipPath(face) {
+                    val horizon = center.y + offset * radius
+                    drawRect(
+                        color = TILT_SKY,
+                        topLeft = Offset(center.x - radius, center.y - radius),
+                        size = Size(radius * 2, (horizon - (center.y - radius)).coerceAtLeast(0f)),
+                    )
+                    drawRect(
+                        color = TILT_GROUND,
+                        topLeft = Offset(center.x - radius, horizon.coerceAtMost(center.y + radius)),
+                        size = Size(radius * 2, (center.y + radius - horizon).coerceAtLeast(0f)),
+                    )
+                    // ピッチの目盛り。**水平線と一緒に動く**ので、どれだけ離れているかが読める
+                    for (tick in TILT_TICK_DEGREES) {
+                        val ratio = tick / TILT_GAUGE_RANGE_DEG
+                        listOf(1.0, -1.0).forEach { side ->
+                            val y = horizon - (ratio * side).toFloat() * radius
+                            if (y < center.y - radius || y > center.y + radius) return@forEach
+                            val arm = radius * TILT_TICK_ARM
+                            drawLine(
+                                Color.White.copy(alpha = 0.55f),
+                                Offset(center.x - arm, y),
+                                Offset(center.x + arm, y),
+                                1.5.dp.toPx(),
+                            )
+                        }
+                    }
+                    val horizonColor = if (within) SaberaGreen else Color.White
+                    drawLine(
+                        horizonColor,
+                        Offset(center.x - radius, horizon),
+                        Offset(center.x + radius, horizon),
+                        2.5.dp.toPx(),
+                    )
+                }
+                // 振り切れている側の縁に三角を出す。**まだ先があることを端で見せる**
+                if (geometry.pegged) {
+                    val up = geometry.horizonOffset < 0f
+                    val tipY = if (up) center.y - radius + 4.dp.toPx() else center.y + radius - 4.dp.toPx()
+                    val baseY = if (up) tipY + 9.dp.toPx() else tipY - 9.dp.toPx()
+                    drawPath(
+                        Path().apply {
+                            moveTo(center.x, tipY)
+                            lineTo(center.x - 7.dp.toPx(), baseY)
+                            lineTo(center.x + 7.dp.toPx(), baseY)
+                            close()
+                        },
+                        SaberaWarning,
+                    )
+                }
+            }
+
+            drawCircle(ringColor, radius, center, style = Stroke(1.5.dp.toPx()))
+
+            // 機体マーク。**固定**。水平線がここへ重なったら正対
+            val markColor = if (within) SaberaGreen else Color.White
+            val stroke = 2.5.dp.toPx()
+            val inner = radius * 0.16f
+            val outer = radius * 0.62f
+            drawLine(markColor, Offset(center.x - outer, center.y), Offset(center.x - inner, center.y), stroke)
+            drawLine(markColor, Offset(center.x + inner, center.y), Offset(center.x + outer, center.y), stroke)
+            drawCircle(markColor, radius = 2.5.dp.toPx(), center = center)
+        }
+
+        if (geometry == null) {
+            Text("—", style = MaterialTheme.typography.titleMedium, color = Color.White.copy(alpha = 0.45f))
         }
     }
 }
@@ -807,7 +929,6 @@ private fun compactSiteStatus(status: String): String = when {
     else -> "仮設定"
 }
 
-private const val MAX_TILT_DIFFERENCE_DEG = 3.0
 private const val SENSOR_POLL_MS = 100L
 private const val IMU_FRESH_MS = 1_000L
 
@@ -840,6 +961,24 @@ private const val GAUGE_TWEEN_MS = 120
 /** 外へ広がる輪の周期と広がり */
 private const val GAUGE_PULSE_MS = 900
 private const val GAUGE_PULSE_SPREAD_DP = 14
+
+/**
+ * 方角ダイヤルと姿勢計の大きさ。**縦に 2 つ積むので 108dp から落とした。**
+ *
+ * 精度カードが伸びると下の「ホーム」が画面外へ出る。実機で溢れたらここを下げる
+ */
+private const val DIAL_SIZE_DP = 96
+
+/** 2 つ積んだ左の列の高さ。仕切り線をここに合わせる（ラベル 2 つと間隔を含む） */
+private const val DIAL_COLUMN_HEIGHT_DP = 252
+
+/** 姿勢計の空と地。**屋外で見るので中間の色は使わない** */
+private val TILT_SKY = Color(0xFF17384F)
+private val TILT_GROUND = Color(0xFF4A3520)
+
+/** 水平線から上下へ引く目盛りの位置[度]と、その長さ（半径に対する割合） */
+private val TILT_TICK_DEGREES = listOf(5.0, 10.0)
+private const val TILT_TICK_ARM = 0.34f
 
 /**
  * 精度条件が揃ったまま、これだけ続いたら自動で確定する。
