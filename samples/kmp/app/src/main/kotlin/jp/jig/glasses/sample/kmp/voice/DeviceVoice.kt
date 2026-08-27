@@ -10,6 +10,7 @@ import jp.jig.glasses.sample.kmp.support.LoudnessBoost
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * **端末の読み上げ**（`TextToSpeech`）で喋る。[CloudVoice] が使えないときの落とし先。
@@ -48,6 +49,28 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
 
     @Volatile
     private var ready = false
+
+    /**
+     * エンジンへ積んである数。**0 になったときだけ「喋り終わった」**とみなす。
+     *
+     * `onDone` で `tts.isSpeaking` を入れていたときは、**文と文の間で false を返す**ことがあり、
+     * 解説を文ごとに積む [Voice.add] の途中で「終わった」ことになっていた。
+     * 待っている側（ガイドの進行役・解説画面の秒読み）はそこで先へ進むので、
+     * **読み上げの途中で解説が畳まれる**（#121）。数えていれば途中で 0 にならない。
+     */
+    private val queued = AtomicInteger(0)
+
+    /**
+     * 言い直し（[say]）と [stop] で進める世代。**捨てたぶんの完了通知を数に入れない。**
+     *
+     * `QUEUE_FLUSH` と `stop` は積んであった発話を落とすが、`UtteranceProgressListener` の
+     * `onStop` は既定で `onDone` を呼ぶので、**捨てたはずの発話の「終わった」が後から届く**。
+     * 世代を見ずに数えると、その 1 通で新しい発話の数まで 0 に戻ってしまう。
+     */
+    private val generation = AtomicInteger(0)
+
+    /** 発話に付ける通し番号。世代と組にして、どの発話の通知かを見分ける */
+    private val sequence = AtomicInteger(0)
 
     private val _speaking = MutableStateFlow(false)
     override val speaking: StateFlow<Boolean> = _speaking
@@ -117,25 +140,19 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
         tts.setOnUtteranceProgressListener(
             object : UtteranceProgressListener() {
                 override fun onStart(utteranceId: String?) {
+                    if (!isLive(utteranceId)) return
                     _speaking.value = true
                     _sounding.value = true
                 }
 
-                override fun onDone(utteranceId: String?) {
-                    _speaking.value = tts.isSpeaking
-                    _sounding.value = tts.isSpeaking
-                }
+                override fun onDone(utteranceId: String?) = finishOne(utteranceId)
 
                 @Deprecated("引数なしの onError は API 21 で置き換えられたが、抽象なので実装が要る")
-                override fun onError(utteranceId: String?) {
-                    _speaking.value = false
-                    _sounding.value = false
-                }
+                override fun onError(utteranceId: String?) = finishOne(utteranceId)
 
                 override fun onError(utteranceId: String?, errorCode: Int) {
                     Log.e(TAG, "読み上げに失敗 id=$utteranceId code=$errorCode")
-                    _speaking.value = false
-                    _sounding.value = false
+                    finishOne(utteranceId)
                 }
             },
         )
@@ -168,13 +185,44 @@ class DeviceVoice(context: Context) : Voice, VoiceStatus {
             putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f))
             if (sessionId > 0) putInt(TextToSpeech.Engine.KEY_PARAM_SESSION_ID, sessionId)
         }
+        // **捨てるぶんと数を切り離す。** QUEUE_FLUSH で落とした発話の完了通知は
+        // 後から届くので、世代を進めて数に入れないようにする
+        if (flush) {
+            generation.incrementAndGet()
+            queued.set(0)
+        }
+        val id = "sabera-${generation.get()}-${sequence.incrementAndGet()}"
+        // **数を先に増やす。** 立ててから増やすと、その隙間に来た onDone が 0 と見て倒す
+        queued.incrementAndGet()
         _speaking.value = true
-        tts.speak(text, mode, params, "sabera-${text.hashCode()}")
+        if (tts.speak(text, mode, params, id) != TextToSpeech.SUCCESS) {
+            // 積めなかったぶんの完了通知は来ない
+            Log.e(TAG, "読み上げを積めなかった")
+            finishOne(id)
+        }
+    }
+
+    /** この発話がいまの世代のものか。捨てたぶんの通知は数えない */
+    private fun isLive(utteranceId: String?): Boolean =
+        utteranceId?.substringAfter('-')?.substringBefore('-')?.toIntOrNull() == generation.get()
+
+    /** 1 本ぶん終わった。**最後の 1 本が終わったときだけ**待機に戻す */
+    private fun finishOne(utteranceId: String?) {
+        if (!isLive(utteranceId)) return
+        // 音が出ているのは onStart から onDone までの間だけ（字幕はこちらに合わせている）
+        _sounding.value = false
+        if (queued.decrementAndGet() <= 0) {
+            queued.set(0)
+            _speaking.value = false
+        }
     }
 
     override fun stop() {
         synchronized(pending) { pending.clear() }
         tts.stop()
+        // 止めたぶんの完了通知が後から届くので、世代ごと切り離す
+        generation.incrementAndGet()
+        queued.set(0)
         _speaking.value = false
         _sounding.value = false
     }

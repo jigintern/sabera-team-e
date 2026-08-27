@@ -83,6 +83,7 @@ import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_TOP_PX
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_WIDTH
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_READ_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN_MAX
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SEND_DEBOUNCE_MS
@@ -821,6 +822,14 @@ fun StarMapScreen(
     /** 字幕をめくっている最中か。**めくり終わる前に星図へ戻さない** */
     var explanationPaging by remember { mutableStateOf(false) }
 
+    /**
+     * この解説で**一度でも音が鳴ったか**。解説を始めるたびに false へ戻す。
+     *
+     * 鳴っていないうちに 5 秒で畳むと、**合成の 1〜3 秒**や端末の読み上げの出遅れで
+     * 読み始める前に消える（#121）。鳴るまでは黙読ぶんの時間を置く。
+     */
+    var explanationSounded by remember { mutableStateOf(false) }
+
     /** 字幕を手送りするたび増やし、自動復帰の5秒を最初から数え直す。 */
     var subtitleNudgeRevision by remember { mutableIntStateOf(0) }
 
@@ -1502,6 +1511,10 @@ fun StarMapScreen(
     // 読み上げが終わったら待機に戻す。AI 音声も端末の読み上げも、終わりは voice が拾っている
     LaunchedEffect(speaking) { if (!speaking) narrator.finishedSpeaking() }
 
+    // **鳴ったかどうかは [VoiceStatus.sounding] で見る。** speaking は積んだ時点で立つので、
+    // 「積んだが一言も出なかった」を見分けられない
+    LaunchedEffect(voice) { voice.sounding.collect { if (it) explanationSounded = true } }
+
     // 台本はホーム側で作るので、**観測画面へ入るたびに読み直す**（作った直後にここへ来る）
     LaunchedEffect(guideStore) {
         guides = withContext(Dispatchers.IO) { guideStore.list() }
@@ -1550,7 +1563,7 @@ fun StarMapScreen(
                     sendTextPage(pages[index])
                     shown = index
                 }
-                // **見出しを出したあとで裏の絵を送る**（#127）。1 枚 0.4 秒かかるので、
+                // **見出しを出したあとで絵を送る**（#127）。1 枚 0.2 秒かかるので、
                 // 先に送ると星座名が出るのがそのぶん遅れる（AI を待つ 1〜3 秒は
                 // 名前だけで持たせている）。話が変わらない限り送り直さない。
                 // **覚えるのは送り終えたあと。** 先に覚えると、送る前に次のチャンクで
@@ -1711,10 +1724,15 @@ fun StarMapScreen(
         explanationPaging,
         asking,
         subtitleNudgeRevision,
+        explanationSounded,
     ) {
         if (glassPage != GlassPage.EXPLANATION) return@LaunchedEffect
         // 最後の行が届く前や読み上げ中には数えない。首操作で状態が変われば、この処理ごと数え直す。
         if (speaking || explanationPaging || asking) return@LaunchedEffect
+        // **一度も鳴っていないなら、黙読ぶんの時間を置いてから秒読みに入る**（#121）。
+        // 合成の 1〜3 秒や端末の読み上げの出遅れをここで吸収しないと、**読み始める前に畳む**。
+        // 鳴り出せばこの LaunchedEffect ごと数え直すので、待ちは切り上がる
+        if (!explanationSounded) delay(EXPLANATION_READ_MS - RETURN_COUNTDOWN_SEC * SECOND_MILLIS)
         for (left in RETURN_COUNTDOWN_SEC downTo 1) {
             sendTextPage(GlassTextPage.ending(narration.text, returnCountdown(left)))
             delay(1_000L)
@@ -1991,6 +2009,17 @@ fun StarMapScreen(
     }
 
     /**
+     * **鳴っているものがあれば、鳴り終わるまで待つ。**
+     *
+     * [awaitSpeech] と違って**始まりを待たない**。鳴っていなければその場で返るので、
+     * タップで切り上げたあとに無言の 5 秒が入らない。
+     */
+    suspend fun awaitSpeechDrained() {
+        if (!voice.speaking.value) return
+        withTimeoutOrNull(SPEECH_END_TIMEOUT_MS) { voice.speaking.first { !it } }
+    }
+
+    /**
      * 字幕を流し終わるまで次の段へ進まない（32_glass-screens.md）。
      *
      * **読み上げは字幕より先に終わる。** 字幕は 1 行流すごとに 6% ずつ遅くしてあるので、
@@ -2091,6 +2120,7 @@ fun StarMapScreen(
                 explanationHeading = "${cardinalDirection16(target.aim.azDeg)} ${narrating?.counter.orEmpty()}"
                 explanationDropped = 0
                 explanationPaging = false
+                explanationSounded = false
                 narrator.reset()
                 glassPage = GlassPage.EXPLANATION
                 narrator.retell(step.step.targetName, step.step.body, "ガイドの解説")
@@ -2102,7 +2132,19 @@ fun StarMapScreen(
             }
             guideProgress = null
             log("ガイド終了: ${guide.title}")
-            narrator.retell(guide.title, "ガイドはここまでです。おつかれさまでした。", "ガイドの締め")
+            // **最後の解説を締めで捨てない**（#121）。段の待ち（[awaitSpeech] /
+            // [awaitExplanationClosed]）は読み上げの状態と解説画面という**間接的な合図**しか
+            // 見ていないので、合成が遅れた・文の切れ目で false に落ちた、といったときに
+            // 本文がまだ鳴り終わらないうちにここへ来る。`say` は前の発話を捨てるため、
+            // そのまま締めると**本文が一言も聞こえないまま「ガイドはここまでです」になる**。
+            awaitSpeechDrained()
+            narrator.retell(
+                guide.title,
+                "ガイドはここまでです。おつかれさまでした。",
+                "ガイドの締め",
+                // 待ちが取りこぼしても、締めは**本文の後ろへ積まれるだけ**にしておく
+                flush = false,
+            )
         }
     }
 
@@ -2246,6 +2288,7 @@ fun StarMapScreen(
         explanationHeading = ""
         explanationDropped = 0
         explanationPaging = false
+        explanationSounded = false
         glassPage = GlassPage.EXPLANATION
         narrationJob = launchNarration("スマホ操作", "") {
             showCommandConfirmation(confirmation)
@@ -2316,6 +2359,7 @@ fun StarMapScreen(
         explanationHeading = "%s %d°".format(cardinalDirection16(basis.azDeg), basis.altDeg.roundToInt())
         explanationDropped = 0
         explanationPaging = false
+        explanationSounded = false
         glassPage = GlassPage.EXPLANATION
 
         narrationJob = launchNarration("解説", shown?.constellationNames()?.firstOrNull().orEmpty()) {
@@ -2406,6 +2450,7 @@ fun StarMapScreen(
         explanationHeading = ""
         explanationDropped = 0
         explanationPaging = false
+        explanationSounded = false
         glassPage = GlassPage.EXPLANATION
 
         asking = true
@@ -2649,6 +2694,7 @@ fun StarMapScreen(
         explanationHeading = ""
         explanationDropped = 0
         explanationPaging = false
+        explanationSounded = false
         glassPage = GlassPage.EXPLANATION
         narrator.again(entry.nameJa, entry.text)
     }
@@ -2680,6 +2726,7 @@ fun StarMapScreen(
         explanationHeading = ""
         explanationDropped = 0
         explanationPaging = false
+        explanationSounded = false
         glassPage = GlassPage.EXPLANATION
         narrator.retell(exchange.question, exchange.answer, what = "やり取りを聞き直し")
     }
