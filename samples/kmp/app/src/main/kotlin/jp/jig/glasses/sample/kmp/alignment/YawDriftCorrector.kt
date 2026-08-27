@@ -33,8 +33,18 @@ class YawDriftCorrector(
 
     private var previousRawYawDeg: Double? = null
     private var previousTimestampMs: Long? = null
-    private var stillRawYawDeg: Double? = null
-    private var stillSinceMs: Long = 0L
+
+    /**
+     * 静止していたサンプルの合計時間と、そのあいだにヨーが流れた合計。
+     *
+     * **動いている間は足さないが、捨てもしない**（#132）。ドリフト率は
+     * 「静止中の変化 ÷ 静止していた時間」なので、途中で首を振っても足し直せる。
+     */
+    private var stillSeconds: Double = 0.0
+    private var stillYawDeg: Double = 0.0
+
+    /** 直前のサンプルが動いていたか。**動いた直後の 1 サンプルは測定に使わない** */
+    private var wasMoving: Boolean = true
 
     fun update(
         rawYawDeg: Double,
@@ -58,13 +68,15 @@ class YawDriftCorrector(
         if (moving) {
             val correctedStep = step - driftRateDps * elapsedSeconds
             yawDeg = normalizeDeg((yawDeg ?: rawYawDeg) + correctedStep)
-            stillRawYawDeg = null
         } else {
             heldDriftDeg += step
             yawDeg = yawDeg ?: rawYawDeg
-            updateDriftEstimate(rawYawDeg, timestampMs)
+            // **動いていた直後の 1 サンプルは測らない。** その差分にはまだ首振りが残っている
+            // （しきい値 2°/秒 を下回るまでの減速ぶん）ので、ドリフト率に混ぜると太る
+            if (!wasMoving) updateDriftEstimate(step, elapsedSeconds)
         }
 
+        wasMoving = moving
         previousRawYawDeg = rawYawDeg
         previousTimestampMs = timestampMs
         return CorrectedYaw(
@@ -75,24 +87,34 @@ class YawDriftCorrector(
         )
     }
 
-    private fun updateDriftEstimate(rawYawDeg: Double, timestampMs: Long) {
-        val startYaw = stillRawYawDeg
-        if (startYaw == null) {
-            stillRawYawDeg = rawYawDeg
-            stillSinceMs = timestampMs
-            return
-        }
-        val heldSeconds = (timestampMs - stillSinceMs) / 1_000.0
-        if (heldSeconds <= estimateAfterSeconds) return
+    /**
+     * ドリフト率を測り直す。**静止しているサンプルだけを足し続ける**（#132）。
+     *
+     * 「連続 [estimateAfterSeconds] 秒の静止」を待っていたころは、
+     * **それより短い間隔で首を動かし続けると一度も測れなかった**。測れないあいだ
+     * [driftRateDps] は 0 のままなので、動いている間のドリフトが丸ごと方位に入る
+     * （**実測 0.74°/秒 × 動いていた時間**）。動作 25% で 3 分に 33°、
+     * 方位が増える向きにずれるので、**星図の S が左へ流れていく**。
+     *
+     * ドリフト率は「静止中の変化 ÷ 静止していた時間」なので、
+     * **間に首振りが挟まっても足し直せる**（動いている間のぶんを足さなければ同じ値になる）。
+     * 窓を短くするほうは採らない。ヨーのノイズがそのまま率に乗るので、
+     * ±0.5° のノイズで 2 秒窓にすると率が 1.4 倍に太る（3 分で 19° ずれた）。
+     */
+    private fun updateDriftEstimate(stillStepDeg: Double, elapsedSeconds: Double) {
+        if (elapsedSeconds <= 0.0) return
+        stillSeconds += elapsedSeconds
+        stillYawDeg += stillStepDeg
+        if (stillSeconds <= estimateAfterSeconds) return
 
-        val measured = normalizeDeg(rawYawDeg - startYaw) / heldSeconds
+        val measured = stillYawDeg / stillSeconds
         driftRateDps = if (driftRateDps == 0.0) {
             measured
         } else {
             driftRateDps * (1.0 - estimateGain) + measured * estimateGain
         }
-        stillRawYawDeg = rawYawDeg
-        stillSinceMs = timestampMs
+        stillSeconds = 0.0
+        stillYawDeg = 0.0
     }
 
     companion object {
