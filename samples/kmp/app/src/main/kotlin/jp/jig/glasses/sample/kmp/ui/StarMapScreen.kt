@@ -2933,10 +2933,6 @@ fun StarMapScreen(
                                         matchHeightFirst = true,
                                     )
                                 }
-                                Text(
-                                    "グラスの向きを止めると、その方角の星図に更新します",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
                                 Spacer(Modifier.height(6.dp))
                                 Text(
                                     narrationStatus,
@@ -3003,10 +2999,6 @@ fun StarMapScreen(
                                     Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
                                     Spacer(Modifier.height(4.dp))
                                     ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
-                                    Text(
-                                        "グラスの向きを止めると、その方角の星図に更新します",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
                                 }
                                 Column(
                                     // **残りの高さは全部ここが取る。** 押すものは画面のいちばん下に
