@@ -71,6 +71,13 @@ manager.disconnect(client)    ← GlassClient に disconnect() は無い。必�
 - `showAutomaticSelectionDialog()` の第1引数は **Activity**。Application Context だとダイアログが出ない
 - `GlassClient` は切断手段を持たない（`GlassClientInternal` に隔離）。
   **UI 層が接続状態を抱えないための制約なので回避しない**
+- **`disconnect()` は CDM の登録を「全部」消す。** 1 台だけ残す手段は無い
+  （デバイス指定版の `unregisterOthers` は private）。`lastDeviceId` も null になるので、
+  **次に開くと端末選択からやり直し**になる。繋ぎ先を選び直す唯一の手段でもある（#129）
+- **登録の削除は SDK 側の `try` の外にある。** 切断そのものの失敗は握り潰されるが、
+  **`BLUETOOTH_CONNECT` が無いと `SecurityException` が呼び出し元まで飛ぶ**
+- `disconnectAndClearBond()` は bond まで消すが、**中身は隠し API のリフレクション**
+  （`removeBond`）。Android のバージョンで壊れうるので使わない
 - `gestureEvents` は `SharedFlow`。**購読開始前のジェスチャーは受け取れない**
 - `setDevicePersistence` を省くとインメモリになり、プロセスをまたぐと接続先を忘れる
 - コンテンツはページを開いてから送る。**例外 = 分割レイアウトと自由配置キャンバス**
