@@ -4,7 +4,6 @@ import app.jigglass.glass.CommandManager
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -110,8 +109,6 @@ class GlassMic(private val commandManager: CommandManager) {
                 // 長押しを忘れても BLE を占有し続けない。無音では送らず、安全上限だけ置く
                 if (elapsed > MAX_MS) break
             }
-        } catch (e: TimeoutCancellationException) {
-            throw e
         } finally {
             // **止めたら集計が終わるまで待つ。** 待たずに `Recording` を組むと、
             // 送信のタップ直前に届いた塊が `speechMs` にも `buffer` にも入らないことがある。
