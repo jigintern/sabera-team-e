@@ -2761,7 +2761,7 @@ fun StarMapScreen(
                                 } else {
                                     // **どのアプリを使っているかを星図の画面にも残す。**
                                     // 印だけにするのは、題（星空）と二重に名前を出さないため
-                                    AppMark(Modifier.padding(start = 12.dp))
+                                    AppMark(Modifier.padding(start = 16.dp))
                                 }
                             },
                             actions = {
@@ -3270,14 +3270,19 @@ fun StarMapScreen(
  * 操作は [LandscapeActions] が右ペインの頭に置き、**この行と同じ高さで並ぶ**ので、
  * 見た目は 1 本のバーのまま高さは 1 行ぶんで済む。
  */
-/** 星しるべの印。**題の左**に置く（アプリの名前は文字で出さない） */
+/**
+ * 星導の印。**題の左**に置く（アプリの名前は文字で出さない）。
+ *
+ * **素材は余白なし**（ランチャーの安全域ぶんは `ic_launcher_foreground.png` が別に持つ）。
+ * ここの dp は絵の大きさそのままで、題（22sp）と釣り合う。
+ */
 @Composable
 private fun AppMark(modifier: Modifier = Modifier) {
     Image(
         painter = painterResource(R.drawable.hoshishirube_mark),
-        contentDescription = "星しるべ",
+        contentDescription = "星導",
         contentScale = ContentScale.Fit,
-        modifier = modifier.height(26.dp),
+        modifier = modifier.height(28.dp),
     )
 }
 
@@ -3290,7 +3295,7 @@ private fun LandscapeHeader(title: String, onBack: (() -> Unit)?) {
         if (onBack != null) {
             TextButton(onClick = onBack) { Text("戻る", color = Color.White) }
         } else {
-            AppMark(Modifier.padding(end = 8.dp))
+            AppMark(Modifier.padding(end = 12.dp))
         }
         Text(
             title,

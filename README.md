@@ -1,4 +1,4 @@
-# 星しるべ
+# 星導
 
 > 空にかざしたSABERAへ星座を重ね、見ている星空を音声で案内するアプリ
 
@@ -20,7 +20,7 @@
 
 ### スマホ
 
-<img src="docs/images/phone-home.png" alt="星しるべのホーム画面" width="240"> <img src="docs/images/phone-star-map.png" alt="観測中のスマホ画面" width="240">
+<img src="docs/images/phone-home.png" alt="星導のホーム画面" width="240"> <img src="docs/images/phone-star-map.png" alt="観測中のスマホ画面" width="240">
 
 - 入口では季節の星座を背景に、今日のひとことと開始ボタンを出す
 - 観測中はグラスに出している星図をそのまま映す（同伴者はここを見る）
