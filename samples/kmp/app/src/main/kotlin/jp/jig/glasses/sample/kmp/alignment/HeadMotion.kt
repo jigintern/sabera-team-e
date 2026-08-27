@@ -56,7 +56,13 @@ class HeadMotion(private val windowMs: Long = WINDOW_MS) {
      */
     val slowing: Boolean
         get() {
-            if (samples.size < 4) return false
+            // **3 点で足りる**（前半 1 区間・後半 1 区間に割れる）。
+            //
+            // 4 点を要求していたころは**実機で一度も減速と言えなかった**。窓は 300ms で、
+            // 呼ぶ側は `delay(POLL_MS = 100)` のループから足す。`delay` は「100ms 以上」しか
+            // 保証しないので間隔は必ず 100ms を超え、**4 点目は必ず窓から出る**
+            // （間隔 100ms なら 4 点、101ms なら 3 点。上の「300ms で 3〜4 サンプル」がそれ）。
+            if (samples.size < 3) return false
             val middle = samples[samples.size / 2]
             val first = rate(samples.first(), middle)
             if (first <= 0.0) return false

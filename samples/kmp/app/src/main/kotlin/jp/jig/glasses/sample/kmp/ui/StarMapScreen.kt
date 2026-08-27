@@ -1312,6 +1312,13 @@ fun StarMapScreen(
             } else if (decider.shouldPredict(System.currentTimeMillis(), drift, headMotion.slowing)) {
                 // **止まる先へ 1 枚。** 行き過ぎるより届かないほうが安全なので割り引く
                 val aim = headMotion.predict(now, transferMs + SETTLE_MS, PREDICT_DAMPING)
+                // **発火したことを実機で読めるようにする。** ここが 1 度も出なければ
+                // 先出しは動いていない（[HeadMotion.slowing] が 4 点を要求していたころは
+                // 窓に 4 点目が残らず、実機では原理的に出なかった）
+                log(
+                    "先出し: ${lookSeparationDeg(now.azDeg, now.altDeg, aim.azDeg, aim.altDeg).roundToInt()}° 先へ" +
+                        "（速さ ${headMotion.speedDps.roundToInt()}°/秒・視線差 ${drift.roundToInt()}°）",
+                )
                 decider.onPredicted(System.currentTimeMillis())
                 drawAndSend(aim)?.let {
                     drawn = it

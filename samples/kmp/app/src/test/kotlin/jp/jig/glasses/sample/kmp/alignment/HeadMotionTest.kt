@@ -74,9 +74,42 @@ class HeadMotionTest {
     @Test
     fun `サンプルが足りないうちは減速と言わない`() {
         val motion = HeadMotion()
-        samples(motion, 0.0, 4.0, 6.0)
-        // 3 点では前半・後半に割れない。**判定できないものを「止まりかけ」にしない**
+        samples(motion, 0.0, 4.0)
+        // 2 点では前半・後半に割れない。**判定できないものを「止まりかけ」にしない**
         assertFalse(motion.slowing)
+    }
+
+    /**
+     * **実機のサンプル間隔で減速と言えること。**
+     *
+     * 呼ぶ側（`StarMapScreen` の追従ループ）は `delay(POLL_MS = 100)` から足すので、
+     * `delay` が「100ms 以上」しか保証しないぶん**間隔は必ず 100ms を超える**。
+     * 窓は 300ms なので 4 点目は必ず出ていき、3 点しか残らない。
+     *
+     * 4 点を要求していたころは、そのせいで**実機では一度も減速と言えず、
+     * 先出しが原理的に発火しなかった**。
+     */
+    @Test
+    fun `間隔が100msを超えても減速と読む`() {
+        for (intervalMs in listOf(101L, 105L, 110L, 130L, 150L)) {
+            val motion = HeadMotion()
+            // 減速の形（前半が速く後半が緩む）を実機の間隔で入れる
+            listOf(0.0, 4.0, 6.0, 7.0).forEachIndexed { index, az ->
+                motion.add(index * intervalMs, Look(az, 0.0))
+            }
+            assertTrue("間隔 ${intervalMs}ms で減速と言えない", motion.slowing)
+        }
+    }
+
+    @Test
+    fun `間隔が100msを超えても一定の速さなら減速と言わない`() {
+        for (intervalMs in listOf(101L, 105L, 110L, 130L, 150L)) {
+            val motion = HeadMotion()
+            listOf(0.0, 2.0, 4.0, 6.0).forEachIndexed { index, az ->
+                motion.add(index * intervalMs, Look(az, 0.0))
+            }
+            assertFalse("間隔 ${intervalMs}ms で一定の速さを減速と読んだ", motion.slowing)
+        }
     }
 
     @Test
