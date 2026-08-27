@@ -149,12 +149,16 @@ class Narrator(
      *
      * [answer] と違って [Voice.say] から始めるのは、**前のものを言い終える前に
      * 押し直されることがある**ため。積むと、押した回数ぶん順番待ちが伸びる。
+     *
+     * [flush] を false にするのは**前の話の後ろへ続けたいとき**（ガイドの締め）。
+     * `say` は仕様どおり前の発話を捨てるので、既定のまま締めると
+     * **最後の解説がまだ鳴り終わっていないうちに消える**（#121）。
      */
-    fun retell(subject: String, text: String, what: String) {
+    fun retell(subject: String, text: String, what: String, flush: Boolean = true) {
         val accumulator = SentenceAccumulator()
         val sentences = accumulator.append(text) +
             listOf(accumulator.flush()).filter { it.isNotBlank() }
-        sentences.firstOrNull()?.let { speaker.say(it) }
+        sentences.firstOrNull()?.let { if (flush) speaker.say(it) else speaker.add(it) }
         for (sentence in sentences.drop(1)) speaker.add(sentence)
         _state.value = NarrationState(NarrationPhase.SPEAKING, text, subject)
         log("$what: $subject（${text.length}文字）", false)
