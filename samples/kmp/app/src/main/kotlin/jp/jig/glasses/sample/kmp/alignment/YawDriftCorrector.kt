@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.alignment
 
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sqrt
 
@@ -10,6 +11,13 @@ data class CorrectedYaw(
     val driftRateDps: Double,
     val heldDriftDeg: Double,
     val moving: Boolean,
+    /**
+     * ジャイロは止まっていたのに、ヨーが**首振りぶん動いていた**量の合計（#132）。
+     *
+     * **減速の最後のサンプルで起きる。** これを静止として捨てていたころは、
+     * 45〜90° 振って急に戻すたびに、戻したぶんの一部が消えていた。
+     */
+    val rescuedTurnDeg: Double,
     val stillSecondsTotal: Double,
     val movingSecondsTotal: Double,
     /** 動いている間に足した補正の合計（＝引いたドリフトの総量） */
@@ -23,6 +31,8 @@ data class CorrectedYaw(
  */
 class YawDriftCorrector(
     private val movingThresholdDps: Double = MOVING_THRESHOLD_DPS,
+    private val stillStepNoiseDeg: Double = STILL_STEP_NOISE_DEG,
+    private val stillStepMargin: Double = STILL_STEP_MARGIN,
     private val minStillSeconds: Double = MIN_STILL_SECONDS,
     private val rateFadeSeconds: Double = RATE_FADE_SECONDS,
     private val maxSampleGapSeconds: Double = MAX_SAMPLE_GAP_SECONDS,
@@ -81,6 +91,9 @@ class YawDriftCorrector(
     private var movingSecondsTotal: Double = 0.0
     private var correctionDeg: Double = 0.0
 
+    /** ジャイロでは拾えなかった首振りの量。**効いているかを実機のログで見るために数える** */
+    private var rescuedTurnDeg: Double = 0.0
+
     fun update(
         rawYawDeg: Double,
         gyroXDps: Double,
@@ -98,7 +111,14 @@ class YawDriftCorrector(
         val gyroMagnitude = sqrt(
             gyroXDps * gyroXDps + gyroYDps * gyroYDps + gyroZDps * gyroZDps,
         )
-        val moving = gyroMagnitude > movingThresholdDps
+        // **ジャイロは「いまこの瞬間動いているか」しか答えない。** 差分はその 100ms の合計なので、
+        // **減速の最後のサンプルはジャイロが 2°/秒 を切っているのにヨーが数度動いている**
+        // （45〜90° 振って急に戻したとき・#132）。静止として捨てると首振りぶんが消える。
+        // ドリフトは 0.35°/秒 なので、**1 サンプルで数度の変化は首振りしかない**
+        val turnLimit = stillStepNoiseDeg + abs(driftRateDps) * elapsedSeconds * stillStepMargin
+        val turned = abs(step) > turnLimit
+        val moving = gyroMagnitude > movingThresholdDps || turned
+        if (turned && gyroMagnitude <= movingThresholdDps) rescuedTurnDeg += abs(step)
 
         if (moving) {
             val correction = -driftRateDps * elapsedSeconds
@@ -128,6 +148,7 @@ class YawDriftCorrector(
             driftRateDps = driftRateDps,
             heldDriftDeg = heldDriftDeg,
             moving = moving,
+            rescuedTurnDeg = rescuedTurnDeg,
             stillSecondsTotal = stillSecondsTotal,
             movingSecondsTotal = movingSecondsTotal,
             correctionDeg = correctionDeg,
@@ -136,12 +157,26 @@ class YawDriftCorrector(
 
     companion object {
         /**
-         * 「動いているか」の境目。
+         * 「いま動いているか」の境目。
          *
-         * ヨーの変化では判定できない（ドリフトそのものを「動いている」と読む）。
+         * **ヨーの変化だけでは判定できない**（ドリフトそのものを「動いている」と読む）。
          * 静止中のジャイロのノイズは 0.1°/秒、首振りは 10〜100°/秒 なので間は広い。
+         * **減速の最後のサンプルはこれを下回る**ので、[STILL_STEP_NOISE_DEG] と組で使う。
          */
         const val MOVING_THRESHOLD_DPS = 2.0
+
+        /**
+         * 1 サンプルの差分を「ドリフトではなく首振り」と読む境目（#132）。
+         *
+         * ドリフトは 10Hz の 1 サンプルで **0.035°** しか動かないので、
+         * **数度の差分は首振りしかない**。ヨーのノイズより上、
+         * いちばん遅い首振り（2°/秒 ＝ 1 サンプル 0.2°）より下では拾えないので、
+         * ジャイロのしきい値と組で使う。
+         */
+        const val STILL_STEP_NOISE_DEG = 1.0
+
+        /** サンプルが飛んだときの上げ幅。**穴が長いほどドリフトぶんの差分も大きい** */
+        const val STILL_STEP_MARGIN = 3.0
 
         /**
          * ドリフト率を使い始めるまでに要る、静止したサンプルの合計秒数。

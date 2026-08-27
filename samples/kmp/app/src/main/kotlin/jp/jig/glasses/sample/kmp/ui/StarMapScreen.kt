@@ -683,6 +683,8 @@ fun StarMapScreen(
     var driftStillSeconds by remember { mutableStateOf(0.0) }
     var driftMovingSeconds by remember { mutableStateOf(0.0) }
     var driftCorrectionDeg by remember { mutableStateOf(0.0) }
+    // **ジャイロでは拾えなかった首振りの量**（#132）。0 のままなら拾えていない
+    var driftRescuedDeg by remember { mutableStateOf(0.0) }
 
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
@@ -714,6 +716,7 @@ fun StarMapScreen(
                 driftStillSeconds = corrected.stillSecondsTotal
                 driftMovingSeconds = corrected.movingSecondsTotal
                 driftCorrectionDeg = corrected.correctionDeg
+                driftRescuedDeg = corrected.rescuedTurnDeg
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookLatch.record(lastImuAt, yawNow(), glassPitch)
             }
@@ -1323,7 +1326,7 @@ fun StarMapScreen(
             log(
                 ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 補正yaw=%.1f°(%+.1f°/分) " +
                     "止めた量=%.0f° 率=%+.3f°/秒 " +
-                    "静止計=%.0fs 動作計=%.0fs 補正計=%+.0f°(要%+.0f°) 静止=%s")
+                    "静止計=%.0fs 動作計=%.0fs 補正計=%+.0f°(要%+.0f°) 拾った首振り=%.0f° 静止=%s")
                     .format(
                         (now - baseAt) / MINUTE_MILLIS.toDouble(),
                         glassYaw,
@@ -1337,6 +1340,7 @@ fun StarMapScreen(
                         driftCorrectionDeg,
                         // **引くべき量を並べて出す。** 漏れはこの 2 つの差でしか見つからない
                         -driftRateDps * driftMovingSeconds,
+                        driftRescuedDeg,
                         if (settled) "はい" else "いいえ",
                     ),
             )

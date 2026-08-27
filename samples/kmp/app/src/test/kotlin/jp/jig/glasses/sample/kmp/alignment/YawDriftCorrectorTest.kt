@@ -168,11 +168,90 @@ class YawDriftCorrectorTest {
         assertEquals(trueYaw, result.yawDeg, 4.0)
     }
 
+    /**
+     * **ジャイロが止まってもヨーが動いているサンプルを捨てない**（#132・2026-08-27）。
+     *
+     * 実機の報告は「**45〜90° ヨーして、そこから急激に戻すとずれる**」。
+     * ジャイロは**その瞬間**の角速度、差分は**その 100ms の合計**なので、
+     * 減速の最後のサンプルは「ジャイロ 2°/秒 未満・ヨーは数度動いた」になる。
+     * 静止として捨てていたころは、**この筋書きの 5 分で 124° 消えた**。
+     *
+     * ドリフトは 1 サンプルで 0.035° しか動かないので、**数度の差分は首振りしかない**。
+     */
+    @Test
+    fun `減速の最後で消える首振りを拾う`() {
+        val corrector = YawDriftCorrector()
+        var trueYaw = 0.0
+        var rawDrift = 0.0
+        var result = corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
+        // 10Hz で 5 分。1 周期 3.6 秒 = 静止 1 秒 → 右へ 60°（ゆっくり）→ 静止 1 秒
+        // → 左へ 60°（0.35 秒で急に戻す）
+        for (sample in 1..3_000) {
+            // 1 サンプルの間の回転は、細かく刻んで積む（実機のヨーは区間の合計で届く）
+            for (sub in 0 until 10) {
+                trueYaw += headTurnDps((sample - 1) * 0.1 + sub * 0.01) * 0.01
+            }
+            rawDrift += DRIFT_DPS * 0.1
+            result = corrector.update(
+                rawYawDeg = trueYaw + rawDrift,
+                // ジャイロは**そのサンプル時点の瞬時値**
+                gyroXDps = abs(headTurnDps(sample * 0.1)),
+                gyroYDps = 0.0,
+                gyroZDps = 0.0,
+                timestampMs = sample * 100L,
+            )
+        }
+
+        // 減速の最後で消えていたぶんが拾えている
+        assertTrue("首振りを拾えていない（${result.rescuedTurnDeg}°）", result.rescuedTurnDeg > 100.0)
+        // 捨てていたころは 124° 残った
+        assertEquals(trueYaw, result.yawDeg, 30.0)
+    }
+
+    /** **完全に静止している間は 1 度も拾わない。** ドリフトを首振りと読むと補正が壊れる */
+    @Test
+    fun `静止しているだけなら首振りを拾わない`() {
+        val corrector = YawDriftCorrector()
+        var result = corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
+        for (sample in 1..3_000) {
+            result = corrector.update(DRIFT_DPS * sample * 0.1, 0.0, 0.0, 0.1, sample * 100L)
+        }
+        assertEquals(0.0, result.rescuedTurnDeg, 1e-9)
+        assertEquals(0.0, result.yawDeg, 1e-9)
+        assertEquals(DRIFT_DPS, result.driftRateDps, 1e-9)
+    }
+
     @Test
     fun `角度の折り返しをまたいでも短い側の差分になる`() {
         val corrector = YawDriftCorrector()
         corrector.update(179.0, 10.0, 0.0, 0.0, 0L)
         val result = corrector.update(-176.0, 10.0, 0.0, 0.0, 1_000L)
         assertEquals(-176.0, result.yawDeg, 1e-9)
+    }
+
+    /**
+     * 首の角速度[°/秒]。**1 周期 3.6 秒**で「ゆっくり右へ 60° → 急に左へ 60°」。
+     *
+     * 戻しは三角形（面積 = 60°）にしてある。**止まりぎわの 100ms で数度動く**のが要点。
+     */
+    private fun headTurnDps(seconds: Double): Double {
+        val t = seconds % TURN_PERIOD_SEC
+        return when {
+            t < 1.0 -> 0.0
+            t < 2.0 -> -60.0
+            t < 3.0 -> 0.0
+            t < 3.35 -> {
+                val u = (t - 3.0) / 0.35
+                343.0 * (1.0 - abs(2.0 * u - 1.0))
+            }
+            else -> 0.0
+        }
+    }
+
+    private companion object {
+        /** 実機で測った、落ち着いたあとのドリフト率 */
+        const val DRIFT_DPS = -0.35
+
+        const val TURN_PERIOD_SEC = 3.6
     }
 }
