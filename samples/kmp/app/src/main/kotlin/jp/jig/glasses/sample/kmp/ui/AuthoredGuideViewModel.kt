@@ -13,6 +13,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.openai.GuideChatTurn
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -141,6 +142,9 @@ internal class AuthoredGuideViewModel(
                 reply.steps?.let { draft = draft.copy(steps = it) }
                 val dropped = if (reply.dropped > 0) "（${reply.dropped} 件は空に無いので外しました）" else ""
                 chat = chat + GuideChatTurn(true, instruction) + GuideChatTurn(false, reply.reply + dropped)
+            } catch (cancelled: CancellationException) {
+                // 画面を離れたときの中断。通信の失敗ではないので、履歴に断りを積まずに上へ流す
+                throw cancelled
             } catch (error: Throwable) {
                 // **断って続ける。** 通信は落ちるものなので、落ちても台本は残る
                 chat = chat + GuideChatTurn(true, instruction) +

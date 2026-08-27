@@ -8,6 +8,7 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -140,5 +141,24 @@ class AuthoredGuideViewModelTest {
         vm.toggleTarget(target("オリオン座"))
         dispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.draft.steps.isEmpty())
+    }
+
+    @Test
+    fun `画面を離れた中断では断りを積まない`() = runTest(dispatcher) {
+        // viewModelScope のキャンセルは CancellationException として askAi から抜けてくる。
+        // これを「通信の失敗」として扱うと、履歴に「通信できませんでした: null」が残る
+        val vm = vm(askAi = { _, _, _, _ -> throw CancellationException("画面を離れた") })
+        vm.reloadCandidates()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.chatInput = "オリオン座を入れてください"
+        vm.send { "21:00" }
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(
+            "中断なのに断りが積まれた: ${vm.chat.map { it.text }}",
+            vm.chat.none { !it.fromUser && it.text.startsWith("通信できませんでした") },
+        )
+        assertFalse("chatBusy が下りていない", vm.chatBusy)
     }
 }

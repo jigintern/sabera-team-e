@@ -7,6 +7,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.GuideTheme
 import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -16,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -73,5 +75,21 @@ class GuideListViewModelTest {
             vm.notice,
         )
         assertEquals(1, vm.guides.size)
+    }
+
+    @Test
+    fun `画面を離れた中断では作れなかったと言わない`() = runTest(dispatcher) {
+        // viewModelScope のキャンセルを「作れなかった」として扱うと、
+        // 何も失敗していないのに通知が出る
+        val vm = GuideListViewModel(
+            store(),
+            makeDraft = { throw CancellationException("画面を離れた") },
+            io = dispatcher,
+        )
+        vm.make(GuideTheme.TONIGHT)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull("中断なのに通知が出た: ${vm.notice}", vm.notice)
+        assertFalse("making が下りていない", vm.making)
     }
 }
