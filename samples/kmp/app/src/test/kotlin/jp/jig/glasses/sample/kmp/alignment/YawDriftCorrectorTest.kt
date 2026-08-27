@@ -130,6 +130,44 @@ class YawDriftCorrectorTest {
         assertEquals(0.0, YawDriftCorrector().driftRateDps, 1e-9)
     }
 
+    /**
+     * **率が上がっていくのに追いつく**（#132・2026-08-27）。
+     *
+     * 実機のログを 1 分ごとに割り直すと、**率そのものが観測の最初の 2 分で上がる**
+     * （1 分目 −0.214 → 2 分目 −0.333 → 3 分目 −0.348 °/秒）。
+     * 通算平均だと最初の低い値を引きずって **0.1°/秒 足りない**まま首振りのたびに漏れ、
+     * 10 分で 8〜11° 溜まった（**「最初はほぼ同じ、最後は目に見えて左」**）。
+     *
+     * 薄める時定数を 20 秒にすると、**追いついたあとは増えなくなる**。
+     */
+    @Test
+    fun `ドリフト率が上がっていっても追いつく`() {
+        val corrector = YawDriftCorrector()
+        var trueYaw = 0.0
+        var rawDrift = 0.0
+        var stillSeconds = 0.0
+        var result = corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
+        // 10Hz で 10 分。静止 2 秒 → 首振り 2.4 秒（実機の割合＝静止 45%）
+        for (sample in 1..6_000) {
+            val moving = sample % 44 >= 20
+            val turnDps = if (sample / 44 % 2 == 0) 30.0 else -30.0
+            if (moving) trueYaw += turnDps * 0.1 else stillSeconds += 0.1
+            // 実測のランプ。静止 50 秒ぶんで −0.214 → −0.348 へ上がって落ち着く
+            rawDrift += (-0.214 - 0.134 * minOf(1.0, stillSeconds / 50.0)) * 0.1
+            result = corrector.update(
+                rawYawDeg = trueYaw + rawDrift,
+                gyroXDps = if (moving) abs(turnDps) else 0.1,
+                gyroYDps = 0.0,
+                gyroZDps = 0.0,
+                timestampMs = sample * 100L,
+            )
+        }
+
+        assertEquals(-0.348, result.driftRateDps, 0.01)
+        // 通算平均のままだと 9° 残っていた
+        assertEquals(trueYaw, result.yawDeg, 4.0)
+    }
+
     @Test
     fun `角度の折り返しをまたいでも短い側の差分になる`() {
         val corrector = YawDriftCorrector()

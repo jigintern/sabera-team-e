@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.alignment
 
 import jp.jig.glasses.sample.kmp.sky.normalizeDeg
+import kotlin.math.exp
 import kotlin.math.sqrt
 
 /** 1サンプルを反映したあとの、方位補正の状態。 */
@@ -23,22 +24,35 @@ data class CorrectedYaw(
 class YawDriftCorrector(
     private val movingThresholdDps: Double = MOVING_THRESHOLD_DPS,
     private val minStillSeconds: Double = MIN_STILL_SECONDS,
+    private val rateFadeSeconds: Double = RATE_FADE_SECONDS,
     private val maxSampleGapSeconds: Double = MAX_SAMPLE_GAP_SECONDS,
 ) {
     var yawDeg: Double? = null
         private set
 
     /**
-     * 使っているドリフト率。**静止していたサンプルの通算平均**（#132）。
+     * 使っているドリフト率。**静止していたサンプルの、古いものを薄めた平均**（#132）。
      *
-     * 窓ごとに測って平滑化していたころは、実機で **必要な量の 1/3 しか引けていなかった**
-     * （2026-08-27。窓 30 秒・重み 0.3 では 4 分ぶん静止しないと追いつかない）。
-     * 通算平均なら**測った全部が効く**ので、重みの調整も要らない。
+     * **率そのものが観測の最初の 2 分で上がる。** 実機で 1 分目 −0.214、2 分目 −0.333、
+     * 3 分目 −0.348 °/秒 と測れた（そのあとは前のセッションの −0.333/−0.357 と同じ）。
+     *
+     * - **通算平均では追いつかない。** 最初の低い値をいつまでも引きずるので
+     *   0.1°/秒 ぶん足りず、**首を振るたびに漏れて積もる**（10 分で 8〜11°）
+     * - **窓ごとに測って重みで平滑化するのも駄目。** 窓 30 秒・重み 0.3 では
+     *   4 分ぶん静止しないと追いつかず、**必要な量の 1/3 しか引けていなかった**
+     *
+     * そこで**同じ 1 本の比に指数の重みを掛ける**（[rateFadeSeconds]）。
+     * 分母と分子を同じ係数で薄めるので、**率が一定の間は薄めても値が変わらない**。
+     * 変わったときだけ追いかける。
      *
      * [minStillSeconds] たまるまでは 0。**測れていないのに引くと、それ自体がずれになる。**
      */
     val driftRateDps: Double
-        get() = if (stillSecondsTotal >= minStillSeconds) stillYawTotalDeg / stillSecondsTotal else 0.0
+        get() = if (stillSecondsTotal >= minStillSeconds && weightedStillSeconds > 0.0) {
+            weightedStillYawDeg / weightedStillSeconds
+        } else {
+            0.0
+        }
 
     /** 静止中に捨てたヨーの合計。**動いた直後の 1 サンプルも含む**（捨てた総量なので） */
     var heldDriftDeg: Double = 0.0
@@ -48,14 +62,18 @@ class YawDriftCorrector(
     private var previousTimestampMs: Long? = null
 
     /**
-     * ドリフト率の分母と分子。**静止していたサンプルだけを足し続ける**（#132）。
+     * ドリフト率の分母と分子。**静止していたサンプルだけを足し、古いものを薄める**（#132）。
      *
      * ドリフト率は「静止中の変化 ÷ 静止していた時間」なので、
      * **間に首振りが挟まっても足し直せる**（動いている間のぶんを足さなければ同じ値になる）。
-     * 実機では 1 分目 −0.333、2 分目 −0.357 °/秒 と**セッション中ほぼ動かない**。
+     * 薄めるのは静止していたサンプルのときだけで、**動いている間は止まる**
+     * （首を振っている時間の長さで率が動いてしまわないように）。
      */
+    private var weightedStillSeconds: Double = 0.0
+    private var weightedStillYawDeg: Double = 0.0
+
+    /** 薄めない合計。**使い始めの判定とログ用**（経過時間と突き合わせて欠落を見る） */
     private var stillSecondsTotal: Double = 0.0
-    private var stillYawTotalDeg: Double = 0.0
 
     /** 直前のサンプルが動いていたか。**動いた直後の 1 サンプルは測定に使わない** */
     private var wasMoving: Boolean = true
@@ -93,8 +111,12 @@ class YawDriftCorrector(
             // **動いていた直後の 1 サンプルは測らない。** その差分にはまだ首振りが残っている
             // （しきい値 2°/秒 を下回るまでの減速ぶん）ので、ドリフト率に混ぜると太る
             if (!wasMoving && elapsedSeconds > 0.0) {
+                // **分母と分子を同じ係数で薄める。** 率が一定なら値は変わらず、
+                // 変わったときだけ [rateFadeSeconds] の時定数で追いかける
+                val fade = exp(-elapsedSeconds / rateFadeSeconds)
+                weightedStillSeconds = weightedStillSeconds * fade + elapsedSeconds
+                weightedStillYawDeg = weightedStillYawDeg * fade + step
                 stillSecondsTotal += elapsedSeconds
-                stillYawTotalDeg += step
             }
         }
 
@@ -129,6 +151,15 @@ class YawDriftCorrector(
          * 5 秒待つと 2.3°、2 秒なら 0.8°）。
          */
         const val MIN_STILL_SECONDS = 2.0
+
+        /**
+         * ドリフト率の時定数。**静止していた時間で数える**（首を振っている間は進まない）。
+         *
+         * 実機で率は観測の最初の 2 分（静止 50 秒ぶん）で −0.21 → −0.35 へ上がる。
+         * 30 分回した計算では、**20 秒で誤差が ±5° に収まる**（通算平均は −7〜−11° で
+         * 増え続け、10 秒まで詰めるとノイズを拾って引きすぎる）。
+         */
+        const val RATE_FADE_SECONDS = 20.0
 
         /**
          * 1 サンプルぶんとして数える時間の上限。
