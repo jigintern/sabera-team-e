@@ -1,6 +1,9 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import app.jigglass.glass.CommandManager
+import jp.jig.glasses.sample.kmp.sky.GuidanceDirection
+import jp.jig.glasses.sample.kmp.sky.GuidanceFrame
+import jp.jig.glasses.sample.kmp.sky.GuidanceStage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -127,5 +130,42 @@ class GlassCanvasTest {
 
         assertEquals(1, batches.size)
         assertEquals(listOf("ケンタウルス座"), batches.single().map { it.text })
+    }
+
+    /**
+     * **札を載せても圧縮後サイズは変わらない。**
+     *
+     * `drawAndSend()` は 18 万画素の走査を 1 枚につき 1 回に抑えるため、**焼いた直後に数えた値を
+     * 札を載せたあとまで回している**。`withStatusLabel` / `withGuidanceLabel` が `gray` を
+     * 作り直すようになると、その前提が黙って崩れて上限判定が狂う（#142）。
+     */
+    @Test
+    fun `札を載せても圧縮後サイズは変わらない`() {
+        // 真っ黒だと走長が最大で差が出ないので、点を散らして走長を刻む
+        val gray = ByteArray(528 * 330)
+        for (i in gray.indices step 7) gray[i] = 0xE0.toByte()
+        val bare = StarMap(528, 330, gray, listOf(Label("オリオン座", 264, 120)))
+        val before = bare.compressedSizeBytes()
+
+        val withStatus = bare.withStatusLabel("シドニー 8/24 20:30")
+        assertEquals("再現ラベルで圧縮後サイズが変わった", before, withStatus.compressedSizeBytes())
+
+        val withGuidance = withStatus.withGuidanceLabel(
+            GuidanceFrame(
+                targetName = "目標座",
+                distanceDeg = 32.0,
+                stage = GuidanceStage.HORIZONTAL,
+                direction = GuidanceDirection.LEFT,
+                horizontalErrorDeg = -31.6,
+                verticalErrorDeg = 5.0,
+                near = false,
+            ),
+        )
+        assertEquals("案内ラベルで圧縮後サイズが変わった", before, withGuidance.compressedSizeBytes())
+        assertEquals(
+            "バッファ使用量が変わった",
+            bare.canvasBufferUsageBytes(before),
+            withGuidance.canvasBufferUsageBytes(before),
+        )
     }
 }
