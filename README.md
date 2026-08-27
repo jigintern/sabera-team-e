@@ -1,4 +1,4 @@
-# 星しるべ
+# 星導
 
 > 空にかざしたSABERAへ星座を重ね、見ている星空を音声で案内するアプリ
 
@@ -17,7 +17,7 @@
 
 ### スマホ
 
-<img src="docs/images/smartphone-home.png" alt="星しるべのスマホホーム画面" width="280">
+<img src="docs/images/smartphone-home.png" alt="星導のスマホホーム画面" width="280">
 
 - 採用ロゴ、季節の星座、開始ボタンを表示する
 - 実装と同じ素材・色・配置から作ったプレビュー

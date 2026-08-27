@@ -75,7 +75,7 @@ fun HomeScreen(
             // 間隔と中央寄せは Column の arrangement が持つ（横で weight の空きを積まない）
             Image(
                 painter = painterResource(R.drawable.hoshishirube_logo),
-                contentDescription = "星しるべ",
+                contentDescription = "星導",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(96.dp),
             )

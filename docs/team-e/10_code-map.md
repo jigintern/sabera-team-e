@@ -52,7 +52,7 @@
 | `ui/component/ReorderableColumn.kt` | 自前のドラッグ並べ替え。**掴んでいる間は並びを変えない**（index が変わると指を離す前に切れる） |
 | `ui/component/QrScanner.kt` | CameraX で QR を探す。**独自 Activity を持ち込まない**（画面の向きの縦固定と衝突する） |
 | `ui/component/GuideControls.kt` | ガイドを選ぶダイアログと進み具合。**始める口は観測画面の畳んだ側 1 つだけ** |
-| `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` | 採用ロゴの実装用素材。横組みはホームとグラス、マーク単体はランチャーで使う |
+| `res/drawable-nodpi/hoshishirube_logo.png` / `hoshishirube_mark.png` / `ic_launcher_foreground.png` | 採用ロゴの実装用素材（元データは `design/logo/`）。横組みはホームとグラス、印は星図のバー。**ランチャーだけ別ファイル**で、アダプティブアイコンの安全域ぶんの余白を持たせてある |
 | `glass/GlassCanvas.kt` | パネル寸法、画像バッファ、テキスト制限、RLE サイズ見積り |
 | `glass/GlassTextArt.kt` | **ロゴと文字を画像に焼く。** テキスト枠では専用字形と本文を組み分けられない。**動かないものにだけ使う** |
 | `glass/GlassTextPage.kt` | **解説専用画面の組版**（#40）。1 枚 3 行を**1 行ずつ上へ流す**。行は動かさず、文字は伸びる方向にしか変えない |
