@@ -15,8 +15,11 @@ class NarratorTest {
 
     private class FakeVoice : Voice {
         val spoken = ArrayList<String>()
-        override fun say(text: String) { spoken += text }
-        override fun add(text: String) { spoken += text }
+
+        /** どちらの口から入ったか。**`say` は前の発話を捨てる**ので、そこを見分ける */
+        val modes = ArrayList<String>()
+        override fun say(text: String) { spoken += text; modes += "say" }
+        override fun add(text: String) { spoken += text; modes += "add" }
         override fun stop() { spoken += "<stop>" }
     }
 
@@ -213,5 +216,33 @@ class NarratorTest {
         }
         assertTrue("無反応になっている", voice.spoken.isNotEmpty())
         assertTrue("星座名を言っていない: ${voice.spoken}", voice.spoken.any { "さそり座" in it })
+    }
+
+    /** 押し直したら言い直す。ここを変えると、押した回数ぶん順番待ちが伸びる */
+    @Test
+    fun `聞き直しは前の発話を捨てて言い直す`() {
+        val voice = FakeVoice()
+        narrator(voice).retell("おとめ座", "麦の穂を手にした、農業の女神の姿です。次の文です。", "聞き直し")
+
+        assertEquals(listOf("say", "add"), voice.modes)
+    }
+
+    /**
+     * ガイドの締め（#121）。**まだ喋り終わっていない解説を捨てない。**
+     *
+     * `say` から始めると、合成に 1〜3 秒かかる本文は**一言も鳴らないまま**消える。
+     */
+    @Test
+    fun `続けて喋るときは前の発話を捨てない`() {
+        val voice = FakeVoice()
+        narrator(voice).retell(
+            "今夜の星座めぐり",
+            "ガイドはここまでです。おつかれさまでした。",
+            "ガイドの締め",
+            flush = false,
+        )
+
+        assertEquals(listOf("add", "add"), voice.modes)
+        assertTrue("締めを喋っていない: ${voice.spoken}", voice.spoken.any { "ここまで" in it })
     }
 }

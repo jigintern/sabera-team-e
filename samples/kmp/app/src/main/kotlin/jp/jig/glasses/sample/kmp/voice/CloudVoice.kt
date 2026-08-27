@@ -280,9 +280,12 @@ class CloudVoice(
         prepared.invokeOnCompletion { preparations -= prepared }
         prepared.start()
         val utterance = Utterance(text, flush, utteranceGeneration, prepared)
+        // **数を先に増やしてから立てる。** 逆にすると、その隙間で worker が前の 1 本を
+        // 数え終えたときに 0 と見えて、**積んだばかりの発話の間ずっと false** になる
+        // （待っている側は読み上げ前に先へ進む・#121）
+        queued.incrementAndGet()
         // 発話が始まる前に true にしておく。ここが遅れると画面側が「もう終わった」と誤解する
         _speaking.value = true
-        queued.incrementAndGet()
         if (queue.trySend(utterance).isFailure) {
             queued.decrementAndGet()
             prepared.cancel()
