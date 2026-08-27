@@ -52,6 +52,14 @@ object GlassTextPage {
     /** 行をパネルの上下中央へ寄せる */
     private val marginY = (PANEL_HEIGHT - CANVAS_TEXT_SLOTS * CANVAS_LABEL_HEIGHT) / 2
 
+    /**
+     * 本文の下端。**ここから下は空いている**ので、星座絵を敷ける（#127）。
+     *
+     * 行の位置を決めているのはこのファイルだけなので、**空きの計算もここから出す**
+     * （枠の側で 20px や 3 行を書き直すと、行を動かしたときに絵と重なる）。
+     */
+    val bodyBottomY: Int get() = marginY + ROWS * CANVAS_LABEL_HEIGHT
+
     /** 見出しの行。**本文は見出しが空でも繰り上げない**（名前が付いた瞬間に全部書き直しになる） */
     private const val HEADER_ROW = 0
 

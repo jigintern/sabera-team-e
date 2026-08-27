@@ -50,7 +50,9 @@ def main() -> int:
         print("\n## ドリフト補正")
         for line in drift[-2:]:
             print(f"  {line}")
-        rates = [m.group(1) for l in drift for m in [re.search(r"方位=[-0-9.]+°\(([-+0-9.]+)°/分\)", l)] if m]
+        # 補正後のヨー。**古いログは「方位=」という名前だった**ので両方読む
+        rates = [m.group(1) for l in drift
+                 for m in [re.search(r"(?:補正yaw|方位)=[-0-9.]+°\(([-+0-9.]+)°/分\)", l)] if m]
         if rates:
             worst = max(rates, key=lambda r: abs(float(r)))
             print(f"  → 補正後の最大ドリフト {worst}°/分（生のヨーは -44°/分 が正常）")

@@ -77,6 +77,10 @@ import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_HEIGHT
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_TOP_PX
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_WIDTH
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_READ_MS
@@ -675,6 +679,15 @@ fun StarMapScreen(
     var fusedYaw by remember { mutableStateOf<Double?>(null) }
     var driftHeldDeg by remember { mutableStateOf(0.0) }
     var driftRateDps by remember { mutableStateOf(0.0) }
+    // **どれだけ測れて・どれだけ引いたかをログへ残す**（#132）。
+    // 「引くべき量（率 × 動作計）」と「引いた量（補正計）」を突き合わせて漏れを見つけた
+    var driftStillSeconds by remember { mutableStateOf(0.0) }
+    var driftMovingSeconds by remember { mutableStateOf(0.0) }
+    var driftCorrectionDeg by remember { mutableStateOf(0.0) }
+    // **ジャイロでは拾えなかった首振りの量**（#132）。0 のままなら拾えていない
+    var driftRescuedDeg by remember { mutableStateOf(0.0) }
+    // 薄めない通算。**率と食い違ったら薄め方が疑わしい**（#132）
+    var driftPlainRateDps by remember { mutableStateOf(0.0) }
 
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
@@ -703,6 +716,11 @@ fun StarMapScreen(
                 fusedYaw = corrected.yawDeg
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
+                driftStillSeconds = corrected.stillSecondsTotal
+                driftMovingSeconds = corrected.movingSecondsTotal
+                driftCorrectionDeg = corrected.correctionDeg
+                driftRescuedDeg = corrected.rescuedTurnDeg
+                driftPlainRateDps = corrected.plainRateDps
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookLatch.record(lastImuAt, yawNow(), glassPitch)
             }
@@ -1158,6 +1176,65 @@ fun StarMapScreen(
     }
 
     /**
+     * 解説の本文の下へ星座絵を置く（#127）。
+     *
+     * **本文 3 行はパネルの上 140px しか使っていない**ので、下の空きへ置けば
+     * **文字と 1 画素も重ならない**。3bit 8 階調しかないパネルで、
+     * 字を薄い線で邪魔せずに「どの星座の話か」を形でも見せられる。
+     *
+     * **1 枚送って置いておくだけ。** 字幕はテキスト枠で流すので、流している間この絵は触らない
+     * （画像を送り直すと 1 枚 0.2 秒かかり、そのあいだ絵が消えて点滅になる）。
+     *
+     * [nameJa] は `NarrationState.constellation`。**星座でない名前**（人工衛星の機体名）や、
+     * 見出しを出さない声の質問（#38）では絵を消す。**関係のない星座の絵を残さない。**
+     */
+    suspend fun sendExplanationArt(nameJa: String) {
+        // 焼くのも数えるのも 7.6 万画素を走るので、まとめて別スレッドへ出す
+        val art = if (nameJa.isBlank()) null else renderer?.let { r ->
+            withContext(Dispatchers.Default) {
+                r.explanationArt(
+                    nameJa = nameJa,
+                    width = EXPLANATION_ART_WIDTH,
+                    height = EXPLANATION_ART_HEIGHT,
+                    // **文字と重ならないので暗くしない。** 星図と同じ設定の段をそのまま使う
+                    value = ink.value(StarMapLayer.ART),
+                )?.let { map -> map to map.canvasBufferUsageBytes() }
+            }
+        }
+        sendGate.withLock {
+            withContext(NonCancellable) {
+                if (art == null) {
+                    runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
+                    return@withContext
+                }
+                val (map, used) = art
+                // 星図と同じ式で先に数える。**溢れたら絵だけ捨てる**（SDK は上限を超えると
+                // 例外を投げるので、数えずに送ると解説そのものが出なくなる）
+                if (used > CANVAS_IMAGE_BUFFER_BYTES) {
+                    log("星座絵が入らないので文字だけで出す（${used}バイト）", failed = true)
+                    runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
+                    return@withContext
+                }
+                runCatching {
+                    commandManager.sendCanvasImage(
+                        id = EXPLANATION_ART_IMAGE_ID,
+                        x = (PANEL_WIDTH - map.width) / 2,
+                        // **本文の下端から下へ置く。** 上下中央に置くと字に重なる
+                        y = EXPLANATION_ART_TOP_PX,
+                        width = map.width,
+                        height = map.height,
+                        grayscale = map.gray,
+                    )
+                }.onFailure {
+                    log("星座絵を送れなかった: ${it.message}", failed = true)
+                }.onSuccess {
+                    log("${nameJa}の星座絵を敷いた（${used}バイト）")
+                }
+            }
+        }
+    }
+
+    /**
      * 解説画面をやめて星図へ戻す。
      *
      * **読み上げは止めない。** 首を振って戻したときは「空を見たいが話は聞いている」なので、
@@ -1256,9 +1333,12 @@ fun StarMapScreen(
             val minutes = (now - previousAt) / MINUTE_MILLIS.toDouble()
             val rate = normalizeDeg(glassYaw - previousYaw) / minutes
             val fusedRate = normalizeDeg(yawNow() - previousFused) / minutes
+            // **「方位」ではなく補正後のヨーを出す。** 名前が方位だったころ、ログを読む側が
+            // 方位（= オフセット − ヨー）と取り違えて符号を逆に読んだ（#132）
             log(
-                ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 方位=%.1f°(%+.1f°/分) " +
-                    "止めた量=%.0f° 推定=%+.3f°/秒 静止=%s")
+                ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 補正yaw=%.1f°(%+.1f°/分) " +
+                    "止めた量=%.0f° 率=%+.3f°/秒 通算=%+.3f°/秒 " +
+                    "静止計=%.0fs 動作計=%.0fs 補正計=%+.0f°(要%+.0f°) 拾った首振り=%.0f° 静止=%s")
                     .format(
                         (now - baseAt) / MINUTE_MILLIS.toDouble(),
                         glassYaw,
@@ -1267,6 +1347,13 @@ fun StarMapScreen(
                         fusedRate,
                         driftHeldDeg,
                         driftRateDps,
+                        driftPlainRateDps,
+                        driftStillSeconds,
+                        driftMovingSeconds,
+                        driftCorrectionDeg,
+                        // **引くべき量を並べて出す。** 漏れはこの 2 つの差でしか見つからない
+                        -driftRateDps * driftMovingSeconds,
+                        driftRescuedDeg,
                         if (settled) "はい" else "いいえ",
                     ),
             )
@@ -1454,6 +1541,9 @@ fun StarMapScreen(
                 runCatching { guidanceOverlaySender.removeWhileLocked() }
             }
         }
+        // **いま裏に敷いてある絵の星座。** 本文は SSE で伸びるたびに collectLatest が
+        // 走り直すので、ここを collect の外に置かないと**チャンクごとに絵を送り直す**
+        var shownArt: String? = null
         narrator.state.distinctUntilChangedBy { it.text to it.constellation }.collectLatest { state ->
             // 話が切り替わってすぐ送らない。畳まれた古い本文を 1 枚出してしまう
             delay(EXPLANATION_SEND_DEBOUNCE_MS)
@@ -1472,6 +1562,15 @@ fun StarMapScreen(
                 if (index != shown) {
                     sendTextPage(pages[index])
                     shown = index
+                }
+                // **見出しを出したあとで絵を送る**（#127）。1 枚 0.2 秒かかるので、
+                // 先に送ると星座名が出るのがそのぶん遅れる（AI を待つ 1〜3 秒は
+                // 名前だけで持たせている）。話が変わらない限り送り直さない。
+                // **覚えるのは送り終えたあと。** 先に覚えると、送る前に次のチャンクで
+                // 畳まれたときに「敷いたつもり」で絵が出ないまま進む
+                if (state.constellation != shownArt) {
+                    sendExplanationArt(state.constellation)
+                    shownArt = state.constellation
                 }
                 val last = index == pages.lastIndex
                 explanationPaging = !last
@@ -1509,13 +1608,18 @@ fun StarMapScreen(
 
     // 星図へ戻るときは文字を先に消す。画像が届くまでの 0.4 秒、解説が星図に重なって見える
     LaunchedEffect(glassPage) {
-        if (glassPage != GlassPage.STAR_MAP || shownElements.isEmpty()) return@LaunchedEffect
+        if (glassPage != GlassPage.STAR_MAP) return@LaunchedEffect
         sendGate.withLock {
             withContext(NonCancellable) {
-                for (batch in emptyList<CommandManager.CanvasElement>().batched(shownElements)) {
-                    commandManager.sendCanvasElements(batch)
+                if (shownElements.isNotEmpty()) {
+                    for (batch in emptyList<CommandManager.CanvasElement>().batched(shownElements)) {
+                        commandManager.sendCanvasElements(batch)
+                    }
+                    shownElements = emptyList()
                 }
-                shownElements = emptyList()
+                // **解説の裏に敷いた星座絵を持ち越さない**（#127）。星図とは別の id なので、
+                // 消さないと星図の裏に前の星座の絵が残ったままになる
+                runCatching { commandManager.removeCanvasImage(EXPLANATION_ART_IMAGE_ID) }
             }
         }
     }

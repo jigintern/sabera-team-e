@@ -35,6 +35,39 @@ const val STAR_MAP_MAX_HEIGHT = 340
 const val STAR_MAP_ASPECT = STAR_MAP_MAX_HEIGHT.toDouble() / STAR_MAP_MAX_WIDTH
 
 const val STAR_MAP_IMAGE_ID = 0
+
+/**
+ * 解説画面の星座絵の画像 id（#127）。
+ *
+ * **星図（[STAR_MAP_IMAGE_ID]）とは別の id にする。** 解説画面へ入るときに星図を消し、
+ * 星図へ戻るときにこちらを消す。同じ id を使い回すと、**枠の大きさが変わる瞬間に
+ * 前の絵が消え残る**（案内オーバーレイで踏んだのと同じ・#46）。
+ */
+const val EXPLANATION_ART_IMAGE_ID = 2
+
+/** 解説画面の星座絵を、枠の内側に置くときの余白 */
+const val EXPLANATION_ART_MARGIN_PX = 12
+
+/**
+ * 解説画面の星座絵を置く枠。**本文 3 行の下の空き**（#127）。
+ *
+ * 本文は上から 3 行ぶん（`y = 20..140`）しか使っていないので、
+ * **下の 212px はまるごと空いている**。ここに置けば**文字と 1 画素も重ならない**ので、
+ * 3bit 8 階調でも**字は字のまま、絵は絵のまま**読める。
+ *
+ * 幅は 360px。パネルいっぱいに広げても、**縦の空きで拡大率が決まる**ので絵は大きくならない
+ * （横に余白が増えるだけで、圧縮後のバイト数と転送時間が伸びる）。
+ * 同梱データで数えた最大は**圧縮後 4,821 バイト・使用 157,461 バイト・転送約 210ms**。
+ */
+val EXPLANATION_ART_TOP_PX: Int get() = GlassTextPage.bodyBottomY
+
+/** 下端の余白。**パネルの端まで描くと欠ける**ことがあるので少し空ける */
+private const val EXPLANATION_ART_BOTTOM_PX = 8
+
+const val EXPLANATION_ART_WIDTH = 360
+val EXPLANATION_ART_HEIGHT: Int get() =
+    PANEL_HEIGHT - EXPLANATION_ART_TOP_PX - EXPLANATION_ART_BOTTOM_PX
+
 const val CANVAS_TEXT_SLOTS = 8
 const val CANVAS_TEXT_BUDGET_BYTES = 190
 const val CANVAS_PACKET_BYTES = 200

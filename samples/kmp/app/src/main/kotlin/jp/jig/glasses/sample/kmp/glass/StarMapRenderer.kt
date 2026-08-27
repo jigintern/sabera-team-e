@@ -838,6 +838,90 @@ class StarMapRenderer(private val catalog: StarCatalog) {
     }
 
     /**
+     * 解説画面の裏に敷く星座絵を 1 枚焼く（#127）。
+     *
+     * **星図の絵（[drawConstellationArt]）とは置き方が違う。** 星図の絵は
+     * 「いま見ている空のその位置」に載っていなければ意味がないので星と同じ投影を通すが、
+     * **解説画面には空が無い**。空の一部を切り取るのではなく、
+     * **北を上にして枠いっぱいへ収める**ほうが形が読める。
+     *
+     * 歳差も入れない。**枠へ合わせて焼き直す**ので、数十年で 0.36° 動いても絵は変わらない。
+     *
+     * 絵を持っていない名前では null を返す。名前は**人工衛星の機体名**のことも
+     * あるので（`NarrationState.constellation`）、引き当てられないのは普通の道。
+     * **絵が無くても解説はそのまま出る。**
+     */
+    fun explanationArt(
+        nameJa: String,
+        width: Int,
+        height: Int,
+        value: Int,
+        marginPx: Int = EXPLANATION_ART_MARGIN_PX,
+    ): StarMap? {
+        val abbr = catalog.constellations.firstOrNull { it.nameJa == nameJa }?.abbr ?: return null
+        val figure = catalog.figures[abbr] ?: return null
+        // **赤経 0/360 をまたぐ星座がある**（うお座・ペガスス座）。最初の点を基準に開かないと
+        // 359° と 1° が幅 358° の絵になり、枠へ収めた結果が 1 本の線になる
+        val reference = figure.firstOrNull { it.isNotEmpty() }?.first()?.get(0) ?: return null
+        var decSum = 0.0
+        var count = 0
+        for (stroke in figure) {
+            for (point in stroke) {
+                decSum += point[1]
+                count++
+            }
+        }
+        if (count < 2) return null
+        // 赤経 1° の見かけの幅は緯度で縮む。絵の真ん中の赤緯で 1 度だけ決める
+        // （枠へ収める絵なので、縦横比がここで決まりきれば十分）
+        val cosDec = cos(decSum / count * DEG)
+
+        // **東（赤経が増える向き）を左に置く。** 空を見上げたときと同じ向きで、
+        // 星図に出ている並びと鏡像にならない
+        val plane = figure.map { stroke ->
+            stroke.map { point ->
+                val ra = point[0] - 360.0 * ((point[0] - reference) / 360.0).roundToInt()
+                doubleArrayOf(-(ra - reference) * cosDec, -point[1])
+            }
+        }
+        var minX = Double.MAX_VALUE
+        var minY = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var maxY = -Double.MAX_VALUE
+        for (stroke in plane) {
+            for (q in stroke) {
+                minX = min(minX, q[0])
+                minY = min(minY, q[1])
+                maxX = max(maxX, q[0])
+                maxY = max(maxY, q[1])
+            }
+        }
+        val spanX = maxX - minX
+        val spanY = maxY - minY
+        if (spanX <= 0.0 || spanY <= 0.0) return null
+        val boxWidth = width - 2 * marginPx
+        val boxHeight = height - 2 * marginPx
+        if (boxWidth <= 0 || boxHeight <= 0) return null
+        // **縦横比は崩さない。** 枠へ引き伸ばすと、絵が空で見える形と違う形になる
+        val scale = min(boxWidth / spanX, boxHeight / spanY)
+        val offsetX = (width - spanX * scale) / 2 - minX * scale
+        val offsetY = (height - spanY * scale) / 2 - minY * scale
+
+        val gray = ByteArray(width * height)
+        for (stroke in plane) {
+            var previous: DoubleArray? = null
+            for (q in stroke) {
+                val at = doubleArrayOf(q[0] * scale + offsetX, q[1] * scale + offsetY)
+                // **1 画素の細線で描く。** 星図の絵と同じ理由（太いと輪郭が潰れ、
+                // 圧縮後のバイト数も膨らむ）で、文字の裏では字を邪魔しないためでもある
+                if (previous != null) line(gray, width, height, previous, at, value, radius = 0)
+                previous = at
+            }
+        }
+        return StarMap(width, height, gray, emptyList())
+    }
+
+    /**
      * 星座絵を 1 つ敷く。
      *
      * **絵は星と同じ赤道座標で持っている**ので、星や星座線とまったく同じ道筋で投影する。
