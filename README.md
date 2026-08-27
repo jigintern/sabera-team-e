@@ -1,4 +1,4 @@
-# 星導 - Hoshishirube -
+# 星導
 
 ## 概要
 
