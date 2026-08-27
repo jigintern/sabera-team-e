@@ -53,25 +53,7 @@ data class StarMapInk(val levels: Map<StarMapLayer, Int> = emptyMap()) {
     /** 案内中、対象以外を落とした値。**上げてある層はそのぶん下げ幅も残す** */
     fun dimValue(layer: StarMapLayer): Int = minOf(layer.dimLevel, level(layer)) * 32 + 16
 
-    /**
-     * 文字の裏に敷くときの値（#127）。**段は設定から来るが、文字より暗く保つ。**
-     *
-     * 解説画面は文字が主役で、絵は「どの星座の話か」を形で添えるだけ。
-     * 同じ明るさで重なると字が読めなくなるので、[EXPLANATION_ART_MAX_LEVEL] で頭を押さえる。
-     * 屋外で薄すぎるときは、設定を上げればその段までは付いてくる。
-     */
-    fun behindTextValue(layer: StarMapLayer): Int =
-        minOf(level(layer), EXPLANATION_ART_MAX_LEVEL) * 32 + 16
-
     fun with(layer: StarMapLayer, level: Int): StarMapInk = StarMapInk(
         levels + (layer to level.coerceIn(StarMapLayer.MIN_LEVEL, StarMapLayer.MAX_LEVEL)),
     )
 }
-
-/**
- * 文字の裏に敷く下敷きの、濃さの上限（段）。
- *
- * **文字と同じ明るさの線が字に重なると読めない。** 3bit 8 階調しかないので、
- * 「少し暗く」ではなく段で押さえる。星図（文字の下に絵が無い前提）には掛けない。
- */
-const val EXPLANATION_ART_MAX_LEVEL = 4

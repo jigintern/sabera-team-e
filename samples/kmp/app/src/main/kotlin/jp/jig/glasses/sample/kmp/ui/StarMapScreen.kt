@@ -77,7 +77,10 @@ import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_IMAGE_ID
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_TOP_PX
+import jp.jig.glasses.sample.kmp.glass.EXPLANATION_ART_WIDTH
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
@@ -1159,23 +1162,28 @@ fun StarMapScreen(
     }
 
     /**
-     * 解説の裏に星座絵を敷く（#127）。
+     * 解説の本文の下へ星座絵を置く（#127）。
+     *
+     * **本文 3 行はパネルの上 140px しか使っていない**ので、下の空きへ置けば
+     * **文字と 1 画素も重ならない**。3bit 8 階調しかないパネルで、
+     * 字を薄い線で邪魔せずに「どの星座の話か」を形でも見せられる。
      *
      * **1 枚送って置いておくだけ。** 字幕はテキスト枠で流すので、流している間この絵は触らない
-     * （画像を送り直すと 1 枚 0.4 秒かかり、そのあいだ絵が消えて点滅になる）。
+     * （画像を送り直すと 1 枚 0.2 秒かかり、そのあいだ絵が消えて点滅になる）。
      *
      * [nameJa] は `NarrationState.constellation`。**星座でない名前**（人工衛星の機体名）や、
      * 見出しを出さない声の質問（#38）では絵を消す。**関係のない星座の絵を残さない。**
      */
     suspend fun sendExplanationArt(nameJa: String) {
-        // 焼くのも数えるのも 17 万画素を走るので、まとめて別スレッドへ出す
+        // 焼くのも数えるのも 7.6 万画素を走るので、まとめて別スレッドへ出す
         val art = if (nameJa.isBlank()) null else renderer?.let { r ->
             withContext(Dispatchers.Default) {
                 r.explanationArt(
                     nameJa = nameJa,
-                    width = STAR_MAP_WIDTH,
-                    height = STAR_MAP_HEIGHT,
-                    value = ink.behindTextValue(StarMapLayer.ART),
+                    width = EXPLANATION_ART_WIDTH,
+                    height = EXPLANATION_ART_HEIGHT,
+                    // **文字と重ならないので暗くしない。** 星図と同じ設定の段をそのまま使う
+                    value = ink.value(StarMapLayer.ART),
                 )?.let { map -> map to map.canvasBufferUsageBytes() }
             }
         }
@@ -1197,7 +1205,8 @@ fun StarMapScreen(
                     commandManager.sendCanvasImage(
                         id = EXPLANATION_ART_IMAGE_ID,
                         x = (PANEL_WIDTH - map.width) / 2,
-                        y = (PANEL_HEIGHT - map.height) / 2,
+                        // **本文の下端から下へ置く。** 上下中央に置くと字に重なる
+                        y = EXPLANATION_ART_TOP_PX,
                         width = map.width,
                         height = map.height,
                         grayscale = map.gray,

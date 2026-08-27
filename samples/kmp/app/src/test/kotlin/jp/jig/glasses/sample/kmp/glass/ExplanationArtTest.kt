@@ -1,7 +1,6 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -9,10 +8,11 @@ import org.junit.Test
 import java.io.File
 
 /**
- * 解説画面の裏に敷く星座絵（#127）。
+ * 解説画面の本文の下に置く星座絵（#127）。
  *
- * **実機でしか分からないのは「文字が読めるか」だけ。** 88 星座ぶんが
+ * **実機でしか分からないのは「屋外で絵が見えるか」だけ。** 88 星座ぶんが
  * バッファに入るか・枠から溢れないか・つぶれて線 1 本になっていないかは、ここで押さえられる。
+ * **枠は本文の下端から下**なので、字と重なるかどうかは計算で決まる（最後のテスト）。
  */
 class ExplanationArtTest {
 
@@ -24,10 +24,10 @@ class ExplanationArtTest {
     private val catalog: StarCatalog = StarCatalog.parse { name -> File(dataDir, name).readText() }
     private val renderer = StarMapRenderer(catalog)
 
-    private val value = StarMapInk().behindTextValue(StarMapLayer.ART)
+    private val value = StarMapInk().value(StarMapLayer.ART)
 
     private fun art(nameJa: String): StarMap? =
-        renderer.explanationArt(nameJa, STAR_MAP_WIDTH, STAR_MAP_HEIGHT, value)
+        renderer.explanationArt(nameJa, EXPLANATION_ART_WIDTH, EXPLANATION_ART_HEIGHT, value)
 
     /** 点灯している画素の外接矩形。無ければ null */
     private fun StarMap.litBounds(): IntArray? {
@@ -125,22 +125,24 @@ class ExplanationArtTest {
         assertNull(art(""))
     }
 
-    /** **文字の裏に敷く絵は文字より暗く保つ。** 設定を上げても頭打ちにする */
+    /**
+     * **枠が本文の 1 行にも重ならない。**
+     *
+     * 重ねてよいことにすると、3bit 8 階調のパネルでは
+     * 「絵が見えないほど暗くする」か「字が読めない」かのどちらかにしかならない。
+     * 行を動かしたときにここが落ちるよう、**枠は本文の下端から計算している**。
+     */
     @Test
-    fun `濃さは設定から来るが段で頭打ちになる`() {
-        val defaults = StarMapInk()
-        assertEquals(
-            defaults.value(StarMapLayer.ART),
-            defaults.behindTextValue(StarMapLayer.ART),
-        )
-        val raised = defaults.with(StarMapLayer.ART, StarMapLayer.MAX_LEVEL)
-        assertEquals(
-            EXPLANATION_ART_MAX_LEVEL * 32 + 16,
-            raised.behindTextValue(StarMapLayer.ART),
+    fun `枠は本文の下端より下にある`() {
+        assertTrue(
+            "星座絵の枠が本文に重なる（本文の下端 ${GlassTextPage.bodyBottomY}px）",
+            EXPLANATION_ART_TOP_PX >= GlassTextPage.bodyBottomY,
         )
         assertTrue(
-            "文字の裏の絵が星座線より明るい",
-            raised.behindTextValue(StarMapLayer.ART) < raised.value(StarMapLayer.ART),
+            "星座絵の枠がパネルからはみ出す",
+            EXPLANATION_ART_TOP_PX + EXPLANATION_ART_HEIGHT <= PANEL_HEIGHT,
         )
+        assertTrue("星座絵の枠に高さが無い", EXPLANATION_ART_HEIGHT > 2 * EXPLANATION_ART_MARGIN_PX)
+        assertTrue("星座絵の枠がパネルより広い", EXPLANATION_ART_WIDTH <= PANEL_WIDTH)
     }
 }
