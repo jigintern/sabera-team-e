@@ -874,7 +874,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         if (count < 2) return null
         // 赤経 1° の見かけの幅は緯度で縮む。絵の真ん中の赤緯で 1 度だけ決める
         // （枠へ収める絵なので、縦横比がここで決まりきれば十分）
-        val cosDec = cos(decSum / count * DEG)
+        // **度をラジアンへ直すのは RAD。** `DEG` は逆向き（rad → deg）なので、
+        // 掛けると 0.04〜0.99 の無関係な係数になり、絵が横に潰れたり東西が鏡像になる（#135）
+        val cosDec = cos(decSum / count * RAD)
 
         // **東（赤経が増える向き）を左に置く。** 空を見上げたときと同じ向きで、
         // 星図に出ている並びと鏡像にならない

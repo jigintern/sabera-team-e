@@ -1,11 +1,16 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import jp.jig.glasses.sample.kmp.catalog.StarCatalog
+import jp.jig.glasses.sample.kmp.sky.RAD
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * 解説画面の本文の下に置く星座絵（#127）。
@@ -94,6 +99,43 @@ class ExplanationArtTest {
             assertTrue(
                 "${constellation.nameJa}がつぶれた（横${filledX}・縦${filledY}）",
                 filledX >= 0.2 && filledY >= 0.2,
+            )
+        }
+    }
+
+    /**
+     * **絵の縦横比が空の縦横比と一致する（#135）。**
+     *
+     * 赤経 1° の見かけの幅は `cos(赤緯)` で縮む。この cos に**度をそのまま渡す**と
+     * 0.04〜0.99 の無関係な係数になり、**21 星座が線 1 本まで潰れ、44 星座は東西が鏡像**に
+     * なっていた（みずがめ座は横の充填率 0.17）。上の充填率だけでは
+     * **しきい値をまたがない星座の潰れと、鏡像を拾えない**ので、比そのものを画素で固定する。
+     */
+    @Test
+    fun `絵の縦横比が空の縦横比と一致する`() {
+        val boxWidth = EXPLANATION_ART_WIDTH - 2 * EXPLANATION_ART_MARGIN_PX
+        val boxHeight = EXPLANATION_ART_HEIGHT - 2 * EXPLANATION_ART_MARGIN_PX
+        for (constellation in catalog.constellations) {
+            val points = (catalog.figures[constellation.abbr] ?: continue).flatten()
+            if (points.size < 2) continue
+            // 赤経 0/360 をまたぐ星座があるので、実装と同じく最初の点で開く
+            val reference = points.first()[0]
+            val cosDec = cos(points.map { it[1] }.average() * RAD)
+            val ra = points.map { it[0] - 360.0 * ((it[0] - reference) / 360.0).roundToInt() }
+            val spanX = (ra.max() - ra.min()) * cosDec
+            val spanY = points.maxOf { it[1] } - points.minOf { it[1] }
+            val scale = min(boxWidth / spanX, boxHeight / spanY)
+
+            val map = art(constellation.nameJa) ?: continue
+            val bounds = map.litBounds() ?: continue
+            // 折れ線の端は画素へ丸められるので、縦横それぞれ 2 画素だけ許す
+            assertEquals(
+                "${constellation.nameJa}の横幅が空と合わない",
+                spanX * scale, (bounds[2] - bounds[0]).toDouble(), 2.0,
+            )
+            assertEquals(
+                "${constellation.nameJa}の高さが空と合わない",
+                spanY * scale, (bounds[3] - bounds[1]).toDouble(), 2.0,
             )
         }
     }
