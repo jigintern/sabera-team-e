@@ -46,7 +46,15 @@ public class compose_phone_preview {
         drawBackground(g);
 
         BufferedImage logo = ImageIO.read(logoPath.toFile());
-        g.drawImage(logo, 32, 328, 326, 92, null);
+        // **枠に押し込めず、縦横比を保って中へ収める**（実装の ContentScale.Fit と同じ）。
+        // 大きさを決め打つと、素材の縦横比が変わったときに丸い印が楕円になる
+        int boxWidth = 326;
+        int boxHeight = 92;
+        double fit = Math.min(boxWidth / (double) logo.getWidth(), boxHeight / (double) logo.getHeight());
+        int drawWidth = (int) Math.round(logo.getWidth() * fit);
+        int drawHeight = (int) Math.round(logo.getHeight() * fit);
+        g.drawImage(logo, 32 + (boxWidth - drawWidth) / 2, 328 + (boxHeight - drawHeight) / 2,
+            drawWidth, drawHeight, null);
 
         Font medium = Font.createFont(Font.TRUETYPE_FONT, fontPath.toFile());
         drawCentered(g, "星空を、もっと身近に。", medium.deriveFont(20f), Color.WHITE, 0.82f, 451);
