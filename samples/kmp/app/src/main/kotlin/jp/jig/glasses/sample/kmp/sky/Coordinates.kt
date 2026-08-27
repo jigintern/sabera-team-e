@@ -161,8 +161,12 @@ fun toAltAz(raDeg: Double, decDeg: Double, lstDeg: Double, latDeg: Double): Doub
 }
 
 /**
- * 標準大気での Bennett の近似式。地平線では約 0.48° 持ち上がり、10°以上では 0.1°未満になる。
+ * 標準大気での Sæmundsson の近似式（**真高度 → 見かけの高度**の向き）。
+ * 地平線では約 0.48° 持ち上がり、10°以上では 0.1°未満になる。
  * 気温・気圧が無いので低高度の完全補正ではないが、補正しない場合の系統誤差を減らす。
+ *
+ * **Bennett の式と取り違えない。** あちらは見かけ → 真の向きで、係数も 7.31 / 4.4 と違う。
+ * 逆向きが要るときは [geometricAltitudeDeg]（この式を反復で戻す）を使う。
  */
 fun apparentAltitudeDeg(geometricAltitudeDeg: Double): Double {
     if (geometricAltitudeDeg < -1.0 || geometricAltitudeDeg >= 90.0) return geometricAltitudeDeg
@@ -244,21 +248,41 @@ class Basis(azDeg: Double, altDeg: Double, rollDeg: Double = 0.0) {
  * 加速度から首の傾き[度]を出す。**右耳が下がる向きを正**にする。
  *
  * 6DoF はピッチとヨーしか返さない（SDK 0.6.0）ので、重力そのものから起こす。
- * X 軸が「右」であることだけを仮定していて、上が Y か Z かには依存しない。
- * 見ているのは**右方向が水平面からどれだけ傾いているか**なので、
- * 真上を向いているときは意味を失う（そのときは地平線も画面に無い）。
  *
+ * **機体の軸は実測してある**（docs/team-e/70_measurements.md・静止 865 件・ピッチ幅 76°）。
+ * **上 = +X・前 = −Y**、したがって **右 = 前 × 上 = +Z**。
+ * 静止中の加速度はこの 3 軸で
+ *
+ * ```
+ * a = 1000 ( sinθ·前 + cosθ·cosφ·上 − cosθ·sinφ·右 )      θ=ピッチ φ=ロール
+ * ```
+ *
+ * になるので、`aX = 1000·cosθ·cosφ` と `aZ = −1000·cosθ·sinφ` から
+ * **ピッチに影響されずに φ だけ**が出る（`tanφ = −aZ / aX`）。
+ *
+ * **「X 軸が右」と仮定してはいけない。** そう書いていたときは水平に構えただけで
+ * `atan2(1000, 0) = 90°` を返し、**返る値は実際には (90° − ピッチ) だった**。
+ * 星図が枠ごと 90° 回り、見上げるほど回転量が変わるので、**目標が画面の中を動いて逃げた**。
+ * 左右の傾きも区別できていなかった（ロール +20° と −20° がどちらも 70°）。
+ *
+ * 真上（cosθ → 0）ではロールそのものが定義できないので 0 を返す（そのときは地平線も画面に無い）。
  * 動いている間は重力以外の加速度が乗るので、**首が止まっているときだけ使う**。
  */
 fun rollFromAccel(xMilliG: Int, yMilliG: Int, zMilliG: Int): Double {
-    val vertical = hypot(yMilliG.toDouble(), zMilliG.toDouble())
-    if (hypot(xMilliG.toDouble(), vertical) < 200.0) return 0.0
-    return atan2(ROLL_SIGN * xMilliG.toDouble(), vertical) * DEG
+    val up = xMilliG.toDouble()
+    val right = zMilliG.toDouble()
+    // 真上を向くと上も右も 0 に落ちる。**ここで Y（前）を混ぜない**（混ぜるとピッチが漏れる）
+    if (hypot(up, right) < 200.0) return 0.0
+    return atan2(ROLL_SIGN * -right, ROLL_SIGN * up) * DEG
 }
 
 /**
- * ロールの向き。**実機で逆に回ったら符号を変えるだけ**で直る。
+ * ロールの向き。**実機で 180° 回っていたら符号を変えるだけ**で直る。
+ *
  * 加速度計が重力を「反力」で返すか「加速度」で返すかは SDK に書かれていない。
+ * 反力なら水平で `aX = +1000`、加速度なら `−1000` になり、**ロールが 180° ずれる**
+ * （71_yaw-drift.md に「実機のログで −177° と出た」の記録がある）。
+ * **上と右を同時に反転させる**ので、片方だけに掛けてはいけない。
  */
 private const val ROLL_SIGN = 1.0
 
@@ -279,6 +303,29 @@ fun project(v: Vec3, b: Basis, k: Double, w: Int, h: Int): DoubleArray? {
 
 /** 2 方向のなす角[度]。視野に入っているかを度で判定するのに使う */
 fun angleBetweenDeg(a: Vec3, b: Vec3): Double = acos((a dot b).coerceIn(-1.0, 1.0)) * DEG
+
+/**
+ * 横画角 [fovDeg]・縦横比 [panelAspect]（高さ ÷ 幅）のパネルに、この向きが入るか。
+ *
+ * **円で切らない。** 星図は横長で、544×340・画角 35° なら**横は ±17.5° あるのに縦は ±11.0°**、
+ * 隅は 20.6° まで届く。半径 fov/2 の円で切ると、**上下は絵に無いものを拾い、隅は絵にあるものを
+ * 落とす**。AI へ渡す根拠がそこで絵とずれる（#37）。
+ *
+ * 判定は [project] の枠内判定そのもので、画素に直す前の長さで測るだけ
+ * （画面 x が 0..w に入る ⇔ |r·x/len| ≤ (w/2)/k = 2 tan(fov/4)）。
+ * **[projectionScale] と同じ式を使うので、星図の幅が 544 でも 528 でも答えは変わらない。**
+ */
+fun withinPanel(v: Vec3, b: Basis, fovDeg: Double, panelAspect: Double): Boolean {
+    val cosTheta = v dot b.forward
+    if (cosTheta <= 0.0) return false
+    val x = v dot b.right
+    val y = v dot b.up
+    val len = hypot(x, y)
+    val halfWidth = 2.0 * tan(fovDeg * RAD / 4.0)
+    if (len < 1e-12) return true
+    val r = 2.0 * tan(acos(cosTheta.coerceIn(-1.0, 1.0)) / 2.0)
+    return abs(r * x / len) <= halfWidth && abs(r * y / len) <= halfWidth * panelAspect
+}
 
 /** 横 fovDeg が幅 w に収まるときの倍率。r = 2 tan(θ/2) の θ = fov/2 が w/2 に来る */
 fun projectionScale(w: Int, fovDeg: Double): Double = (w / 2.0) / (2.0 * tan(fovDeg * RAD / 4.0))

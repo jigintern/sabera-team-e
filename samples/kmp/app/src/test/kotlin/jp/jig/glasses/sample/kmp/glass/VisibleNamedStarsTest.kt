@@ -12,6 +12,9 @@ import java.io.File
  *
  * 星表を頭から走る代わりに固有名の側から索引で引くようにしたので、
  * **答えが変わっていないこと**を焼き付けておく（解説と声の質問がこの並びを読む）。
+ *
+ * **視野は円ではなくパネルの長方形で切る**（`sky.withinPanel`）。縦は ±11.0° しかないので、
+ * 円で切っていたころに入っていた「絵に無い星」がここから落ちる。
  */
 class VisibleNamedStarsTest {
 
@@ -29,7 +32,14 @@ class VisibleNamedStarsTest {
             for (az in 0 until 360 step 45) {
                 for (alt in 10..70 step 20) {
                     val names = renderer
-                        .visibleNamedStars(site, epoch, Look(az.toDouble(), alt.toDouble()), fovDeg = 35.0, max = 5)
+                        .visibleNamedStars(
+                            site,
+                            epoch,
+                            Look(az.toDouble(), alt.toDouble()),
+                            fovDeg = 35.0,
+                            panelAspect = STAR_MAP_ASPECT,
+                            max = 5,
+                        )
                         .joinToString(",") { it.nameJa }
                     append(az).append('/').append(alt).append('=').append(names).append('\n')
                 }
@@ -39,7 +49,7 @@ class VisibleNamedStarsTest {
     }
 
     private companion object {
-        /** 索引引きへ変える前の実装が返していた並び（2026-01-01 21:00 JST・鯖江） */
+        /** パネルの長方形で切ったときの並び（2026-01-01 21:00 JST・鯖江） */
         const val EXPECTED = """0/10=
 0/30=
 0/50=
@@ -49,11 +59,11 @@ class VisibleNamedStarsTest {
 45/50=
 45/70=カペラ
 90/10=レグルス
-90/30=ポルックス,プロキオン,カストル
+90/30=ポルックス,プロキオン
 90/50=カストル,ポルックス
 90/70=カペラ
-135/10=アダーラ,シリウス
-135/30=シリウス,リゲル
+135/10=アダーラ
+135/30=シリウス
 135/50=ベテルギウス,リゲル
 135/70=アルデバラン
 180/10=
@@ -69,7 +79,7 @@ class VisibleNamedStarsTest {
 270/50=
 270/70=
 315/10=デネブ
-315/30=デネブ
+315/30=
 315/50=
 315/70="""
     }
