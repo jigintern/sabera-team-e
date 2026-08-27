@@ -484,7 +484,7 @@ fun StarMapScreen(
      */
     var glassRoll by remember { mutableStateOf(0.0) }
 
-    /** 絵を焼いたときの傾き。印を動かすときはこちらを使う（いまの傾きで置くと印だけ回る） */
+    /** 送れた絵の傾き。印を動かすときはこちらを使う（いまの傾きで置くと印だけ回る） */
     var drawnRoll by remember { mutableStateOf(0.0) }
 
     // 画角はパネルと光学系の定数。**まだ実測していないので仮の値**
@@ -593,8 +593,10 @@ fun StarMapScreen(
     var preview by remember { mutableStateOf<PreviewFrame?>(null) }
     var lastMap by remember { mutableStateOf<StarMap?>(null) }
     var lastMapObservation by remember { mutableStateOf<ObservationSnapshot?>(null) }
-    // 解説の根拠は**その絵を焼いた視線**から作る。いまの視線で作り直すと、
-    // グラスに出ている絵と食い違う（[drawnLook] は「送れた」絵の視線なので別に持つ）
+    // 解説の根拠は**グラスに出ている絵の視線**から作る。いまの視線で作り直すと絵と食い違う。
+    // [drawnLook] と同じ場所で同じ値が入るが、**1 つにまとめてはいけない**。
+    // あちらは `null` を入れて「次のループで描き直せ」の合図に使っていて（8 か所）、
+    // そのとき解説の根拠はグラスに残っている絵のまま持っていないといけない
     var lastMapLook by remember { mutableStateOf<Look?>(null) }
     // 解説の根拠（月・惑星）にそのまま渡すぶん。**絵と根拠を別に計算しない**
     var bodiesShown by remember { mutableStateOf<List<SkyBodyMark>>(emptyList()) }
@@ -1030,10 +1032,6 @@ fun StarMapScreen(
                 }
             }
             renderMs = System.currentTimeMillis() - started
-            bodiesShown = bodies
-            lastMap = map
-            lastMapLook = target
-            lastMapObservation = observation
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
             // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
@@ -1079,10 +1077,20 @@ fun StarMapScreen(
                 commandManager.sendCanvasElements(batch)
             }
             shownElements = placed
-            // 印だけ動かすために、この画像を焼いた条件を覚えておく
+
+            // **「グラスに出ている絵」を確定するのはここだけ。**
+            // 上は印だけ動かすための条件、下は解説の根拠だが、**どちらも送れて初めて確定する**。
+            // バッファ超過（上の return）や送信例外で戻るときは、ひとつも進めない。
+            // 焼いた時点で進めていたころは、超過のあとグラスに前の絵が出ているのに
+            // 解説の根拠だけが新しい絵へ行き、**画面に無い絵について喋った**（#123・#37 と同型）。
+            // 描き直しループも「null が返ったら描いていない」で動いているので、そちらへ揃える
             drawnLook = target
             drawnFov = fov.toDouble()
             drawnRoll = glassRoll
+            bodiesShown = bodies
+            lastMap = map
+            lastMapLook = target
+            lastMapObservation = observation
 
             // プレビューは転送を待つ間に作る。送信の手前で作ると、そのぶんグラスに出るのが遅れる
             preview = withContext(Dispatchers.Default) { map.toPreviewBitmap() }
