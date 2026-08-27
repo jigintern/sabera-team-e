@@ -1438,6 +1438,9 @@ fun StarMapScreen(
             throw e
         } catch (e: Throwable) {
             log("印の更新で失敗: ${e.message}", failed = true)
+            // **スタックトレースは Log.e の第 3 引数にしか渡らない。** log() は
+            // SessionLog と画面の 40 行に残るが、どこで落ちたかは logcat でしか読めない
+            Log.e(TAG, "衛星の印の更新で失敗", e)
         } finally {
             sendGate.unlock()
         }
@@ -2814,6 +2817,7 @@ fun StarMapScreen(
             throw e
         } catch (e: Throwable) {
             log("案内矢印の更新で失敗: ${e.message}", failed = true)
+            Log.e(TAG, "案内矢印の更新で失敗", e)
         }
     }
 
