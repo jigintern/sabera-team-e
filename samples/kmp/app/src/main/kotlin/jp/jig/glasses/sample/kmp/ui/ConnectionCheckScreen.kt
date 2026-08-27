@@ -34,6 +34,7 @@ import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
 import jp.jig.glasses.sample.kmp.ui.component.SaberaSurface
+import jp.jig.glasses.sample.kmp.ui.component.SaberaWarning
 import jp.jig.glasses.sample.kmp.ui.component.SeasonalConstellationBackground
 
 @Composable
@@ -43,6 +44,7 @@ fun ConnectionCheckScreen(
     constellation: ConstellationBackground,
     onContinue: () -> Unit,
     onHome: () -> Unit,
+    onDisconnect: () -> Unit,
 ) {
     val activity = LocalContext.current as Activity
     val vm = viewModel<ConnectionViewModel>()
@@ -134,6 +136,15 @@ fun ConnectionCheckScreen(
                     colors = connectionButtonColors(),
                 ) {
                     Text("星図へ進む")
+                }
+                // **ここで確認は挟まない。** つないだだけの画面には畳まれるものが無く、
+                // 取り消しは「SABERAを接続する」を押し直す 1 タップで済む。
+                // **違う機体につながっていると気づくのはたいていここ**（#129）
+                TextButton(
+                    onClick = onDisconnect,
+                    colors = ButtonDefaults.textButtonColors(contentColor = SaberaWarning),
+                ) {
+                    Text("別のSABERAにつなぎ直す")
                 }
             } else {
                 Button(

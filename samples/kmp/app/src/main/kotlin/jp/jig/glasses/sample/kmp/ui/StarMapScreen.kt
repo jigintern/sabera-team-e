@@ -26,6 +26,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -316,6 +317,13 @@ fun StarMapScreen(
     onRecalibrate: () -> Unit,
     /** ガイドの台本を作る画面へ。**設定と、台本が 1 つも無いときの「ガイドを始める」から** */
     onGuides: () -> Unit,
+    /**
+     * 観測をやめる確認を出す。**切るのはここではない**（#129）。
+     *
+     * 戻るキーと同じ確認へ合流させ、切断は `GlassesApp` が受け持つ。
+     * ここで直に切ると、星図を出したまま接続が落ちて見張りが誤爆する。
+     */
+    onRequestLeave: () -> Unit,
 ) {
     val context = LocalContext.current
     // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
@@ -2893,6 +2901,17 @@ fun StarMapScreen(
                                 // **衛星の切り替えは設定パネルに置いた。** 空を見ている人は
                                 // スマホを見ないので、上のバーに常設する意味が無い
                                 if (!showDetails) {
+                                    // **歯車は右端に据え置く。** 押し慣れた位置を動かさないため、
+                                    // 足すぶんはその左へ。印は「Bluetooth が切れる」ことが
+                                    // そのまま形になっているものを選ぶ（電源の印は
+                                    // 「アプリを終了する」に見える）
+                                    IconButton(onClick = onRequestLeave) {
+                                        Icon(
+                                            Icons.Filled.BluetoothDisabled,
+                                            "SABERAとの接続を切る",
+                                            tint = Color.White,
+                                        )
+                                    }
                                     IconButton(onClick = { phonePage = PhonePage.SETTINGS }) {
                                         Icon(Icons.Filled.Settings, "設定", tint = Color.White)
                                     }
@@ -3039,6 +3058,7 @@ fun StarMapScreen(
                                                 else -> toggleNarration()
                                             }
                                         },
+                                        onDisconnect = if (!showDetails) onRequestLeave else null,
                                         onSettings = if (!showDetails) ({ phonePage = PhonePage.SETTINGS }) else null,
                                     )
                                 }
@@ -3414,13 +3434,19 @@ private fun LandscapeHeader(title: String, onBack: (() -> Unit)?) {
  * 横画面の操作。**画面の右上**（右ペインの頭）に右寄せで置く。
  *
  * **止める手段はどの画面でも消さない**（縦のバーと同じ扱い）ので、設定を開いている間も出す。
+ * **切断と設定はメインのときだけ**で、設定を開いている間は左ペインの「戻る」に譲る。
  * スクロールの外に置くこと — 中に入れると設定を送ったときに流れて消える。
  */
 @Composable
-private fun LandscapeActions(stopLabel: String?, onStop: () -> Unit, onSettings: (() -> Unit)?) {
+private fun LandscapeActions(
+    stopLabel: String?,
+    onStop: () -> Unit,
+    onDisconnect: (() -> Unit)?,
+    onSettings: (() -> Unit)?,
+) {
     // **出すものが無い行に高さを取らせない。** 空でも min を効かせると、
     // 設定を開いている間じゅう右の頭に 48dp の空き帯が残る
-    if (stopLabel == null && onSettings == null) return
+    if (stopLabel == null && onDisconnect == null && onSettings == null) return
     Row(
         Modifier.fillMaxWidth().heightIn(min = LANDSCAPE_HEADER_HEIGHT),
         horizontalArrangement = Arrangement.End,
@@ -3428,6 +3454,12 @@ private fun LandscapeActions(stopLabel: String?, onStop: () -> Unit, onSettings:
     ) {
         if (stopLabel != null) {
             TextButton(onClick = onStop) { Text(stopLabel, color = Color.White) }
+        }
+        // 縦のバーと同じ並び（歯車が右端、切断はその左）。**左右で位置を変えない**
+        if (onDisconnect != null) {
+            IconButton(onClick = onDisconnect) {
+                Icon(Icons.Filled.BluetoothDisabled, "SABERAとの接続を切る", tint = Color.White)
+            }
         }
         if (onSettings != null) {
             IconButton(onClick = onSettings) {

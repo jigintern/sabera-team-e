@@ -2,6 +2,7 @@ package jp.jig.glasses.sample.kmp.ui
 
 import android.graphics.BitmapFactory
 import android.os.SystemClock
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -150,6 +151,26 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
 
     /** 戻るキーで観測をやめようとしているか。**一度の誤操作で観測を畳まない** */
     var confirmLeaving by rememberSaveable { mutableStateOf(false) }
+
+    /**
+     * 切断待ちの相手。**ホームへ移してから切る**（#129）。
+     *
+     * 星図を出したまま切ると、観測中だけ動いている見張り（[ConnectionWatch]）が
+     * 「接続が切れました」を誤爆する。**この効果が起きるのは離れる画面の後片付けより後**なので
+     * （Compose は `onDispose` を流し終えてから新しい効果を起こす）、
+     * [StarMapScreen] の `stopImuData()` と `closeCanvas()` が先に出る。
+     *
+     * **画面をまたがない切断（接続確認画面）も同じ口を通す。** 切断の経路を 2 本持たない。
+     */
+    var pendingDisconnect by remember { mutableStateOf<GlassClient?>(null) }
+    LaunchedEffect(pendingDisconnect) {
+        val target = pendingDisconnect ?: return@LaunchedEffect
+        disconnectGlass(manager, target)
+        // 切れた相手を控えたままにしない（切断ダイアログの後始末と揃える）
+        observingClient = null
+        // **落とすのは最後。** ここで自分が作り直されるが、もうやることは残っていない
+        pendingDisconnect = null
+    }
 
     /**
      * BGM は**アプリを開いた時点から鳴らす**（#69）。
@@ -333,6 +354,8 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
             constellation = constellation,
             onContinue = { screen = AppScreen.CALIBRATION },
             onHome = { screen = AppScreen.HOME },
+            // **画面は変えない。** 切れるとカードがそのまま未接続の表示へ変わり、選び直せる
+            onDisconnect = { pendingDisconnect = connectedClient ?: observingClient },
         )
         AppScreen.CALIBRATION -> {
             val currentClient = observingClient
@@ -343,6 +366,8 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
                     constellation = constellation,
                     onContinue = { screen = AppScreen.CALIBRATION },
                     onHome = { screen = AppScreen.HOME },
+                    // 未接続の代替表示なので、つなぎ直す口はそもそも出ない
+                    onDisconnect = {},
                 )
             } else {
                 CalibrationScreen(
@@ -370,6 +395,8 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
                     constellation = constellation,
                     onContinue = { screen = AppScreen.CALIBRATION },
                     onHome = { screen = AppScreen.HOME },
+                    // 未接続の代替表示なので、つなぎ直す口はそもそも出ない
+                    onDisconnect = {},
                 )
             } else {
                 StarMapScreen(
@@ -393,6 +420,8 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
                         guidesFrom = AppScreen.STAR_MAP
                         screen = AppScreen.GUIDES
                     },
+                    // ボタンは**確認を出すだけ**。切断は戻るキーと同じ出口に合流させる
+                    onRequestLeave = { confirmLeaving = true },
                 )
             }
         }
@@ -413,6 +442,9 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
         LeaveObservationDialog(
             onLeave = {
                 confirmLeaving = false
+                // 生きているほうを先に採る。[GlassManager.disconnect] の突き合わせは
+                // **参照等価**なので、控えのほうを渡すと `connectedDevice` が null にならない
+                pendingDisconnect = connectedClient ?: observingClient
                 screen = AppScreen.HOME
             },
             onStay = { confirmLeaving = false },
@@ -421,10 +453,12 @@ fun GlassesApp(manager: GlassManager, fromMeteorShowerNotice: Boolean = false) {
 }
 
 /**
- * 観測をやめるかの確認。
+ * 観測をやめるかの確認。**星図から出る唯一の出口**（戻るキーも歯車の左の印もここへ集まる）。
  *
- * **方位合わせをやり直すことになるので、一度の戻るキーでは畳まない。**
- * ホームへ戻ってもう一度観測に入るには、接続確認と方位合わせを通る必要がある。
+ * **やめると SABERA との接続まで切れる**（#129）。CDM の登録が消えるので、
+ * もう一度観測に入るには端末を選び直し、接続確認と方位合わせを通ることになる。
+ * **一度の戻るキーでそこまで畳まない**ために確認を挟み、**代償は本文とボタンの側に書く** —
+ * 見出しを「切断」にすると、やめたいだけの人の意図から遠くなる。
  */
 @Composable
 private fun LeaveObservationDialog(onLeave: () -> Unit, onStay: () -> Unit) {
@@ -445,7 +479,8 @@ private fun LeaveObservationDialog(onLeave: () -> Unit, onStay: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "ホームへ戻ると、方位合わせからやり直しになります",
+                    text = "SABERAとの接続を切ってホームへ戻ります。" +
+                        "次に始めるときは、SABERAを選び直して方位合わせからやり直しです",
                     color = Color.White.copy(alpha = 0.68f),
                     textAlign = TextAlign.Center,
                 )
@@ -462,7 +497,7 @@ private fun LeaveObservationDialog(onLeave: () -> Unit, onStay: () -> Unit) {
                 }
                 Spacer(Modifier.height(8.dp))
                 TextButton(onClick = onLeave, modifier = Modifier.fillMaxWidth()) {
-                    Text("やめてホームへ", color = SaberaWarning)
+                    Text("切断してホームへ", color = SaberaWarning)
                 }
             }
         }
@@ -550,6 +585,24 @@ private val GUIDE_SCREENS = setOf(
 
 /** 起動ごとのひとことを散らす幅。件数より十分大きければよい */
 private const val SPLASH_TIP_SPREAD = 1_000
+
+/**
+ * SABERA との接続を切る。**アプリでここだけが切断の口**（#129）。
+ *
+ * [GlassManager.disconnect] は中で CDM の登録を**全部**消す（1 台だけ残す手段は SDK に無い）。
+ * そのぶん次に開くと端末選択からやり直しになるが、**繋ぎ先を選び直す手段がこれしか無い**ので
+ * それが狙いどおり。bond まで消す `disconnectAndClearBond()` は隠し API のリフレクションなので使わない。
+ *
+ * **失敗しても人にできることが無い**ので握り潰してログだけ残す（設定アプリを開けとは言えない）。
+ * 登録の削除は SDK 側の `try` の外にあるので、権限が無いと例外がここまで飛んでくる。
+ * CDM への呼び出しが登録の数だけ走るので、待ち時間は IO へ逃がす。
+ */
+private suspend fun disconnectGlass(manager: GlassManager, client: GlassClient) {
+    withContext(Dispatchers.IO) { runCatching { manager.disconnect(client) } }
+        .onFailure { Log.w(TAG, "SABERAの切断に失敗した", it) }
+}
+
+private const val TAG = "GlassesApp"
 
 private const val CONNECTION_CHECK_INTERVAL_MS = 1_000L
 internal const val CONNECTION_LOST_GRACE_MS = 2_000L

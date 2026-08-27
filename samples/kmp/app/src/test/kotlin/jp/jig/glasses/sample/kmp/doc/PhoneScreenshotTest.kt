@@ -78,6 +78,7 @@ class PhoneScreenshotTest {
                 constellation = DemoData.constellation(),
                 onContinue = {},
                 onHome = {},
+                onDisconnect = {},
             )
         }
         settle(800)
@@ -190,6 +191,7 @@ class PhoneScreenshotTest {
                 soundPrefs = SoundPrefs(context),
                 onRecalibrate = {},
                 onGuides = {},
+                onRequestLeave = {},
             )
         }
     }
