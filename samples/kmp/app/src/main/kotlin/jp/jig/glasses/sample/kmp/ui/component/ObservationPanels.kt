@@ -3,10 +3,13 @@ package jp.jig.glasses.sample.kmp.ui.component
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -54,11 +57,17 @@ internal fun ObservationPreview(
     transferMs: Long,
     modifier: Modifier = Modifier,
     guidance: GuidanceFrame? = null,
+    /** 横画面など、幅より先に高さが尽きる場所では高さから縦横比を決める。 */
+    matchHeightFirst: Boolean = false,
 ) {
     Card(modifier, colors = CardDefaults.cardColors(containerColor = Color.Black)) {
         // 送る前だけパネルの形で場所を取る。**出たあとは絵そのものの形に従う**
         // （描かれていない黒を落としてあるので、パネルより縦が短いことがある）
-        val box = if (frame == null) {
+        val box = if (matchHeightFirst) {
+            val aspect = frame?.let { it.bitmap.width / it.bitmap.height.toFloat() }
+                ?: (PANEL_WIDTH / PANEL_HEIGHT.toFloat())
+            Modifier.fillMaxHeight().aspectRatio(aspect, matchHeightConstraintsFirst = true)
+        } else if (frame == null) {
             Modifier.fillMaxWidth().aspectRatio(PANEL_WIDTH / PANEL_HEIGHT.toFloat())
         } else {
             Modifier.fillMaxWidth()
@@ -68,7 +77,8 @@ internal fun ObservationPreview(
                 Image(
                     bitmap = frame.bitmap.asImageBitmap(),
                     contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().background(Color.Black),
+                    modifier = (if (matchHeightFirst) Modifier.fillMaxSize() else Modifier.fillMaxWidth())
+                        .background(Color.Black),
                 )
             } else {
                 LoadingPanel(
@@ -271,6 +281,9 @@ internal fun ObservationActions(
     /** 主ボタンの次に置くもの（いまはガイドの開始）。**要らないときは出さない** */
     secondaryLabel: String? = null,
     onSecondary: () -> Unit = {},
+    /** 横画面では第 2 操作と方位合わせを 1 段へまとめ、解説の高さを残す。 */
+    compact: Boolean = false,
+    onRecalibrate: () -> Unit = {},
 ) {
     Spacer(Modifier.height(12.dp))
     Button(
@@ -283,7 +296,21 @@ internal fun ObservationActions(
     ) {
         Text(primaryLabel)
     }
-    if (secondaryLabel != null) {
+    if (compact) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (secondaryLabel != null) {
+                OutlinedButton(onClick = onSecondary, modifier = Modifier.weight(1f)) {
+                    Text(secondaryLabel)
+                }
+            }
+            OutlinedButton(
+                onClick = onRecalibrate,
+                modifier = if (secondaryLabel == null) Modifier.fillMaxWidth() else Modifier.weight(1f),
+            ) {
+                Text("方位を合わせ直す")
+            }
+        }
+    } else if (secondaryLabel != null) {
         OutlinedButton(onClick = onSecondary, modifier = Modifier.fillMaxWidth()) {
             Text(secondaryLabel)
         }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +47,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideCodec
 import jp.jig.glasses.sample.kmp.guide.GuideImport
 import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.StarGuide
+import jp.jig.glasses.sample.kmp.ui.component.ACTION_BUTTON_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.QrScanner
 import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
@@ -128,6 +131,7 @@ fun GuideImportScreen(
                 Column(
                     Modifier.fillMaxSize().padding(padding).padding(16.dp)
                         .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     val preview = vm.pending
                     if (preview != null) {
@@ -169,7 +173,7 @@ fun GuideImportScreen(
                             onClick = {
                                 if (cameraGranted) vm.scanning = true else askCamera.launch(Manifest.permission.CAMERA)
                             },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH).fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = SaberaGreen,
                                 contentColor = SaberaOnAccent,
@@ -182,7 +186,7 @@ fun GuideImportScreen(
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { openFile.launch(arrayOf("application/json", "text/plain", "*/*")) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH).fillMaxWidth(),
                     ) {
                         Text("ファイルから読み込む")
                     }

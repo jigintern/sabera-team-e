@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import jp.jig.glasses.sample.kmp.R
 import jp.jig.glasses.sample.kmp.narration.SkyTip
+import jp.jig.glasses.sample.kmp.ui.component.ACTION_BUTTON_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.SaberaGreen
 import jp.jig.glasses.sample.kmp.ui.component.SaberaOnAccent
@@ -59,7 +61,8 @@ fun HomeScreen(
     onStart: () -> Unit,
     onGuides: () -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val landscape = maxWidth > maxHeight
         SeasonalConstellationBackground(
             constellation = constellation,
             modifier = Modifier.fillMaxSize(),
@@ -68,16 +71,24 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 24.dp),
+                .padding(
+                    horizontal = 32.dp,
+                    vertical = if (landscape) 8.dp else 24.dp,
+                ),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(
+                if (landscape) 6.dp else 16.dp,
+                Alignment.CenterVertically,
+            ),
         ) {
             // 間隔と中央寄せは Column の arrangement が持つ（横で weight の空きを積まない）
             Image(
                 painter = painterResource(R.drawable.hoshishirube_logo),
                 contentDescription = "星導",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().widthIn(max = 340.dp).height(96.dp),
+                modifier = Modifier.fillMaxWidth()
+                    .widthIn(max = if (landscape) 280.dp else 340.dp)
+                    .height(if (landscape) 64.dp else 96.dp),
             )
             Text(
                 text = "星空を、もっと身近に。",
@@ -88,7 +99,8 @@ fun HomeScreen(
             // **ひとことはスタートの手前に置く。** 押したあとの画面へ行ってしまう位置では読まれない。
             // **できる前から高さだけ空けておく**（あとから足すと、押そうとした先が動く）
             Box(
-                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp).height(TIP_RESERVE),
+                modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp)
+                    .height(if (landscape) TIP_RESERVE_LANDSCAPE else TIP_RESERVE),
                 contentAlignment = Alignment.Center,
             ) {
                 if (tip != null) TipCard(tip)
@@ -96,7 +108,8 @@ fun HomeScreen(
 
             Button(
                 onClick = onStart,
-                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
+                modifier = Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH).fillMaxWidth()
+                    .height(if (landscape) 44.dp else 52.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SaberaGreen,
                     contentColor = SaberaOnAccent,
@@ -109,7 +122,8 @@ fun HomeScreen(
             // （現地が圏外でも、作った台本は端末に残る）
             OutlinedButton(
                 onClick = onGuides,
-                modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth().height(52.dp),
+                modifier = Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH).fillMaxWidth()
+                    .height(if (landscape) 44.dp else 52.dp),
             ) {
                 Text("ガイドを作る", color = Color.White)
             }
@@ -124,6 +138,9 @@ fun HomeScreen(
 /** ひとことのために空けておく高さ。**小さく 3 行ぶん。できるまでは空のまま置く** */
 private val TIP_RESERVE = 84.dp
 
+/** 横 350dp で通知行まで縦 1 列に収めるためのひとこと領域 */
+private val TIP_RESERVE_LANDSCAPE = 60.dp
+
 /** 今日のひとこと 1 枚。**背景の星に負けないよう、薄い板を敷いてから字を置く** */
 /**
  * 流星群の予告（#70）の入／切。
@@ -136,7 +153,7 @@ private fun MeteorShowerNoticeRow() {
     val notice = rememberMeteorShowerNotice()
     Row(
         modifier = Modifier
-            .widthIn(max = 320.dp)
+            .widthIn(max = ACTION_BUTTON_MAX_WIDTH)
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White.copy(alpha = 0.08f))

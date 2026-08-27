@@ -2866,42 +2866,80 @@ fun StarMapScreen(
                             "グラスのツルをダブルタップすると解説します。読み上げは端末の音声です"
                         else -> "グラスのツルをダブルタップすると解説します"
                     }
+                    // 案内札が出た横画面は右ペインを流し、本文へ無限の weight を渡さない。
+                    val sidePanelCards = guidanceFrame != null || guideProgress != null
+                    val stretchNarration = landscape && !sidePanelCards
+                    val actions: @Composable () -> Unit = {
+                        ObservationActions(
+                            primaryLabel = when {
+                                recordingVoice -> "質問を送信"
+                                guideProgress != null -> "ガイドを止める"
+                                guidanceSession != null -> "案内を終了"
+                                narrator.busy || speaking -> "解説を止める"
+                                else -> "この星空を解説する"
+                            },
+                            onPrimary = {
+                                when {
+                                    recordingVoice -> submitVoiceQuestion()
+                                    guideProgress != null ->
+                                        stopGuide("スマホからガイドを終了", "ガイドを終わります。")
+                                    else -> toggleNarration()
+                                }
+                            },
+                            secondaryLabel = (
+                                if (guides.isEmpty()) "ガイドを作る" else "ガイドを始める"
+                                ).takeIf { guideProgress == null },
+                            onSecondary = {
+                                if (guides.isEmpty()) onGuides() else showGuidePicker = true
+                            },
+                            compact = landscape,
+                            onRecalibrate = onRecalibrate,
+                        )
+                        if (!landscape) {
+                            RecalibrateButton(onRecalibrate, Modifier.padding(bottom = 4.dp))
+                        }
+                    }
                     Row(
                         Modifier.fillMaxSize().padding(
                             vertical = if (landscape) 0.dp else 16.dp,
                         ),
                     ) {
                         if (landscape) {
-                            Column(Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)) {
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight()
+                                    .padding(end = 8.dp, bottom = 8.dp),
+                            ) {
                                 // バーの代わり。題と「戻る」は左、操作は右ペインの頭（画面の右上）
                                 LandscapeHeader(
                                     title = phonePage.title,
                                     onBack = if (showDetails) ({ phonePage = phonePage.back() }) else null,
                                 )
-                                Column(
+                                if (renderer == null) {
+                                    Text("星表を読み込み中…")
+                                    Spacer(Modifier.height(12.dp))
+                                }
+                                Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
+                                Spacer(Modifier.height(4.dp))
+                                Box(
                                     Modifier.fillMaxWidth().weight(1f),
-                                    verticalArrangement = Arrangement.Center,
+                                    contentAlignment = Alignment.TopCenter,
                                 ) {
-                                    if (renderer == null) {
-                                        Text("星表を読み込み中…")
-                                        Spacer(Modifier.height(12.dp))
-                                    }
-                                    Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
-                                    Spacer(Modifier.height(4.dp))
                                     ObservationPreview(
                                         preview,
                                         sending,
                                         transferMs,
-                                        Modifier.fillMaxWidth(),
+                                        Modifier.fillMaxHeight(),
                                         guidance = guidanceFrame,
-                                    )
-                                    Spacer(Modifier.height(10.dp))
-                                    Text(
-                                        narrationStatus,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
+                                        matchHeightFirst = true,
                                     )
                                 }
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    narrationStatus,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                if (phonePage == PhonePage.MAIN) actions()
                             }
                         }
                         Box(
@@ -2970,7 +3008,7 @@ fun StarMapScreen(
                                         .then(
                                             // **縦はメインも流す。** 星空の条件を開くと 1 画面に収まらない。
                                             // 横は解説が weight で高さを吸うので、流すと測れなくなる
-                                            if (showDetails || !landscape) {
+                                            if (showDetails || !landscape || sidePanelCards) {
                                                 Modifier.verticalScroll(rememberScrollState())
                                             } else {
                                                 Modifier
@@ -3065,8 +3103,8 @@ fun StarMapScreen(
                                             failed = narration.phase == NarrationPhase.FAILED,
                                             // **横は残りの高さを本文に吸わせる。** そうしないと
                                             // 解説の下が空いたままボタン 2 つが宙に浮く
-                                            modifier = if (landscape) Modifier.weight(1f) else Modifier,
-                                            maxTextHeight = if (landscape) null else 160.dp,
+                                            modifier = if (stretchNarration) Modifier.weight(1f) else Modifier,
+                                            maxTextHeight = if (stretchNarration) null else 160.dp,
                                         )
                                     } else if (phonePage == PhonePage.SETTINGS) {
                                         SkyViewSettings(
@@ -3236,33 +3274,7 @@ fun StarMapScreen(
                                 // **押すものは流れる中身の外に置く。** メインを 1 画面に収め、
                                 // 流れるのは星空の条件と解説だけにする（設定と開発者用では出さない）
                                 if (phonePage == PhonePage.MAIN) {
-                                    ObservationActions(
-                                        primaryLabel = when {
-                                            recordingVoice -> "質問を送信"
-                                            guideProgress != null -> "ガイドを止める"
-                                            guidanceSession != null -> "案内を終了"
-                                            narrator.busy || speaking -> "解説を止める"
-                                            else -> "この星空を解説する"
-                                        },
-                                        onPrimary = {
-                                            when {
-                                                recordingVoice -> submitVoiceQuestion()
-                                                guideProgress != null ->
-                                                    stopGuide("スマホからガイドを終了", "ガイドを終わります。")
-                                                else -> toggleNarration()
-                                            }
-                                        },
-                                        // **台本が無くても出す。** 無いときは作る画面へ送る
-                                        // （押しても何も起きないのではなく、次にすることを見せる）。
-                                        // ガイド中だけ出さない（主ボタンが「ガイドを止める」になっている）
-                                        secondaryLabel = (
-                                            if (guides.isEmpty()) "ガイドを作る" else "ガイドを始める"
-                                            ).takeIf { guideProgress == null },
-                                        onSecondary = {
-                                            if (guides.isEmpty()) onGuides() else showGuidePicker = true
-                                        },
-                                    )
-                                    RecalibrateButton(onRecalibrate, Modifier.padding(bottom = 4.dp))
+                                    if (!landscape) actions()
                                 }
                             }
                         }
