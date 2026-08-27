@@ -4,6 +4,7 @@ import android.content.Context
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
+import jp.jig.glasses.sample.kmp.sky.apparentAltitudeDeg
 import jp.jig.glasses.sample.kmp.sky.enu
 import jp.jig.glasses.sample.kmp.support.DAY_MILLIS
 import jp.jig.glasses.sample.kmp.support.MINUTE_MILLIS
@@ -22,6 +23,16 @@ class SatelliteScene(
     /** 同梱した TLE をいつ取ったか。**古いと位置がずれる**ので画面に出す */
     val fetchedAt: String? = null,
 ) {
+
+    /**
+     * 大気差を入れた見かけの位置。
+     *
+     * **星と同じ物差しに揃える。** 星・星座線・月惑星は [apparentAltitudeDeg] を通っているのに
+     * 衛星だけ幾何学的高度のまま重ねていたので、同じ 1 枚の中で地平線際 0.48°・高度 5° で 0.17° の
+     * 系統差が出ていた。距離は変わらないので、最接近の並べ替えには影響しない。
+     */
+    private fun Topocentric.apparent(): Topocentric =
+        Topocentric(azDeg, apparentAltitudeDeg(altDeg), rangeKm)
 
     /** TLE の古さ[日]。取得日が分からなければ null */
     fun ageDays(nowMillis: Long): Double? {
@@ -89,7 +100,7 @@ class SatelliteScene(
         val starlinkCandidates = ArrayList<Pair<Double, Sgp4>>()
         for (sgp4 in starlink) {
             val state = sgp4.at(epochMillis) ?: continue
-            val now = observer.look(state, epochMillis)
+            val now = observer.look(state, epochMillis).apparent()
             if (now.altDeg <= 0.0 || !inView(now.azDeg, now.altDeg)) continue
             starlinkCandidates += now.rangeKm to sgp4
         }
@@ -109,7 +120,7 @@ class SatelliteScene(
     ): List<GuidanceTarget> = named.mapNotNull { sgp4 ->
         if (!include(sgp4.tle.name)) return@mapNotNull null
         val state = sgp4.at(epochMillis) ?: return@mapNotNull null
-        val look = observer.look(state, epochMillis)
+        val look = observer.look(state, epochMillis).apparent()
         GuidanceTarget(
             id = "satellite:${sgp4.tle.noradId}",
             nameJa = sgp4.tle.name,
@@ -129,7 +140,7 @@ class SatelliteScene(
         val number = target.id.substringAfter("satellite:").toIntOrNull() ?: return null
         val sgp4 = named.firstOrNull { it.tle.noradId == number } ?: return null
         val state = sgp4.at(epochMillis) ?: return null
-        val look = observer.look(state, epochMillis)
+        val look = observer.look(state, epochMillis).apparent()
         return target.copy(aim = Look(look.azDeg, look.altDeg))
     }
 
@@ -147,7 +158,7 @@ class SatelliteScene(
     fun starlinkAboveHorizon(observer: Observer, epochMillis: Long): Int =
         starlink.count { sgp4 ->
             val state = sgp4.at(epochMillis) ?: return@count false
-            observer.look(state, epochMillis).altDeg > 0.0
+            observer.look(state, epochMillis).apparent().altDeg > 0.0
         }
 
     /**
@@ -158,7 +169,7 @@ class SatelliteScene(
      */
     private fun track(sgp4: Sgp4, observer: Observer, epochMillis: Long, labelled: Boolean): Located? {
         val state = sgp4.at(epochMillis) ?: return null
-        val now = observer.look(state, epochMillis)
+        val now = observer.look(state, epochMillis).apparent()
         if (now.altDeg <= 0.0) return null
         return Located(
             sgp4,
@@ -206,7 +217,7 @@ class SatelliteScene(
             val minutes = APPROACH_BACK_MIN + i * APPROACH_STEP_MIN
             val at = epochMillis + (minutes * MINUTE_MILLIS).toLong()
             val state = sgp4.at(at) ?: return null
-            val look = observer.look(state, at)
+            val look = observer.look(state, at).apparent()
             if (look.rangeKm < bestRange) {
                 bestRange = look.rangeKm
                 bestStep = i

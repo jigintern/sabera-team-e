@@ -109,6 +109,7 @@ import jp.jig.glasses.sample.kmp.glass.STILL_MS
 import jp.jig.glasses.sample.kmp.glass.SUBTITLE_LAST_HOLD_MS
 import jp.jig.glasses.sample.kmp.glass.StarMapInk
 import jp.jig.glasses.sample.kmp.glass.StarMapLayer
+import jp.jig.glasses.sample.kmp.glass.STAR_MAP_ASPECT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_IMAGE_ID
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_HEIGHT
 import jp.jig.glasses.sample.kmp.glass.STAR_MAP_MAX_WIDTH
@@ -123,6 +124,7 @@ import jp.jig.glasses.sample.kmp.glass.compressedSizeBytes
 import jp.jig.glasses.sample.kmp.glass.constellationNames
 import jp.jig.glasses.sample.kmp.glass.explanationDwellMs
 import jp.jig.glasses.sample.kmp.glass.guidanceOverlay
+import jp.jig.glasses.sample.kmp.glass.lookSeparationDeg
 import jp.jig.glasses.sample.kmp.glass.overlayFits
 import jp.jig.glasses.sample.kmp.glass.toCanvasElements
 import jp.jig.glasses.sample.kmp.glass.updatesFrom
@@ -879,11 +881,16 @@ fun StarMapScreen(
         clampAltDeg(glassPitch + pitchOffset),
     )
 
-    /** タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない） */
+    /**
+     * タップの反動を避けた視線。履歴が無ければ現在値でごまかす（初回タップくらいでしか起きない）。
+     *
+     * **[LookLatch] が積むのは方位ではなくヨー**なので、[look] と同じ [azimuthFromYaw] を通す。
+     * ここだけ足し算のままだと、首を振った角度の 2 倍ずれた方角で星座を引くことになる。
+     */
     fun latchedLook(): Look {
         val (yaw, pitch) = lookLatch.latched(System.currentTimeMillis()) ?: return look()
         return Look(
-            (normalizeDeg(yaw + headingOffset) + 360.0) % 360.0,
+            azimuthFromYaw(yaw, headingOffset),
             clampAltDeg(pitch + pitchOffset),
         )
     }
@@ -928,7 +935,14 @@ fun StarMapScreen(
                 emptyList()
             } else {
                 withContext(Dispatchers.Default) {
-                    bodiesInView(observation.site, observation.epochMillis, target, fov.toDouble()).map {
+                    bodiesInView(
+                        observation.site,
+                        observation.epochMillis,
+                        target,
+                        fov.toDouble(),
+                        STAR_MAP_ASPECT,
+                        glassRoll,
+                    ).map {
                         SkyBodyMark(
                             nameJa = it.nameJa,
                             azDeg = it.azDeg,
@@ -1177,8 +1191,10 @@ fun StarMapScreen(
                 delay(POLL_MS)
                 continue
             }
+            // **空の上の隔たりで測る**（[lookSeparationDeg]）。方位の生の差だと、
+            // 天頂付近で絵がほとんど動いていないのに描き直しが走る
             val drift = drawn?.let {
-                max(abs(normalizeDeg(now.azDeg - it.azDeg)), abs(now.altDeg - it.altDeg))
+                lookSeparationDeg(it.azDeg, it.altDeg, now.azDeg, now.altDeg)
             } ?: Double.MAX_VALUE
             // **首を傾けただけでも描き直す。** 方位も高度も動かないので、
             // ここを見ないと地平線が傾いたまま残る
@@ -2179,6 +2195,8 @@ fun StarMapScreen(
         // **絵と視線は必ず組で使う**（片方だけ残っていると、また別計算に戻ってしまう）
         val shown = lastMap?.takeIf { lastMapLook != null }
         val basis = lastMapLook ?: latched
+        // **傾きも絵と揃える。** 視野の判定はパネルの長方形なので、枠が回れば入るものが変わる
+        val basisRoll = if (lastMapLook != null) drawnRoll else glassRoll
 
         // **解説はグラスの専用ページに出す**（#40）。星図を消して枠 8 つを全部文字に使う。
         // 見出しの方角は「絵を焼いた視線」から取る。解説の途中で首を動かしても書き換えない
@@ -2203,11 +2221,20 @@ fun StarMapScreen(
                     observation.epochMillis,
                     basis,
                     fov.toDouble(),
+                    STAR_MAP_ASPECT,
+                    basisRoll,
                 )
             }
             // グラスに描いたのと同じ判定で月・惑星を渡す。**絵と根拠を別に作ると食い違う**
             val visibleBodies = withContext(Dispatchers.Default) {
-                bodiesInView(observation.site, observation.epochMillis, basis, fov.toDouble())
+                bodiesInView(
+                    observation.site,
+                    observation.epochMillis,
+                    basis,
+                    fov.toDouble(),
+                    STAR_MAP_ASPECT,
+                    basisRoll,
+                )
             }
             log(
                 "解説の根拠 主役=%s 方位%d° 高度%d° 名前%d個 絵=%s".format(
@@ -2254,6 +2281,8 @@ fun StarMapScreen(
         if (replacedGuidance) stopGuidance("新しい音声入力のため案内を終了")
         val shown = lastMap?.takeIf { lastMapLook != null }
         val basis = lastMapLook ?: latchedLook()
+        // **傾きも絵と揃える。** 視野の判定はパネルの長方形なので、枠が回れば入るものが変わる
+        val basisRoll = if (lastMapLook != null) drawnRoll else glassRoll
         // **質問の間は星座名も方角も出さない。** 見出しに名前が出ていると、聞いたことと
         // 関係のない星座について答えているように見える（実機で「上に星座名が出る」）。
         // AI へ渡す事実にはこれまでどおり星座が入っているので、答えの中身は変わらない
@@ -2444,10 +2473,24 @@ fun StarMapScreen(
                     altDeg = basis.altDeg,
                     localTime = observation.fullTimeLabel(),
                     visibleStars = withContext(Dispatchers.Default) {
-                        r.visibleNamedStars(observation.site, observation.epochMillis, basis, fov.toDouble())
+                        r.visibleNamedStars(
+                            observation.site,
+                            observation.epochMillis,
+                            basis,
+                            fov.toDouble(),
+                            STAR_MAP_ASPECT,
+                            basisRoll,
+                        )
                     },
                     visibleBodies = withContext(Dispatchers.Default) {
-                        bodiesInView(observation.site, observation.epochMillis, basis, fov.toDouble())
+                        bodiesInView(
+                            observation.site,
+                            observation.epochMillis,
+                            basis,
+                            fov.toDouble(),
+                            STAR_MAP_ASPECT,
+                            basisRoll,
+                        )
                     },
                 )
                 val reply = runCatching { withContext(Dispatchers.IO) { ask.answer(question, facts) } }
@@ -2852,10 +2895,6 @@ fun StarMapScreen(
                                         Modifier.fillMaxWidth(),
                                         guidance = guidanceFrame,
                                     )
-                                    Text(
-                                        "グラスの向きを止めると、その方角の星図に更新します",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
                                     Spacer(Modifier.height(10.dp))
                                     Text(
                                         narrationStatus,
@@ -2922,10 +2961,6 @@ fun StarMapScreen(
                                     Text("グラスに表示している星空", style = MaterialTheme.typography.titleLarge)
                                     Spacer(Modifier.height(4.dp))
                                     ObservationPreview(preview, sending, transferMs, guidance = guidanceFrame)
-                                    Text(
-                                        "グラスの向きを止めると、その方角の星図に更新します",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
                                 }
                                 Column(
                                     // **残りの高さは全部ここが取る。** 押すものは画面のいちばん下に
