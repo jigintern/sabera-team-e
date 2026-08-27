@@ -18,6 +18,13 @@ data class CorrectedYaw(
      * 45〜90° 振って急に戻すたびに、戻したぶんの一部が消えていた。
      */
     val rescuedTurnDeg: Double,
+    /**
+     * 薄めずに通算した率。**[driftRateDps] と食い違ったら、薄め方が疑わしい**（#132）。
+     *
+     * 実機で率が真の値より 40% 小さかったとき、
+     * 「薄め方が悪い」のか「測った値そのものが低い」のかを分けるために出している。
+     */
+    val plainRateDps: Double,
     val stillSecondsTotal: Double,
     val movingSecondsTotal: Double,
     /** 動いている間に足した補正の合計（＝引いたドリフトの総量） */
@@ -84,6 +91,11 @@ class YawDriftCorrector(
 
     /** 薄めない合計。**使い始めの判定とログ用**（経過時間と突き合わせて欠落を見る） */
     private var stillSecondsTotal: Double = 0.0
+    private var stillYawPlainDeg: Double = 0.0
+
+    /** 薄めずに通算した率。**ログで [driftRateDps] と突き合わせるためだけ** */
+    private val plainRateDps: Double
+        get() = if (stillSecondsTotal > 0.0) stillYawPlainDeg / stillSecondsTotal else 0.0
 
     /** 直前のサンプルが動いていたか。**動いた直後の 1 サンプルは測定に使わない** */
     private var wasMoving: Boolean = true
@@ -137,6 +149,7 @@ class YawDriftCorrector(
                 weightedStillSeconds = weightedStillSeconds * fade + elapsedSeconds
                 weightedStillYawDeg = weightedStillYawDeg * fade + step
                 stillSecondsTotal += elapsedSeconds
+                stillYawPlainDeg += step
             }
         }
 
@@ -149,6 +162,7 @@ class YawDriftCorrector(
             heldDriftDeg = heldDriftDeg,
             moving = moving,
             rescuedTurnDeg = rescuedTurnDeg,
+            plainRateDps = plainRateDps,
             stillSecondsTotal = stillSecondsTotal,
             movingSecondsTotal = movingSecondsTotal,
             correctionDeg = correctionDeg,
