@@ -53,7 +53,7 @@ sealed interface SkyCommandResult {
  * 解決し、夏時間で存在しない・二重になる時刻は勝手に補正しない。
  *
  * **深い時代は「何年前」で受ける。** 1 万年前まで遡れるのは [longTermPrecess] が入っているから
- * （[docs/team-e/17_sky-simulation.md](../../../../../../../../../docs/team-e/17_sky-simulation.md)）。
+ * （[docs/team-e/38_sky-simulation.md](../../../../../../../../../docs/team-e/38_sky-simulation.md)）。
  */
 object SkyCommandParser {
 

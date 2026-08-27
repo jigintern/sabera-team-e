@@ -77,10 +77,8 @@ import jp.jig.glasses.sample.kmp.catalog.radiantAltAz
 import jp.jig.glasses.sample.kmp.glass.CANVAS_IMAGE_BUFFER_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_PACKET_BYTES
 import jp.jig.glasses.sample.kmp.glass.CANVAS_TEXT_SLOTS
-import jp.jig.glasses.sample.kmp.glass.EXPLANATION_LINGER_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_MIN_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_PAGE_PER_CHAR_MS
-import jp.jig.glasses.sample.kmp.glass.EXPLANATION_READ_MS
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SCROLL_SLOWDOWN_MAX
 import jp.jig.glasses.sample.kmp.glass.EXPLANATION_SEND_DEBOUNCE_MS
@@ -301,7 +299,7 @@ private enum class PhonePage(val title: String) {
  * - 送信のログを見る
  *
  * 方位合わせは [CalibrationScreen] だけが担当する。星図の向きはグラスの 6DoF に追従する。
- * 仕様は docs/team-e/03_coordinate-system.md。
+ * 仕様は docs/team-e/20_coordinate-system.md。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1335,7 +1333,7 @@ fun StarMapScreen(
      * 流星群の予告（#70）の入／切。**ホームと同じ手順**で動かす。
      *
      * ついでに、**この画面にいる間は予告を鳴らさない**ことを受信器へ伝える。
-     * 通知が出るとグラスの星図が消える（`docs/team-e/02_glass-output.md`）うえ、
+     * 通知が出るとグラスの星図が消える（`docs/team-e/11_glass-output.md`）うえ、
      * ここまで来た人は既に空の下にいるので、今夜がピークだと知らせる意味がない。
      */
     val meteorShowerNotice = rememberMeteorShowerNotice()
@@ -1686,7 +1684,7 @@ fun StarMapScreen(
      * マイク・通信という**外の事情で落ちる**ものばかりで、`drawAndSend` は同じ理由で
      * `Throwable` を拾っている。
      *
-     * **落ちるより、断って喋るほうが上**（05_app-flow.md「タップして無反応が一番よくない」）。
+     * **落ちるより、断って喋るほうが上**（31_gestures.md「タップして無反応が一番よくない」）。
      */
     fun launchNarration(what: String, subject: String, block: suspend () -> Unit): Job = scope.launch {
         try {
@@ -1865,7 +1863,7 @@ fun StarMapScreen(
     }
 
     /**
-     * 字幕を流し終わるまで次の段へ進まない（05_app-flow.md）。
+     * 字幕を流し終わるまで次の段へ進まない（32_glass-screens.md）。
      *
      * **読み上げは字幕より先に終わる。** 字幕は 1 行流すごとに 6% ずつ遅くしてあるので、
      * 声が止まった時点で最後の数行はまだ出ていない。そこで進むと、
@@ -2733,6 +2731,10 @@ fun StarMapScreen(
             )
             Scaffold(
                 containerColor = Color.Transparent,
+                // **透ける下地には文字色が付いてこない。** Scaffold は containerColor から
+                // 文字色を引くので、Transparent だと既定の黒のまま——カードの外に置いた
+                // 見出しが夜空に溶けて読めなくなる
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 topBar = {
                     // **横画面ではバーを出さない。** 全幅 64dp のうち右半分は空なのに、
                     // その下の解説と設定はそのぶん低くなる（横の縦幅は 350dp ほどしかない）。
@@ -3442,7 +3444,7 @@ private const val POLL_MS = 100L
  * どれだけ過去の視線で星座を決めるか。
  *
  * **ツルをタップすると頭が動く。** タップ時点の視線で判定すると、押した反動で
- * 隣の星座に化けることがある（05_app-flow.md）。
+ * 隣の星座に化けることがある（31_gestures.md）。
  */
 /**
  * 聞き返した条件を持ち越す時間。**2 分。**

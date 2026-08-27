@@ -10,7 +10,7 @@ import java.util.Locale
  * 観測画面のログ。画面には新しい順に 40 行だけ、同じ行をファイルにも残す。
  *
  * 画面のログは画面を出ると消えるので、ドリフト率のような長い計測はファイル側で読む
- * （docs/team-e/03_coordinate-system.md の「実測しないと決められないこと」）。
+ * （docs/team-e/20_coordinate-system.md の「実測しないと決められないこと」）。
  */
 internal class ScreenLog(
     /** ファイルへの併記（SessionLog.append） */

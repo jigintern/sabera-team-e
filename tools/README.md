@@ -22,6 +22,21 @@ python3 tools/build-asterisms.py              # 大三角と天の川
 
 - 取得結果は `.cache/` に置いて使い回す（`.gitignore` 済み）
 
+## デモ画像
+
+`docs/images/` を作り直す。**`data/` とは別で、実機も外部取得も要らない。**
+
+```bash
+tools/build-demo-images.sh      # スマホ・グラスの全画面（docs/images/）
+```
+
+| スクリプト | 出力 | 中身を作るところ |
+|---|---|---|
+| `build-demo-images.sh` | `docs/images/phone-*.png` | `PhoneScreenshotTest`（**アプリの Compose をそのまま描く**） |
+| `compose-glass-images.java` | `docs/images/glass-*.png` | `DocumentImagesTest` → `build/doc-images/panels.txt` |
+
+一覧と読み方は [docs/images/README.md](../docs/images/README.md)。
+
 ## 手で管理するファイル
 
 | ファイル | 中身 |

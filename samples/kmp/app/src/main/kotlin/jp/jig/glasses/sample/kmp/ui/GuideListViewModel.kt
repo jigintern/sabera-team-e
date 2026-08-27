@@ -76,7 +76,7 @@ internal class GuideListViewModel(
                 }
                 reload()
             } catch (error: Throwable) {
-                // **落ちるより断って続ける**（05_app-flow.md）。星表が読めないこともある
+                // **落ちるより断って続ける**（31_gestures.md）。星表が読めないこともある
                 Log.w(TAG, "台本を作れなかった", error)
                 notice = "台本を作れませんでした。もう一度試してください"
             } finally {

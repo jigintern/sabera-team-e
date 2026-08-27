@@ -78,7 +78,7 @@ import java.util.Calendar
  *
  * 即興ガイド（toC・`GuideScreen`）との違いは、**人が全部握れる**こと。
  * 星座を選び、順番を決め、文面を書く。AI は**候補の中から選んで文を書くだけ**で、
- * 星座を決めるのは端末のまま（16_guide.md の 4 条件の③）。
+ * 星座を決めるのは端末のまま（39_guide-authoring.md の 4 条件の③）。
  *
  * **想定した日時と場所は、作るときの検算にしか使わない。**
  * 再生はいまの空で引き直すので、書き置いた方角が別の夜に嘘になることは起きない。
@@ -168,6 +168,10 @@ fun AuthoredGuideScreen(
             SeasonalConstellationBackground(constellation, Modifier.fillMaxSize())
             Scaffold(
                 containerColor = Color.Transparent,
+                // **透ける下地には文字色が付いてこない。** Scaffold は containerColor から
+                // 文字色を引くので、Transparent だと既定の黒のまま——カードの外に置いた
+                // 見出しが夜空に溶けて読めなくなる
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 topBar = {
                     TopAppBar(
                         title = { Text("詳しく作る") },

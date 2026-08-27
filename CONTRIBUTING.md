@@ -63,7 +63,7 @@ cd samples/kmp
 | パス | |
 |---|---|
 | **`samples/kmp/app/`** | **アプリ本体。ここを書き換えて育てる** |
-| `docs/team-e/` | team-e の仕様書（どこに何のコードがあるかは [10_code-map.md](docs/team-e/10_code-map.md)） |
+| `docs/team-e/` | team-e の仕様書（どこに何のコードがあるかは [50_code-map.md](docs/team-e/50_code-map.md)） |
 | `docs/github-pat.md` | SDK取得に必要なPATの設定 |
 | `data/` / `tools/` | 同梱データと生成スクリプト。`data/` は**すべて生成物なので手で編集しない** |
 
@@ -112,15 +112,18 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 
 | 書くもの | 置き場所 |
 |---|---|
-| 決まったこと・実装状況・未決定事項 | [`docs/team-e/00_index.md`](docs/team-e/00_index.md) |
+| 決まったこと・未決定事項・ドキュメントの地図 | [`docs/team-e/00_index.md`](docs/team-e/00_index.md) |
+| **いまどこまで動いているか** | [`docs/team-e/01_status.md`](docs/team-e/01_status.md) |
 | 機能ごとの仕様 | `docs/team-e/` の該当ファイル（一覧は 00_index.md） |
-| **実機で踏んだ失敗** | [`docs/team-e/11_pitfalls.md`](docs/team-e/11_pitfalls.md) |
-| **実機で測った数字** | [`docs/team-e/12_measurements.md`](docs/team-e/12_measurements.md) |
+| **実機で踏んだ失敗** | [`docs/team-e/72_pitfalls.md`](docs/team-e/72_pitfalls.md) |
+| **実機で測った数字** | [`docs/team-e/70_measurements.md`](docs/team-e/70_measurements.md) |
 | エージェント向けの禁止事項・規約 | [AGENTS.md](AGENTS.md)（**200 行以内に保つ**） |
 | SDK の使い方・API リファレンス | [上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/) |
 
 **1 つの文書は 1 つの役目だけを持たせる。** 同じことを 2 か所に書かず、リンクでつなぐ。
 **`docs/team-e/` のファイル名の先頭の数字は読み順**（`00_index.md` から順に読めば通る）。
+数字は **10 ごとの帯**で役目を表す — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード /
+60 実機確認 / 70 記録**。足すときは**その帯の末尾**に続ける。
 
 `docs/team-e/`は通常のMarkdownとして管理する。API名はバッククォートで囲み、
 上流の特定ページを根拠にするときだけ通常のMarkdownリンクを張る。
@@ -131,7 +134,7 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 |---|---|
 | **ビルドが 401 / 認証エラー** | PAT が `~/.gradle/gradle.properties` にあるか。`read:packages` スコープが付いているか。プロパティ名が `GitHubPackagesUsername` / `GitHubPackagesPassword` か |
 | **グラスが見つからない** | エミュレータでは動かない。Bluetooth と位置情報の権限が許可されているか |
-| **グラスの画面に何も出ない** | キャンバス（`sendCanvasImage` / `sendCanvasElements`）は送るだけで出るが、**上限を超えると `IllegalArgumentException` で落ちる**。用途別ページは先に開く必要がある。→ [グラス出力の制約](docs/team-e/02_glass-output.md) |
+| **グラスの画面に何も出ない** | キャンバス（`sendCanvasImage` / `sendCanvasElements`）は送るだけで出るが、**上限を超えると `IllegalArgumentException` で落ちる**。用途別ページは先に開く必要がある。→ [グラス出力の制約](docs/team-e/11_glass-output.md) |
 | **星図が点いては消える** | 転送中は前の絵が消える。**首が止まってから送る**（0.4 秒静止 ＋ 6° 以上のずれ） |
 
 ## ライセンス
