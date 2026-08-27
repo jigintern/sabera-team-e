@@ -65,8 +65,14 @@ class YawDriftCorrectorTest {
         }
 
         assertEquals(driftDps, result.driftRateDps, 0.01)
+        // **通算も同じ値になる。** 窓と同じサンプルだけで数えているので分母と分子が揃う
+        assertEquals(driftDps, result.longRunRateDps, 0.01)
         // **最初の首振りより前に 1 回目の推定が出る**ので、漏れはほぼ残らない
         assertEquals(trueYaw, result.yawDeg, 0.5)
+        // 内訳がログの読み解きに使えること（静止と動作の合計・引いたドリフトの総量）
+        assertEquals(45.0, result.movingSecondsTotal, 0.5)
+        assertTrue(result.stillSecondsTotal > 120.0)
+        assertEquals(-driftDps * result.movingSecondsTotal, result.correctionDeg, 1.0)
     }
 
     /**

@@ -675,6 +675,11 @@ fun StarMapScreen(
     var fusedYaw by remember { mutableStateOf<Double?>(null) }
     var driftHeldDeg by remember { mutableStateOf(0.0) }
     var driftRateDps by remember { mutableStateOf(0.0) }
+    // **窓ごとの推定が実機で 10 倍振れた**ので、突き合わせる相手も残す（#132）
+    var driftLongRunDps by remember { mutableStateOf(0.0) }
+    var driftStillSeconds by remember { mutableStateOf(0.0) }
+    var driftMovingSeconds by remember { mutableStateOf(0.0) }
+    var driftCorrectionDeg by remember { mutableStateOf(0.0) }
 
     // 方位は fusedYaw から取る。まだ 1 サンプルも来ていない間だけ生のヨーで代用する
     fun yawNow(): Double = fusedYaw ?: glassYaw
@@ -703,6 +708,10 @@ fun StarMapScreen(
                 fusedYaw = corrected.yawDeg
                 driftHeldDeg = corrected.heldDriftDeg
                 driftRateDps = corrected.driftRateDps
+                driftLongRunDps = corrected.longRunRateDps
+                driftStillSeconds = corrected.stillSecondsTotal
+                driftMovingSeconds = corrected.movingSecondsTotal
+                driftCorrectionDeg = corrected.correctionDeg
                 // 履歴も look() と同じ基準で積む。生のヨーを混ぜると解説の星座がずれる
                 lookLatch.record(lastImuAt, yawNow(), glassPitch)
             }
@@ -1301,9 +1310,12 @@ fun StarMapScreen(
             val minutes = (now - previousAt) / MINUTE_MILLIS.toDouble()
             val rate = normalizeDeg(glassYaw - previousYaw) / minutes
             val fusedRate = normalizeDeg(yawNow() - previousFused) / minutes
+            // **「方位」ではなく補正後のヨーを出す。** 名前が方位だったころ、ログを読む側が
+            // 方位（= オフセット − ヨー）と取り違えて符号を逆に読んだ（#132）
             log(
-                ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 方位=%.1f°(%+.1f°/分) " +
-                    "止めた量=%.0f° 推定=%+.3f°/秒 静止=%s")
+                ("ドリフト監視 経過=%.1f分 生yaw=%.1f°(%+.1f°/分) 補正yaw=%.1f°(%+.1f°/分) " +
+                    "止めた量=%.0f° 推定=%+.3f°/秒 通算=%+.3f°/秒 " +
+                    "静止計=%.0fs 動作計=%.0fs 補正計=%+.0f° 静止=%s")
                     .format(
                         (now - baseAt) / MINUTE_MILLIS.toDouble(),
                         glassYaw,
@@ -1312,6 +1324,10 @@ fun StarMapScreen(
                         fusedRate,
                         driftHeldDeg,
                         driftRateDps,
+                        driftLongRunDps,
+                        driftStillSeconds,
+                        driftMovingSeconds,
+                        driftCorrectionDeg,
                         if (settled) "はい" else "いいえ",
                     ),
             )

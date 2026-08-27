@@ -9,6 +9,17 @@ data class CorrectedYaw(
     val driftRateDps: Double,
     val heldDriftDeg: Double,
     val moving: Boolean,
+    /**
+     * 静止していた合計時間で割った、**セッション通算のドリフト率**。
+     *
+     * [driftRateDps] が窓ごとの推定で振れるのに対し、こちらは**session 全体の平均**。
+     * どちらが実機の実態に近いかを**ログで突き合わせるために出す**（#132）。
+     */
+    val longRunRateDps: Double,
+    val stillSecondsTotal: Double,
+    val movingSecondsTotal: Double,
+    /** 動いている間に足した補正の合計（＝引いたドリフトの総量） */
+    val correctionDeg: Double,
 )
 
 /**
@@ -32,6 +43,16 @@ class YawDriftCorrector(
     var heldDriftDeg: Double = 0.0
         private set
 
+    /**
+     * セッション通算のドリフト率（静止中の変化 ÷ 静止していた合計時間）。
+     *
+     * **窓ごとの [driftRateDps] は実機で −0.014〜−0.396 °/秒 まで振れた**（#132）。
+     * ドリフトはハードとファームの性質なので、**長く測るほど確かになる**。
+     * いまは補正には使わず、**どちらが実態に近いかを実機で見分けるために出している**。
+     */
+    val longRunRateDps: Double
+        get() = if (stillSecondsTotal > 0.0) stillYawTotalDeg / stillSecondsTotal else 0.0
+
     private var previousRawYawDeg: Double? = null
     private var previousTimestampMs: Long? = null
 
@@ -46,6 +67,15 @@ class YawDriftCorrector(
 
     /** 直前のサンプルが動いていたか。**動いた直後の 1 サンプルは測定に使わない** */
     private var wasMoving: Boolean = true
+
+    /**
+     * セッション通算の内訳。**窓ごとの推定が実機で振れる**ので、
+     * 突き合わせる相手をログへ出せるようにしてある（#132）。
+     */
+    private var stillSecondsTotal: Double = 0.0
+    private var stillYawTotalDeg: Double = 0.0
+    private var movingSecondsTotal: Double = 0.0
+    private var correctionDeg: Double = 0.0
 
     fun update(
         rawYawDeg: Double,
@@ -67,14 +97,22 @@ class YawDriftCorrector(
         val moving = gyroMagnitude > movingThresholdDps
 
         if (moving) {
-            val correctedStep = step - driftRateDps * elapsedSeconds
-            yawDeg = normalizeDeg((yawDeg ?: rawYawDeg) + correctedStep)
+            val correction = -driftRateDps * elapsedSeconds
+            yawDeg = normalizeDeg((yawDeg ?: rawYawDeg) + step + correction)
+            movingSecondsTotal += elapsedSeconds
+            correctionDeg += correction
         } else {
             heldDriftDeg += step
             yawDeg = yawDeg ?: rawYawDeg
             // **動いていた直後の 1 サンプルは測らない。** その差分にはまだ首振りが残っている
             // （しきい値 2°/秒 を下回るまでの減速ぶん）ので、ドリフト率に混ぜると太る
-            if (!wasMoving) updateDriftEstimate(step, elapsedSeconds)
+            if (!wasMoving && elapsedSeconds > 0.0) {
+                // **通算も窓と同じサンプルだけで数える。** [heldDriftDeg] は動いた直後の
+                // 1 サンプルも含む（捨てた総量なので）ため、分母と揃わない
+                stillSecondsTotal += elapsedSeconds
+                stillYawTotalDeg += step
+                updateDriftEstimate(step, elapsedSeconds)
+            }
         }
 
         wasMoving = moving
@@ -85,6 +123,10 @@ class YawDriftCorrector(
             driftRateDps = driftRateDps,
             heldDriftDeg = heldDriftDeg,
             moving = moving,
+            longRunRateDps = longRunRateDps,
+            stillSecondsTotal = stillSecondsTotal,
+            movingSecondsTotal = movingSecondsTotal,
+            correctionDeg = correctionDeg,
         )
     }
 
@@ -103,8 +145,9 @@ class YawDriftCorrector(
      * **1 回目だけ [firstEstimateAfterSeconds] で出す。** 率が 0 のあいだは補正が
      * まったく効かないので、**待つほどそのぶんが最初のずれとして残る**
      * （静止 1.5 秒／首振り 1 秒で 5 秒待つと 2.3°、2 秒なら 0.8°）。
-     * 2 回目からは長い窓へ戻す。**恒久的に窓を短くするほうは採らない** — ヨーのノイズが
-     * そのまま率に乗り、±0.5° のノイズで 2 秒窓のままにすると率が 1.4 倍に太る（3 分で 19°）。
+     * 2 回目からは [estimateAfterSeconds] の長い窓へ戻す。**恒久的に窓を短くするほうは採らない**
+     * — ヨーのノイズがそのまま率に乗り、±0.5° のノイズで 2 秒窓のままにすると
+     * 率が 1.4 倍に太る（3 分で 19°）。
      */
     private fun updateDriftEstimate(stillStepDeg: Double, elapsedSeconds: Double) {
         if (elapsedSeconds <= 0.0) return
@@ -135,7 +178,15 @@ class YawDriftCorrector(
          */
         const val FIRST_ESTIMATE_AFTER_SECONDS = 2.0
 
-        const val ESTIMATE_AFTER_SECONDS = 5.0
+        /**
+         * 2 回目以降の窓。**静止したサンプルの合計**で数える。
+         *
+         * 5 秒だったころ、実機の推定は **−0.014〜−0.396 °/秒 まで振れた**（#132）。
+         * ドリフトはハードとファームの性質で、1 セッションのあいだ大きく変わるものではない。
+         * **振れの出どころは窓の短さ**（しきい値 2°/秒 より遅い首振りが混ざる）なので、
+         * 窓を 6 倍にして薄める。ゆっくりした変化には追随できる。
+         */
+        const val ESTIMATE_AFTER_SECONDS = 30.0
         const val ESTIMATE_GAIN = 0.3
         const val MAX_SAMPLE_GAP_SECONDS = 0.5
     }
