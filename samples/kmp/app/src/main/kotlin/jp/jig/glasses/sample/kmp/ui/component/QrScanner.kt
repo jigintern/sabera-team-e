@@ -1,5 +1,7 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -23,8 +25,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 台本を運ぶのは文字ではなく生バイトなので、渡すのも `ByteArray`（`support/QrCode`）。
  *
  * **`CameraX` を直に使う。** ZXing Android Embedded は専用の Activity を持ち込み、
- * 自分で画面の向きを決めてしまう。このアプリは**縦固定**（00_index.md の決まったこと）で、
+ * 自分で画面の向きを決めてしまう。**向きを決めるのはこちら**で、
  * 回ると Activity が作り直されて置いた枠の記憶が消える。
+ *
+ * **開いている間だけ画面を縦へ固定する**（#130）。方位合わせと同じ扱い。
  */
 @Composable
 internal fun QrScanner(
@@ -38,6 +42,19 @@ internal fun QrScanner(
     // 読めた瞬間に何度も呼ばれると、確認の画面が積み上がる
     val done = remember { AtomicBoolean(false) }
     val previewView = remember { PreviewView(context) }
+
+    // **横持ちのまま開くとプレビューが崩れる**（#130）。カメラが開いている間だけ縦へ固定し、
+    // 閉じたら端末の回転設定へ戻す。Activity は configChanges で回転を受けるので、
+    // ここで向きを変えても作り直されず、束縛し直しも起きない。
+    // **カメラを束縛する前に固定する**（後だと横向きのまま 1 度映る）
+    val activity = context as? Activity
+    DisposableEffect(activity) {
+        val previous = activity?.requestedOrientation
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose {
+            if (activity != null && previous != null) activity.requestedOrientation = previous
+        }
+    }
 
     DisposableEffect(lifecycleOwner) {
         val future = ProcessCameraProvider.getInstance(context)
