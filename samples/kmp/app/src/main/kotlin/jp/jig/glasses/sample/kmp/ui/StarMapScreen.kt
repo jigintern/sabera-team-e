@@ -794,6 +794,14 @@ fun StarMapScreen(
     var lastSentMap by remember { mutableStateOf<StarMap?>(null) }
 
     /**
+     * [lastSentMap] の圧縮後サイズ。**明るさを変えたあとの再描画で数え直さないために持つ。**
+     *
+     * 18 万画素を走る計算なので、送った絵について覚えておく。[lastSentMap] と同じ場所で
+     * 同時に入れる（別々に入れると、焼き直しの途中で抜けた回に絵とサイズが食い違う）。
+     */
+    var lastSentCompressed by remember { mutableStateOf(0) }
+
+    /**
      * 画像を上限いっぱい（544×340）で作るか。
      *
      * 入るかどうかは**空の濃さと向き**で変わる。1 度でも溢れたらその設定では諦めて標準へ落とし、
@@ -893,8 +901,9 @@ fun StarMapScreen(
                                 height = map.height,
                                 grayscale = map.gray,
                             )
+                            // 送ったときに数えた値を回す。**同じ絵をもう一度走らない**
                             val redrawMs = (
-                                (map.compressedSizeBytes() + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
+                                (lastSentCompressed + CANVAS_PACKET_BYTES - 1) / CANVAS_PACKET_BYTES
                                 ) * packetMs.toLong()
                             delay(redrawMs + SETTLE_MS)
                             waitMs = System.currentTimeMillis() - startedAt
@@ -1050,10 +1059,16 @@ fun StarMapScreen(
                     if (useMaxSize && guidanceSession == null) STAR_MAP_MAX_HEIGHT else STAR_MAP_HEIGHT,
                 ),
             )
-            if (useMaxSize && map.canvasBufferUsageBytes() > CANVAS_IMAGE_BUFFER_BYTES) {
+            // **1 枚につき 1 回だけ数える。** 18 万画素を走る計算なので、同じ絵に対して
+            // 呼び直すとそのぶん次の絵が遅れる。**ラベルを足しても gray は同じものを指す**
+            // （withGuidanceLabel / withStatusLabel は labels だけ差し替える）ので、
+            // このあと札を載せても数え直さなくてよい
+            var compressed = map.compressedSizeBytes()
+            if (useMaxSize && map.canvasBufferUsageBytes(compressed) > CANVAS_IMAGE_BUFFER_BYTES) {
                 useMaxSize = false
                 log("${STAR_MAP_MAX_WIDTH}×${STAR_MAP_MAX_HEIGHT} では入らないので落とす")
                 map = withObservationStatus(renderAt(STAR_MAP_WIDTH, STAR_MAP_HEIGHT))
+                compressed = map.compressedSizeBytes()
             }
             guidanceSession?.let { guidance ->
                 guidanceFrame?.let { frame ->
@@ -1068,10 +1083,8 @@ fun StarMapScreen(
             renderMs = System.currentTimeMillis() - started
 
             // グラスの画像バッファを超えると SDK が例外を投げる。同じ式で先に見て、
-            // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）
-            // **1 枚につき 1 回だけ数える。** 18 万画素を走る計算なので、
-            // 同じ絵に対して呼び直すとそのぶん次の絵が遅れる
-            val compressed = map.compressedSizeBytes()
+            // 落ちる代わりに「1 段下げてくれ」と出す（星の多い空ほど圧縮後が膨らむ）。
+            // [compressed] は焼いた直後に数えた値を回す
             val imageUsage = map.canvasBufferUsageBytes(compressed)
             var overlayUsage = guidanceFrame?.let { guidanceOverlay(it).bufferUsageBytes } ?: 0
             // **溢れるなら星図より矢印を捨てる。** 判定は glass/CanvasBudget.kt に置いてあり、
@@ -1104,6 +1117,7 @@ fun StarMapScreen(
                 grayscale = map.gray,
             )
             lastSentMap = map
+            lastSentCompressed = compressed
             // 星座が主役なので、衛星が 0 機でも画面は空にならない（「衛星なし」の札は要らない）
             val shown = map
             val placed = shown.toCanvasElements()
