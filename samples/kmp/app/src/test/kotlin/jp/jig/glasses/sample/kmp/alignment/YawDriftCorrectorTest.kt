@@ -40,8 +40,8 @@ class YawDriftCorrectorTest {
      * この筋書き（動作 25%・3 分）で **33°** ずれた。方位が増える向きなので、
      * **星図の S が左へ流れていく**。
      *
-     * 合計で数えるようにしても 1 回目の推定を 5 秒待っていたころは 0.8° 残っていた
-     * （`FIRST_ESTIMATE_AFTER_SECONDS` で詰めた）。
+     * 合計で数えるようにしても、使い始めを 5 秒待っていたころは 0.8° 残っていた
+     * （`MIN_STILL_SECONDS` で詰めた）。
      */
     @Test
     fun `静止が5秒続かなくてもドリフト率を測れる`() {
@@ -65,9 +65,7 @@ class YawDriftCorrectorTest {
         }
 
         assertEquals(driftDps, result.driftRateDps, 0.01)
-        // **通算も同じ値になる。** 窓と同じサンプルだけで数えているので分母と分子が揃う
-        assertEquals(driftDps, result.longRunRateDps, 0.01)
-        // **最初の首振りより前に 1 回目の推定が出る**ので、漏れはほぼ残らない
+        // **最初の首振りより前に率が出る**ので、漏れはほぼ残らない
         assertEquals(trueYaw, result.yawDeg, 0.5)
         // 内訳がログの読み解きに使えること（静止と動作の合計・引いたドリフトの総量）
         assertEquals(45.0, result.movingSecondsTotal, 0.5)
@@ -76,13 +74,46 @@ class YawDriftCorrectorTest {
     }
 
     /**
-     * **1 回目の推定は 2 秒で出す**（#132）。
+     * **実機で測った筋書きで漏れが残らない**（#132・2026-08-27）。
+     *
+     * ログの 2 分目は 1 分のうち**静止 27 秒・動作 28 秒**で、通算のドリフト率は
+     * **−0.357°/秒**（1 分目 −0.333 とほぼ同じ）。必要な補正は
+     * 0.357 × 28 = **+10°/分** だったが、**実際に足していたのは +3°** しかなかった。
+     * 窓ごとに測って重み 0.3 で平滑化していたため、**率が 2.5 倍小さい**まま使われていた。
+     */
+    @Test
+    fun `実機で測ったドリフト率と動作の割合で漏れが残らない`() {
+        val driftDps = -0.357
+        val corrector = YawDriftCorrector()
+        var trueYaw = 0.0
+        var result = corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
+        // 10Hz で 3 分。静止 2 秒 → 首振り 2 秒（30°/秒・左右交互）＝ 動作 50%
+        for (sample in 1..1_800) {
+            val moving = sample % 40 >= 20
+            val turnDps = if (sample / 40 % 2 == 0) 30.0 else -30.0
+            if (moving) trueYaw += turnDps * 0.1
+            result = corrector.update(
+                rawYawDeg = trueYaw + driftDps * sample * 0.1,
+                gyroXDps = if (moving) abs(turnDps) else 0.1,
+                gyroYDps = 0.0,
+                gyroZDps = 0.0,
+                timestampMs = sample * 100L,
+            )
+        }
+
+        assertEquals(driftDps, result.driftRateDps, 0.01)
+        // 窓と重みで平滑化していたころは、ここが 20° 近く残っていた
+        assertEquals(trueYaw, result.yawDeg, 2.0)
+    }
+
+    /**
+     * **率は静止 2 秒で使い始める**（#132）。
      *
      * 率が 0 のあいだ補正はまったく効かないので、**待つぶんがそのまま最初のずれになる**。
      * 5 秒待っていたときは、静止 1.5 秒／首振り 1 秒で 2.3° 残った。
      */
     @Test
-    fun `1回目のドリフト率は静止2秒で出る`() {
+    fun `ドリフト率は静止2秒で使い始める`() {
         val corrector = YawDriftCorrector()
         corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
         var firstAtSeconds = 0.0
@@ -95,6 +126,8 @@ class YawDriftCorrectorTest {
         }
         assertEquals(2.0, firstAtSeconds, 0.15)
         assertEquals(-0.74, corrector.driftRateDps, 1e-9)
+        // それより前は 0。**測れていないのに引くと、それ自体がずれになる**
+        assertEquals(0.0, YawDriftCorrector().driftRateDps, 1e-9)
     }
 
     @Test
