@@ -18,6 +18,7 @@ data class CorrectedYaw(
  */
 class YawDriftCorrector(
     private val movingThresholdDps: Double = MOVING_THRESHOLD_DPS,
+    private val firstEstimateAfterSeconds: Double = FIRST_ESTIMATE_AFTER_SECONDS,
     private val estimateAfterSeconds: Double = ESTIMATE_AFTER_SECONDS,
     private val estimateGain: Double = ESTIMATE_GAIN,
     private val maxSampleGapSeconds: Double = MAX_SAMPLE_GAP_SECONDS,
@@ -98,14 +99,20 @@ class YawDriftCorrector(
      *
      * ドリフト率は「静止中の変化 ÷ 静止していた時間」なので、
      * **間に首振りが挟まっても足し直せる**（動いている間のぶんを足さなければ同じ値になる）。
-     * 窓を短くするほうは採らない。ヨーのノイズがそのまま率に乗るので、
-     * ±0.5° のノイズで 2 秒窓にすると率が 1.4 倍に太る（3 分で 19° ずれた）。
+     *
+     * **1 回目だけ [firstEstimateAfterSeconds] で出す。** 率が 0 のあいだは補正が
+     * まったく効かないので、**待つほどそのぶんが最初のずれとして残る**
+     * （静止 1.5 秒／首振り 1 秒で 5 秒待つと 2.3°、2 秒なら 0.8°）。
+     * 2 回目からは長い窓へ戻す。**恒久的に窓を短くするほうは採らない** — ヨーのノイズが
+     * そのまま率に乗り、±0.5° のノイズで 2 秒窓のままにすると率が 1.4 倍に太る（3 分で 19°）。
      */
     private fun updateDriftEstimate(stillStepDeg: Double, elapsedSeconds: Double) {
         if (elapsedSeconds <= 0.0) return
         stillSeconds += elapsedSeconds
         stillYawDeg += stillStepDeg
-        if (stillSeconds <= estimateAfterSeconds) return
+        // 1 回目は早く出し、そのあとは長い窓でならす
+        val need = if (driftRateDps == 0.0) firstEstimateAfterSeconds else estimateAfterSeconds
+        if (stillSeconds <= need) return
 
         val measured = stillYawDeg / stillSeconds
         driftRateDps = if (driftRateDps == 0.0) {
@@ -119,6 +126,15 @@ class YawDriftCorrector(
 
     companion object {
         const val MOVING_THRESHOLD_DPS = 2.0
+
+        /**
+         * 1 回目の推定を出すまでの、静止したサンプルの合計秒数。
+         *
+         * **率が 0 のあいだ補正は効かない**ので、ここを待つぶんが最初のずれとして残る。
+         * **1 回目は荒くても 0 のままより良い**（2 回目からは [ESTIMATE_AFTER_SECONDS] でならす）。
+         */
+        const val FIRST_ESTIMATE_AFTER_SECONDS = 2.0
+
         const val ESTIMATE_AFTER_SECONDS = 5.0
         const val ESTIMATE_GAIN = 0.3
         const val MAX_SAMPLE_GAP_SECONDS = 0.5

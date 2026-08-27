@@ -39,6 +39,9 @@ class YawDriftCorrectorTest {
      * 動いている間のドリフト（実測 0.74°/秒）が丸ごと方位へ入り、
      * この筋書き（動作 25%・3 分）で **33°** ずれた。方位が増える向きなので、
      * **星図の S が左へ流れていく**。
+     *
+     * 合計で数えるようにしても 1 回目の推定を 5 秒待っていたころは 0.8° 残っていた
+     * （`FIRST_ESTIMATE_AFTER_SECONDS` で詰めた）。
      */
     @Test
     fun `静止が5秒続かなくてもドリフト率を測れる`() {
@@ -62,8 +65,30 @@ class YawDriftCorrectorTest {
         }
 
         assertEquals(driftDps, result.driftRateDps, 0.01)
-        // 残るのは**最初の推定が出るまで**の漏れだけ（静止 5 秒ぶんが溜まるまで）
-        assertEquals(trueYaw, result.yawDeg, 2.0)
+        // **最初の首振りより前に 1 回目の推定が出る**ので、漏れはほぼ残らない
+        assertEquals(trueYaw, result.yawDeg, 0.5)
+    }
+
+    /**
+     * **1 回目の推定は 2 秒で出す**（#132）。
+     *
+     * 率が 0 のあいだ補正はまったく効かないので、**待つぶんがそのまま最初のずれになる**。
+     * 5 秒待っていたときは、静止 1.5 秒／首振り 1 秒で 2.3° 残った。
+     */
+    @Test
+    fun `1回目のドリフト率は静止2秒で出る`() {
+        val corrector = YawDriftCorrector()
+        corrector.update(0.0, 0.0, 0.0, 0.1, 0L)
+        var firstAtSeconds = 0.0
+        for (sample in 1..40) {
+            val result = corrector.update(-0.074 * sample, 0.0, 0.0, 0.1, sample * 100L)
+            if (result.driftRateDps != 0.0) {
+                firstAtSeconds = sample * 0.1
+                break
+            }
+        }
+        assertEquals(2.0, firstAtSeconds, 0.15)
+        assertEquals(-0.74, corrector.driftRateDps, 1e-9)
     }
 
     @Test
