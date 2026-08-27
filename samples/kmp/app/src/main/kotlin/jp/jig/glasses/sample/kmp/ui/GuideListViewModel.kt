@@ -10,6 +10,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideDraft
 import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.GuideTheme
 import jp.jig.glasses.sample.kmp.guide.StarGuide
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -75,6 +76,9 @@ internal class GuideListViewModel(
                     "台本を保存できませんでした"
                 }
                 reload()
+            } catch (cancelled: CancellationException) {
+                // 画面を離れたときの中断。作れなかったわけではないので、断りを出さずに上へ流す
+                throw cancelled
             } catch (error: Throwable) {
                 // **落ちるより断って続ける**（31_gestures.md）。星表が読めないこともある
                 Log.w(TAG, "台本を作れなかった", error)
