@@ -2,15 +2,19 @@ package jp.jig.glasses.sample.kmp.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -60,6 +64,7 @@ import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.glass.BundledData
 import jp.jig.glasses.sample.kmp.ui.component.AdvancedSection
+import jp.jig.glasses.sample.kmp.ui.component.ACTION_BUTTON_MAX_WIDTH
 import jp.jig.glasses.sample.kmp.ui.component.ConstellationBackground
 import jp.jig.glasses.sample.kmp.ui.component.LoadingPanel
 import jp.jig.glasses.sample.kmp.ui.component.SaberaDarkColorScheme
@@ -131,6 +136,114 @@ fun GuideScreen(
     // 画面を出たら作りかけは打ち切り、表示も真っさら（remember のころと同じ見え方）
     DisposableEffect(Unit) { onDispose { vm.leave() } }
 
+    /** 台本を作る・読む側。横ではインカメを避けた左ペインへ置く */
+    val scripts: @Composable ColumnScope.() -> Unit = {
+        SectionTitle("テーマを選ぶ")
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = SaberaSurface),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                if (vm.making) {
+                    LoadingPanel(
+                        text = "台本を作っています",
+                        hint = "空に出ている星座を調べています",
+                        modifier = Modifier.fillMaxWidth().height(96.dp),
+                    )
+                } else {
+                    for (theme in GuideTheme.entries) {
+                        val chosen = theme == vm.theme
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.theme = theme }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(theme.label, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    theme.hint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (chosen) Icon(Icons.Filled.Check, "選んでいます", tint = SaberaGreen)
+                        }
+                    }
+                }
+            }
+        }
+
+        SectionTitle("作成する")
+        Button(
+            onClick = { vm.make(vm.theme) },
+            enabled = !vm.making,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SaberaGreen,
+                contentColor = SaberaOnAccent,
+            ),
+        ) {
+            Text("「${vm.theme.label}」で作る")
+        }
+
+        vm.notice?.let {
+            Spacer(Modifier.height(12.dp))
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaGreen)
+        }
+
+        Spacer(Modifier.height(20.dp))
+        SectionTitle("作った台本", "押すと中身を読めます")
+        if (vm.guides.isEmpty()) {
+            Text(
+                "まだありません",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        for (guide in vm.guides) {
+            GuideCard(
+                guide = guide,
+                onEdit = { onAuthor(guide) },
+                onShare = { onShare(guide) },
+                onDelete = { vm.delete(guide) },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+
+    /** QR・ファイルの入口。横では右ペインの中央へ置く */
+    val handover: @Composable ColumnScope.(Modifier) -> Unit = { buttonModifier ->
+        OutlinedButton(onClick = onImport, modifier = buttonModifier) {
+            Icon(Icons.Filled.QrCode2, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("受け取る")
+        }
+
+        Spacer(Modifier.height(8.dp))
+        AdvancedSection(expanded = vm.advanced, onToggle = { vm.advanced = !vm.advanced }) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    "テーマ任せではなく、星座も順番も文面も自分で決めます。" +
+                        "想定した日時と場所で組めるので、先の日付のツアーも作れます" +
+                        "（旅行会社のツアー向け）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { onAuthor(null) }, modifier = buttonModifier) {
+                    Text("1 から作りはじめる")
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "電波の届かない場所でも使えます。始めるのは観測画面の「ガイドを始める」から",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+
     MaterialTheme(colorScheme = SaberaDarkColorScheme, typography = SaberaTypography) {
         Box(Modifier.fillMaxSize()) {
             SeasonalConstellationBackground(constellation, Modifier.fillMaxSize())
@@ -153,11 +266,36 @@ fun GuideScreen(
                     )
                 },
             ) { padding ->
-                Column(
-                    Modifier.fillMaxSize().padding(padding)
-                        .padding(horizontal = 16.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+                    if (maxWidth > maxHeight) {
+                        Row(
+                            Modifier.fillMaxSize().padding(
+                                start = LANDSCAPE_CUTOUT_CLEARANCE,
+                                end = 16.dp,
+                                top = 16.dp,
+                                bottom = 16.dp,
+                            ),
+                        ) {
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().padding(end = 8.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                content = scripts,
+                            )
+                            Column(
+                                Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp)
+                                    .verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                handover(
+                                    Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH).fillMaxWidth(),
+                                )
+                            }
+                        }
+                    } else {
+                        Column(
+                            Modifier.fillMaxSize().padding(horizontal = 16.dp)
+                                .verticalScroll(rememberScrollState()),
+                        ) {
                     // **バーのすぐ下から始める。** 上に余白を積むと、
                     // 何をする画面なのかが 1 画面目から押し出される
                     // **手順をそのまま見出しにする。** 説明文で書くより、
@@ -271,12 +409,17 @@ fun GuideScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(24.dp))
+                            Spacer(Modifier.height(24.dp))
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+/** 横持ちで左上のインカメと本文を重ねないための逃げ */
+private val LANDSCAPE_CUTOUT_CLEARANCE = 40.dp
 
 /** 区画の見出し。**何をする場所かを 1 行で言い切る**（作るのか、選ぶのか） */
 @Composable

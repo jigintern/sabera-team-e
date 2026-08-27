@@ -10,6 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 
+/** 横画面で主要ボタンが画面幅いっぱいの帯にならないための共通上限 */
+internal val ACTION_BUTTON_MAX_WIDTH = 320.dp
+
 /** 画面をまたいで見た目を揃える、全幅の主要アクション。 */
 @Composable
 internal fun CommandButton(label: String, onClick: () -> Unit) {
