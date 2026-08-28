@@ -80,11 +80,16 @@ object SkyCommandParser {
         val today = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
         val nowTime = Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalTime()
 
-        val date = parseDate(text, today) ?: pending?.date
-        val time = parseTime(text, nowTime) ?: pending?.time
+        // **持ち越しと合流する前の値を別に持つ。** 合流後で「続き」を判定すると、
+        // 持ち越しに日付か時刻が 1 つでも入っているだけで、空の再現と関係のない発話まで
+        // 続きとみなされ、時刻が埋まるまで聞き返しから抜けられなくなる
+        val spokenDate = parseDate(text, today)
+        val spokenTime = parseTime(text, nowTime)
+        val date = spokenDate ?: pending?.date
+        val time = spokenTime ?: pending?.time
 
         // 操作語が無くても、聞き返しの続きなら読む。**「20時30分」だけで答えられるように**
-        val continuing = pending != null && (city != null || date != null || time != null)
+        val continuing = pending != null && (city != null || spokenDate != null || spokenTime != null)
         val showIntent = "空" in text && SHOW_PATTERNS.any { it in text }
         if (!showIntent && !continuing) return SkyCommandResult.NotACommand
 
@@ -183,8 +188,10 @@ object SkyCommandParser {
             match.groupValues[4].isNotEmpty() -> 30
             else -> 0
         }
-        if (prefix == "午前" && hour == 12) hour = 0
-        if ((prefix == "午後" || prefix == "夜") && hour in 1..11) hour += 12
+        // 12 時だけ言い方で指す先が変わる。「午前12時」「夜12時」「深夜12時」は 0 時、
+        // 「午後12時」は日本語では正午なので 12 のまま
+        if ((prefix == "午前" || prefix == "夜" || prefix == "深夜") && hour == 12) hour = 0
+        if ((prefix == "午後" || prefix == "夜" || prefix == "深夜") && hour in 1..11) hour += 12
         return validTime(hour, minute)
     }
 
@@ -246,7 +253,13 @@ object SkyCommandParser {
     private val DATE = Regex("(?:(-?\\d{1,6})年)?(\\d{1,2})月(\\d{1,2})日")
     private val DATE_SLASH = Regex("(?:(-?\\d{1,6})[/-])?(\\d{1,2})[/-](\\d{1,2})")
     private val CLOCK = Regex("(\\d{1,2}):(\\d{2})")
-    private val JAPANESE_TIME = Regex("(午前|午後|朝|夜)?(\\d{1,2})時(?:(\\d{1,2})分|(半))?")
+    /**
+     * 「20時30分」「夜9時半」。**「時」のうしろに「間」が続くものは取らない。**
+     *
+     * 見ないと「1時間後の星空を見せて」の「1時」に当たり、頼んでいない今日の 1 時へ飛ぶ。
+     * 相対時刻（N 時間前／後）を受ける口はまだ無いので、当たらなければ質問回答へ流れる。
+     */
+    private val JAPANESE_TIME = Regex("(午前|午後|朝|夜|深夜)?(\\d{1,2})時(?!間)(?:(\\d{1,2})分|(半))?")
 
     /** 「1万年前」「10000年前」「2000年後」。**万は単位として別に取る** */
     private val RELATIVE_YEARS = Regex("(\\d{1,6})(万)?年(前|後)")
