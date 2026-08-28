@@ -56,13 +56,22 @@ class HeadMotion(private val windowMs: Long = WINDOW_MS) {
      */
     val slowing: Boolean
         get() {
-            // **3 点で足りる**（前半 1 区間・後半 1 区間に割れる）。
+            // **4 点を要求しているのは事故ではない。いまは意図してここで止めている**（#152）。
             //
-            // 4 点を要求していたころは**実機で一度も減速と言えなかった**。窓は 300ms で、
-            // 呼ぶ側は `delay(POLL_MS = 100)` のループから足す。`delay` は「100ms 以上」しか
-            // 保証しないので間隔は必ず 100ms を超え、**4 点目は必ず窓から出る**
-            // （間隔 100ms なら 4 点、101ms なら 3 点。上の「300ms で 3〜4 サンプル」がそれ）。
-            if (samples.size < 3) return false
+            // 窓は 300ms で、呼ぶ側は `delay(POLL_MS = 100)` のループから足す。`delay` は
+            // 「100ms 以上」しか保証しないので間隔は 100ms を超え、**4 点目は窓から出る**
+            // （間隔 100ms なら 4 点、101ms なら 3 点）。つまりこの 1 行が
+            // **先出しを止めている栓**で、[jp.jig.glasses.sample.kmp.glass.RedrawDecider.shouldPredict]
+            // へ渡る `slowing` が実機では立たない。
+            //
+            // 3 点へ緩めて実機で走らせたら（#149 / #150）、**首を振っている最中に何度も点滅した**。
+            // `slowing`（後半が前半の [SLOWING_RATIO] 倍未満）は「止まる直前」だけでなく
+            // **流し見の速度のゆらぎでも成立する**ので、止まる気のない首振り中も
+            // `PREDICT_COOLDOWN_MS` ごとに発火し、そのたび 369〜540ms の暗転が入る。
+            //
+            // **緩めるなら「ほぼ止まっている」条件を足してから**（`speedDps` の上限）。
+            // 経緯と測った数字は docs/team-e/73_backlog.md。
+            if (samples.size < 4) return false
             val middle = samples[samples.size / 2]
             val first = rate(samples.first(), middle)
             if (first <= 0.0) return false
