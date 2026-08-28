@@ -1,8 +1,8 @@
 # コントリビューションガイド
 
-team-e でこのリポジトリを触るときの手順とルール。
-AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様は
-[docs/team-e/00_index.md](docs/team-e/00_index.md)。
+- team-e でこのリポジトリを触るときの手順とルール
+- エージェント向けの禁止事項と規約 → [AGENTS.md](AGENTS.md)
+- 仕様 → [docs/team-e/00_index.md](docs/team-e/00_index.md)
 
 ## 環境をつくる
 
@@ -16,11 +16,10 @@ AI エージェント向けの技術的前提は [AGENTS.md](AGENTS.md)、仕様
 
 ### 2. GitHub PAT を設定する（最初の関門）
 
-SDK は private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている。
-**`read:packages` スコープの PAT が無いとビルドが認証エラーで落ちる。**
-発行手順 → [docs/github-pat.md](docs/github-pat.md)
-
-`~/.gradle/gradle.properties`（**リポジトリ内ではなくホーム配下**）：
+- SDK は private な GitHub Packages（`jig-SABERA/sabera-sdk-packages`）で配布されている
+- **`read:packages` スコープの PAT が無いとビルドが認証エラーで落ちる**
+- 発行手順 → [docs/github-pat.md](docs/github-pat.md)
+- 置き場所は `~/.gradle/gradle.properties`（**リポジトリ内ではなくホーム配下**）
 
 ```properties
 GitHubPackagesUsername=<GitHubのユーザー名>
@@ -55,8 +54,8 @@ cd samples/kmp
 ./gradlew :app:assembleDebug              # デバッグAPKを作る
 ```
 
-アプリ起動 → デバイス選択ダイアログでグラスを選ぶ、で接続まで完了。
-詰まったら [困ったとき](#困ったとき)へ。
+- アプリを起動し、デバイス選択ダイアログでグラスを選べば接続まで完了
+- 詰まったら [困ったとき](#困ったとき)へ
 
 ## どこを触るか
 
@@ -86,7 +85,8 @@ git push -u origin feat/star-catalog
 
 ### コミットメッセージ
 
-形式は `<type>: <日本語の要約>`。本文は任意で、書くなら「なぜそうしたか」。
+- 形式は `<type>: <日本語の要約>`
+- 本文は任意。書くなら「なぜそうしたか」
 
 | type | 使いどころ |
 |---|---|
@@ -104,11 +104,11 @@ docs: 星座データの持ち方の候補を仕様書に追記する
 Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを表にした。
 ```
 
-**`Co-Authored-By` に AI エージェント（Claude / Codex など）を入れない。** 作者は人間。
+- **`Co-Authored-By` に AI エージェント（Claude / Codex など）を入れない。** 作者は人間
 
 ## 仕様書とドキュメント
 
-議論して決まったことは、チャットで終わらせずリポジトリに残す。
+- 議論して決まったことは、チャットで終わらせずリポジトリに残す
 
 | 書くもの | 置き場所 |
 |---|---|
@@ -120,13 +120,12 @@ Hipparcos と自前 JSON を比較。サイズと精度のトレードオフを�
 | エージェント向けの禁止事項・規約 | [AGENTS.md](AGENTS.md)（**200 行以内に保つ**） |
 | SDK の使い方・API リファレンス | [上流の公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/) |
 
-**1 つの文書は 1 つの役目だけを持たせる。** 同じことを 2 か所に書かず、リンクでつなぐ。
-**`docs/team-e/` のファイル名の先頭の数字は読み順**（`00_index.md` から順に読めば通る）。
-数字は **10 ごとの帯**で役目を表す — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード /
-60 実機確認 / 70 記録**。足すときは**その帯の末尾**に続ける。
-
-`docs/team-e/`は通常のMarkdownとして管理する。API名はバッククォートで囲み、
-上流の特定ページを根拠にするときだけ通常のMarkdownリンクを張る。
+- **1 つの文書は 1 つの役目だけを持たせる。** 同じことを 2 か所に書かず、リンクでつなぐ
+- **本文はコードブロック・箇条書き・表だけで書く**（地の文を置かない）
+- **`docs/team-e/` のファイル名の先頭の数字は読み順**（`00_index.md` から順に読めば通る）
+- 数字は **10 ごとの帯**が役目 — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード / 60 実機確認 / 70 記録**
+- 足すときは**その帯の末尾**に続ける
+- API 名はバッククォートで囲む。上流の特定ページを根拠にするときだけリンクを張る
 
 ## 困ったとき
 
