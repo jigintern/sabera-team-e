@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.notification
 
 import jp.jig.glasses.sample.kmp.catalog.MeteorShowers
+import java.time.Duration
 import java.time.ZonedDateTime
 
 /**
@@ -49,6 +50,24 @@ object MeteorShowerSchedule {
         }
         return null
     }
+
+    /**
+     * 鳴った時刻 [now] が、どの回の予告にあたるか。**当たらなければ null（黙る）。**
+     *
+     * 使っているのは `setAndAllowWhileIdle`（不正確アラーム）で数分の粒度でしか鳴らないので、
+     * **さかのぼる幅と待つ幅を [tolerance] で揃える。** 片方だけ短いと、遅れて起きた回が
+     * [next] の「18 時を過ぎた日は飛ばす」で翌日の予定に化けたうえ、
+     * 「まだ先」と判定されて通知が丸ごと消える。
+     */
+    fun plannedFor(
+        showers: MeteorShowers,
+        now: ZonedDateTime,
+        tolerance: Duration = LATE_TOLERANCE,
+    ): Planned? = next(showers, now.minus(tolerance))
+        ?.takeIf { !it.at.isAfter(now.plus(tolerance)) }
+
+    /** 予定からどれだけずれても、その回の予告として出すか */
+    val LATE_TOLERANCE: Duration = Duration.ofHours(1)
 
     /** うるう年でも 1 周するように 1 日多く見る */
     private const val DAYS_AHEAD = 366
