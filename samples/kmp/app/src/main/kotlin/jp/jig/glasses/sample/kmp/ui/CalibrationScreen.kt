@@ -1,6 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
-import android.app.Activity
+import androidx.activity.compose.LocalActivity
 import android.content.pm.ActivityInfo
 import android.hardware.SensorManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -99,7 +99,7 @@ fun CalibrationScreen(
     onHome: () -> Unit,
 ) {
     val context = LocalContext.current
-    val activity = context as Activity
+    val activity = LocalActivity.current ?: return
     // **子の失敗でスコープごと落とさない。** rememberCoroutineScope() は素の Job なので、
     // ここから launch / async したものが 1 つ失敗すると兄弟が全部キャンセルされる。
     // 実機では TTS の先読みが圏外で失敗したとき、6DoF の購読とログまで道連れになった
