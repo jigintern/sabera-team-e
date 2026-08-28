@@ -1,13 +1,11 @@
 # CONTEXT.md
 
-このリポジトリで使う言葉の定義。**ここは用語集だけ。**
-
+- このリポジトリで使う言葉の定義。**ここは用語集だけ**
+- 「その言葉が何を指すか」と、対応するコードの名前だけを置く
 - 仕様と決めたことは [docs/team-e/00_index.md](docs/team-e/00_index.md)
 - いまどこまで動いているかは [01_status.md](docs/team-e/01_status.md)
 - どこに何のコードがあるかは [50_code-map.md](docs/team-e/50_code-map.md)
 - **数値の正本は [70_measurements.md](docs/team-e/70_measurements.md)**
-
-同じ説明を 2 か所に書かない。ここには「その言葉が何を指すか」と、対応するコードの名前だけを置く。
 
 ## 観測
 

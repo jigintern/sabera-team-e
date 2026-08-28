@@ -1,6 +1,7 @@
 # 生成スクリプト
 
-`data/` の同梱データを作る。**出力はすべて生成物なので手で編集しない。**
+- `data/` の同梱データを作る
+- **出力はすべて生成物なので手で編集しない**
 
 | スクリプト | 出力 | 取得元 |
 |---|---|---|
@@ -18,13 +19,13 @@ python3 tools/build-constellation-figures.py  # 星座絵
 python3 tools/build-asterisms.py              # 大三角と天の川
 ```
 
-**下の 3 つは外部取得が要らない**ので、CI が作り直して `data/` に差分が出ないか見ている。
+- **下の 3 つは外部取得が要らない**ので、CI が作り直して `data/` に差分が出ないか見ている
 
 - 取得結果は `.cache/` に置いて使い回す（`.gitignore` 済み）
 
 ## デモ画像
 
-`docs/images/` を作り直す。**`data/` とは別で、実機も外部取得も要らない。**
+- `docs/images/` を作り直す。**`data/` とは別で、実機も外部取得も要らない**
 
 ```bash
 tools/build-demo-images.sh      # スマホ・グラスの全画面（docs/images/）
@@ -35,7 +36,7 @@ tools/build-demo-images.sh      # スマホ・グラスの全画面（docs/image
 | `build-demo-images.sh` | `docs/images/phone-*.png` | `PhoneScreenshotTest`（**アプリの Compose をそのまま描く**） |
 | `compose-glass-images.java` | `docs/images/glass-*.png` | `DocumentImagesTest` → `build/doc-images/panels.txt` |
 
-一覧と読み方は [docs/images/README.md](../docs/images/README.md)。
+- 一覧と読み方 → [docs/images/README.md](../docs/images/README.md)
 
 ## 手で管理するファイル
 
@@ -45,12 +46,11 @@ tools/build-demo-images.sh      # スマホ・グラスの全画面（docs/image
 | `lineart/*.svg` | 星座絵の元データ。**取得したままで手を入れない**（[lineart/README.md](lineart/README.md)） |
 | `satellites-ja.json` | グラスに出す衛星の名前と NORAD 番号。**足すときはここに 1 行** |
 
-**衛星の `ja` は短くする。** グラスの文字は 1 文字 28px 見当で、長い名前は枠に入らず重なって消える
-（「みちびき1号機後継機」→「みちびき1R」）。
+- **衛星の `ja` は短くする。** グラスの文字は 1 文字 28px 見当で、長い名前は枠に入らず重なって消える（「みちびき1号機後継機」→「みちびき1R」）
 
 ## CelesTrak の作法
 
-非営利で運営されている。守らないと弾かれる。
+- 非営利で運営されている。守らないと弾かれる
 
 | 制限 | 内容 |
 |---|---|

@@ -1,8 +1,9 @@
 # AGENTS.md
 
-このリポジトリで作業する AI エージェント（Claude Code / Codex など）向けの共通ガイド。
-**ここは禁止事項と規約だけ。** 仕様は [docs/team-e/00_index.md](docs/team-e/00_index.md)、
-人間向けの手順は [CONTRIBUTING.md](CONTRIBUTING.md)。
+- このリポジトリで作業する AI エージェント（Claude Code / Codex など）向けの共通ガイド
+- **ここは禁止事項と規約だけ**
+- 仕様 → [docs/team-e/00_index.md](docs/team-e/00_index.md)
+- 人間向けの手順 → [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## このアプリ
 
@@ -23,9 +24,9 @@
 
 ## ドキュメントの地図
 
-**仕様は [docs/team-e/](docs/team-e/) にあり、ファイル名の数字が読み順。**
-番号は 10 ごとの帯で役目を表す — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード /
-60 実機確認 / 70 記録**。足すときはその帯の末尾に続ける。
+- 仕様は [docs/team-e/](docs/team-e/) にあり、**ファイル名の数字が読み順**
+- 番号は 10 ごとの帯が役目 — **10 制約 / 20 仕組み / 30 機能 / 40 衛星 / 50 コード / 60 実機確認 / 70 記録**
+- 足すときはその帯の末尾に続ける
 
 | 知りたいこと | 読む先 |
 |---|---|
@@ -55,7 +56,7 @@
 
 ## やってはいけないこと
 
-**理由と再発の記録は右の列にある。** 迷ったら読みに行く。
+- 理由と再発の記録は右の列にある。迷ったら読みに行く
 
 | やらない | なぜ | 詳細 |
 |---|---|---|
@@ -87,12 +88,12 @@ cd samples/kmp
 tools/pull-session-log.sh                # 実機の観測ログを取り出して要約する（--logcat / --clear）
 ```
 
-同梱データの作り直しとビルドの前提は [50_code-map.md](docs/team-e/50_code-map.md)。
+- 同梱データの作り直しとビルドの前提 → [50_code-map.md](docs/team-e/50_code-map.md)
 
 ## 外せない数値
 
-**正本は [70_measurements.md](docs/team-e/70_measurements.md)。** ここは毎回読む早見表で、
-食い違ったら台帳のほうが正しい（測った条件も向こうにある）。
+- 正本は [70_measurements.md](docs/team-e/70_measurements.md)。ここは早見表
+- 食い違ったら台帳が正しい（測った条件も向こうにある）
 
 | | |
 |---|---|

@@ -1,11 +1,9 @@
 # team-e のアプリ
 
-**`app/` が team-e のアプリ本体。** Kotlin + Jetpack Compose から Sabera App SDK を直接呼ぶ。
-
-`app/` が唯一のGradleモジュール。上流SDKのコード例とAPIリファレンスは、
-[公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を参照する。
-
-> **Android 実機のみ。** iOS は上流でも SDK 0.0.10 のまま追従していないので、team-e では扱わない。
+- `app/` が team-e のアプリ本体で、唯一の Gradle モジュール
+- Kotlin + Jetpack Compose から Sabera App SDK を直接呼ぶ
+- SDK のコード例と API リファレンスは[公開ドキュメント](https://jig-sabera.github.io/sabera-sdk/)を見る
+- **Android 実機のみ。** iOS は上流でも SDK 0.0.10 のままなので追わない
 
 ## 前提
 
@@ -19,12 +17,15 @@
 cd samples/kmp
 ./gradlew :app:installDebug              # 実機にインストール
 ./gradlew :app:testDebugUnitTest         # JVM テスト
-./gradlew :app:assembleDebug              # デバッグAPKを作る
+./gradlew :app:assembleDebug             # Debug APK を作る
 ```
 
-仕様は [docs/team-e/00_index.md](../../docs/team-e/00_index.md)、技術的な前提は [AGENTS.md](../../AGENTS.md)。
+## 参照先
+
+- 仕様 — [docs/team-e/00_index.md](../../docs/team-e/00_index.md)
+- 禁止事項と規約 — [AGENTS.md](../../AGENTS.md)
 
 ## ライセンス
 
-このサンプルコードは [Apache License 2.0](../../LICENSE)。
-SDK 本体は対象外で、別途 SDK 利用規約が適用される。
+- このサンプルコード — [Apache License 2.0](../../LICENSE)
+- SDK 本体は対象外で、別途 SDK 利用規約が適用される
