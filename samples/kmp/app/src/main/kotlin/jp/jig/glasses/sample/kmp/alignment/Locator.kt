@@ -1,6 +1,7 @@
 package jp.jig.glasses.sample.kmp.alignment
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -28,6 +29,9 @@ class Locator(private val context: Context) {
             PackageManager.PERMISSION_GRANTED
 
     /** 直近の測位。すぐ返るが古いことがある */
+    // granted で権限を確かめたうえ runCatching で SecurityException も拾う。
+    // lint は granted 越しの checkSelfPermission を追えないので、この 2 か所だけ黙らせる
+    @SuppressLint("MissingPermission")
     fun lastKnown(): Located? {
         if (!granted) return null
         return PROVIDERS.asSequence()
@@ -47,6 +51,7 @@ class Locator(private val context: Context) {
         return null
     }
 
+    @SuppressLint("MissingPermission")
     private suspend fun awaitLocation(provider: String): Location? = suspendCancellableCoroutine { cont ->
         val signal = CancellationSignal()
         cont.invokeOnCancellation { signal.cancel() }

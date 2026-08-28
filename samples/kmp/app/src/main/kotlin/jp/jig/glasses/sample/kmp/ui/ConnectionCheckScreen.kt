@@ -1,6 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui
 
-import android.app.Activity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -46,7 +46,8 @@ fun ConnectionCheckScreen(
     onHome: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
-    val activity = LocalContext.current as Activity
+    // Activity が要るのは端末選択ダイアログだけ。取れない文脈（プレビュー等）では何も出さない
+    val activity = LocalActivity.current ?: return
     val vm = viewModel<ConnectionViewModel>()
     val connected = client != null
     val deviceName = client?.deviceName?.takeIf { it.isNotBlank() }

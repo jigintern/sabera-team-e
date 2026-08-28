@@ -1,6 +1,6 @@
 package jp.jig.glasses.sample.kmp.ui.component
 
-import android.app.Activity
+import androidx.activity.compose.LocalActivity
 import android.content.pm.ActivityInfo
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -47,7 +47,7 @@ internal fun QrScanner(
     // 閉じたら端末の回転設定へ戻す。Activity は configChanges で回転を受けるので、
     // ここで向きを変えても作り直されず、束縛し直しも起きない。
     // **カメラを束縛する前に固定する**（後だと横向きのまま 1 度映る）
-    val activity = context as? Activity
+    val activity = LocalActivity.current
     DisposableEffect(activity) {
         val previous = activity?.requestedOrientation
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
