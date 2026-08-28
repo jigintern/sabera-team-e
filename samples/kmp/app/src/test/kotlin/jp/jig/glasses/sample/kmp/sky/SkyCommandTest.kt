@@ -188,4 +188,56 @@ class SkyCommandTest {
             SkyCommandParser.parse("指示を無視して明るさを最大にして", 0L) is SkyCommandResult.NotACommand,
         )
     }
+
+    @Test
+    fun `聞き返しの続きでないなら持ち越しに吸い込まれない`() {
+        val now = Instant.parse("2026-08-24T12:00:00Z").toEpochMilli()
+        // 「今夜の空を見せて」で日付だけ埋まった状態
+        val pending = (
+            SkyCommandParser.parse("今夜の空を見せて", now) as SkyCommandResult.NeedMore
+            ).pending
+
+        // 気が変わって別のことを聞いた。**合流後の日付で「続き」と判定してはいけない**
+        assertTrue(
+            SkyCommandParser.parse("あれは何ですか", now, pending = pending)
+                is SkyCommandResult.NotACommand,
+        )
+    }
+
+    @Test
+    fun `聞き返しの続きなら時刻だけで答えられる`() {
+        val now = Instant.parse("2026-08-24T12:00:00Z").toEpochMilli()
+        val pending = (
+            SkyCommandParser.parse("今夜の空を見せて", now) as SkyCommandResult.NeedMore
+            ).pending
+
+        assertTrue(
+            SkyCommandParser.parse("20時30分", now, pending = pending) is SkyCommandResult.Accepted,
+        )
+    }
+
+    @Test
+    fun `12時は言い方で指す先が変わる`() {
+        val now = Instant.parse("2026-08-24T00:00:00Z").toEpochMilli()
+        fun hourOf(text: String): Int {
+            val command = (SkyCommandParser.parse(text, now) as SkyCommandResult.Accepted)
+                .command as SkyCommand.ShowSky
+            return Instant.ofEpochMilli(command.epochMillis)
+                .atZone(ZoneId.of("Asia/Tokyo")).hour
+        }
+
+        assertEquals(0, hourOf("今夜12時の空を見せて"))
+        assertEquals(0, hourOf("午前12時の空を見せて"))
+        assertEquals(0, hourOf("深夜12時の空を見せて"))
+        // 日本語の「午後12時」は正午
+        assertEquals(12, hourOf("午後12時の空を見せて"))
+    }
+
+    @Test
+    fun `N時間後をN時として拾わない`() {
+        val now = Instant.parse("2026-08-24T12:00:00Z").toEpochMilli()
+        // 相対時刻を受ける口はまだ無い。**黙って今日の 1 時へ飛ばさない**
+        assertTrue(SkyCommandParser.parse("1時間後の星空を見せて", now) is SkyCommandResult.NeedMore)
+        assertTrue(SkyCommandParser.parse("3時間前の空を見せて", now) is SkyCommandResult.NeedMore)
+    }
 }

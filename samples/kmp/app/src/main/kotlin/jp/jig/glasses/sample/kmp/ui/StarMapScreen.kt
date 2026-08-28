@@ -2586,9 +2586,12 @@ fun StarMapScreen(
 
                     is SkyCommandResult.NeedMore -> {
                         // **断らずに聞き返す**（#45）。次の `HOLD` の答えと合流させるため、
-                        // 聞き取れたところまでを持ち越す
+                        // 聞き取れたところまでを持ち越す。
+                        // **期限は最初に聞き返した時刻のまま据え置く。** 聞き返すたびに
+                        // 延ばすと、聞き返しが続くかぎり持ち越しが失効しない
+                        val firstAsk = if (carried != null) pendingSkyRequestAt else System.currentTimeMillis()
                         pendingSkyRequest = parsed.pending
-                        pendingSkyRequestAt = System.currentTimeMillis()
+                        pendingSkyRequestAt = firstAsk
                         narrator.retell("星空の再現", parsed.question, what = "条件の聞き返し")
                         return@launchNarration
                     }
