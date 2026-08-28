@@ -40,6 +40,11 @@ object GuideCodec {
     /** 1 段の本文。これを超えるぶんはグラスに出ない（[GlassTextPage.pagedChars] = 272 字） */
     val MAX_BODY_CHARS: Int get() = GlassTextPage.pagedChars
 
+    /**
+     * id の長さの上限。**id はそのままファイル名になる**（[GuideStore]）ので形を弾く。
+     */
+    const val MAX_ID_CHARS = 64
+
     /** 見出しと一行の上限。一覧の 1 行に収める */
     const val MAX_TITLE_CHARS = 40
     const val MAX_SUMMARY_CHARS = 120
@@ -94,6 +99,7 @@ object GuideCodec {
      * **旅行会社が責任を持って書いた文**で、勝手に壊すと意図した表記が消える。
      */
     private fun validate(guide: StarGuide): String? = when {
+        unusableId(guide.id) -> "台本の id に使えない文字が入っています。"
         guide.steps.size > MAX_STEPS -> "段が多すぎます（${guide.steps.size} 段）。"
         guide.title.length > MAX_TITLE_CHARS -> "見出しが長すぎます。"
         guide.summary.length > MAX_SUMMARY_CHARS -> "説明が長すぎます。"
@@ -101,6 +107,16 @@ object GuideCodec {
             "グラスに入らない長さの解説があります（1 段 $MAX_BODY_CHARS 字まで）。"
         else -> null
     }
+
+    /**
+     * 保存名に使えない id か。**区切りと親参照だけを弾く**（表記は変えない）。
+     *
+     * `../autumn` のような id は [GuideStore] が `guides/` の外へ書いてしまい、
+     * 保存は成功したのに一覧に出ない、という直しようのない状態になる。
+     */
+    private fun unusableId(id: String): Boolean =
+        id.isBlank() || id.length > MAX_ID_CHARS ||
+            '/' in id || '\\' in id || ".." in id || id.any { it.isISOControl() }
 
     private fun deflate(raw: ByteArray): ByteArray {
         val deflater = Deflater(Deflater.BEST_COMPRESSION)
