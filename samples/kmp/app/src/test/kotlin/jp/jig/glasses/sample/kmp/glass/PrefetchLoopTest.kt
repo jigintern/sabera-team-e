@@ -3,17 +3,20 @@ package jp.jig.glasses.sample.kmp.glass
 import jp.jig.glasses.sample.kmp.alignment.HeadMotion
 import jp.jig.glasses.sample.kmp.sky.Look
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 先出しが**実際に発火するか**を、追従ループを丸ごと模して見る。
+ * 先出しが**発火するかしないか**を、追従ループを丸ごと模して見る。
  *
- * **なぜ要るか。** [RedrawDeciderTest] は `shouldPredict` に `slowing = true` を直接渡し、
+ * **いまは「発火しない」のが正しい**（#152）。3 点へ緩めて実機で走らせたら、
+ * 首を振っている最中に何度も点滅した。`slowing` は「止まる直前」だけでなく
+ * **流し見の速度のゆらぎでも成立する**ので、止まる気のない首振り中も
+ * [PREDICT_COOLDOWN_MS] ごとに発火し、そのたび 369〜540ms の暗転が入る。
+ *
+ * **なぜ通しで見るか。** [RedrawDeciderTest] は `shouldPredict` に `slowing = true` を直接渡し、
  * [jp.jig.glasses.sample.kmp.alignment.HeadMotionTest] は**ちょうど 100ms 間隔**でしか
- * サンプルを入れていなかった。**どちらも単体では通るのに、繋ぐと一度も発火しない**という
- * 状態が長く残った（`slowing` が 4 点を要求し、`delay(POLL_MS)` の間隔では 4 点目が
- * 300ms の窓から出るため）。部品ごとの固定では見えない繋ぎ目なので、ここで順番ごと再現する。
+ * サンプルを入れていなかった。**どちらも単体では通るのに、繋ぐと挙動が変わる**。
+ * 部品ごとの固定では見えない繋ぎ目なので、ここで順番ごと再現する。
  */
 class PrefetchLoopTest {
 
@@ -81,21 +84,33 @@ class PrefetchLoopTest {
     /** 振り終わったあと、首を止めたまま待つ */
     private fun hold(loop: Loop, at: Look, steps: Int) = repeat(steps) { loop.step(at) }
 
+    /**
+     * **実機の間隔では発火しない。これが止めている栓**（#152）。
+     *
+     * `delay(POLL_MS = 100)` は「100ms 以上」しか保証しないので、実機の間隔は 100ms を超える。
+     * `HeadMotion.slowing` が 4 点を要求している限り、窓には 3 点しか残らず立たない。
+     */
     @Test
-    fun `実機のサンプル間隔でも先出しが発火する`() {
-        // 100ms ちょうどは delay(POLL_MS) では起こらない。**101ms 以上で出ることが肝**
-        for (intervalMs in listOf(100L, 101L, 105L, 110L, 130L)) {
+    fun `実機のサンプル間隔では先出しが発火しない`() {
+        for (intervalMs in listOf(101L, 105L, 110L, 130L)) {
             val loop = Loop(intervalMs, Look(0.0, 30.0))
             swing(loop, 0.0, 40.0, 30.0, steps = 10)
-            assertTrue("間隔 ${intervalMs}ms で先出しが 1 度も発火しない", loop.predictions >= 1)
+            assertEquals(
+                "間隔 ${intervalMs}ms で先出しが発火した（首振り中に点滅する）",
+                0,
+                loop.predictions,
+            )
         }
     }
 
+    /**
+     * ちょうど 100ms なら 4 点残るので発火する。**そのときも 1 回の首振りで 1 枚まで**
+     * （[PREDICT_COOLDOWN_MS]）。生かし直すときに効いてくるので固定しておく。
+     */
     @Test
-    fun `1回の首振りで先出しは1枚だけ`() {
-        val loop = Loop(105L, Look(0.0, 30.0))
+    fun `間隔がちょうど100msなら先出しは1枚だけ出る`() {
+        val loop = Loop(100L, Look(0.0, 30.0))
         swing(loop, 0.0, 40.0, 30.0, steps = 10)
-        // 1.2 秒の間隔（[PREDICT_COOLDOWN_MS]）で抑えているので、1 回の首振りでは 1 枚に収まる
         assertEquals("1 回の首振りで先出しが複数枚出た", 1, loop.predictions)
     }
 
@@ -107,17 +122,18 @@ class PrefetchLoopTest {
     }
 
     /**
-     * **どれだけ早まって、枚数がどうなるか。**
+     * **生かしたら、どれだけ早まって枚数がどうなるか。**
      *
-     * 数字は割引（[PREDICT_DAMPING]）と転送時間で動くので**固定しない**。
-     * 実機で確かめるときの手がかりとして出す。
+     * いまは実機の間隔では発火しないので、**発火する 100ms 間隔で測る**。
+     * 条件を絞って生かし直すとき（`speedDps` の上限を足す案・docs/team-e/73_backlog.md）の
+     * 出発点になる。数字は割引（[PREDICT_DAMPING]）と転送時間で動くので**固定しない**。
      */
     @Test
-    fun `先出しの効きを見る`() {
+    fun `生かしたときの効きを見る`() {
         println()
         println("首振り   先出し  止まった先との残り   そのあとの描き直し  合計  早まった時間")
         for (sweepDeg in listOf(10.0, 20.0, 40.0, 80.0)) {
-            val loop = Loop(105L, Look(0.0, 30.0))
+            val loop = Loop(100L, Look(0.0, 30.0))
             swing(loop, 0.0, sweepDeg, 30.0, steps = 10)
             val rest = Look(sweepDeg, 30.0)
             val residual = loop.predictedAim?.let {
