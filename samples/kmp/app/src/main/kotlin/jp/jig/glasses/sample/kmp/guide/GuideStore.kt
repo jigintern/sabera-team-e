@@ -33,15 +33,32 @@ class GuideStore(private val directory: File) {
     /** 書けたら true。書けなくてもアプリは止めない（作り直せばよい） */
     fun save(guide: StarGuide): Boolean = runCatching {
         directory.mkdirs()
-        File(directory, guide.id + SUFFIX).writeText(StarGuideJson.encode(guide), Charsets.UTF_8)
+        val file = fileFor(guide.id) ?: return false
+        file.writeText(StarGuideJson.encode(guide), Charsets.UTF_8)
         true
     }.getOrElse {
         Log.w(TAG, "台本を保存できない: ${guide.id}", it)
         false
     }
 
-    fun delete(id: String): Boolean = runCatching { File(directory, id + SUFFIX).delete() }
+    fun delete(id: String): Boolean = runCatching { fileFor(id)?.delete() ?: false }
         .getOrDefault(false)
+
+    /**
+     * この id で書いてよいファイル。**[directory] の直下に収まらなければ null。**
+     *
+     * 受け取った台本の id は QR やファイルの JSON から**そのまま**来る。`../autumn` のような
+     * id をそのまま繋ぐと `guides/` の外へ書けてしまい、[save] は true を返すのに
+     * [list] は拾えない（保存できたと言って消える）。断る理由を人へ出すのは
+     * [GuideCodec] の受け取り検査の役目で、ここは最後の砦。
+     */
+    private fun fileFor(id: String): File? {
+        val file = File(directory, id + SUFFIX)
+        val inside = runCatching { file.canonicalFile.parentFile == directory.canonicalFile }
+            .getOrDefault(false)
+        if (!inside) Log.w(TAG, "台本の id が保存名に使えない: $id")
+        return file.takeIf { inside }
+    }
 
     companion object {
         private const val SUFFIX = ".json"

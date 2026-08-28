@@ -98,8 +98,18 @@ fun GuideImportScreen(
         vm.importFrom {
             runCatching {
                 val text = context.contentResolver.openInputStream(uri)?.use { stream ->
-                    // **丸ごと読まない。** 上限より大きければその時点で断る
-                    String(stream.readNBytes(GuideCodec.MAX_INFLATED_BYTES + 1), Charsets.UTF_8)
+                    // **丸ごと読まない。** 上限より大きければその時点で断る。
+                    // readNBytes は API 33 で、minSdk は 31（脱糖も入れていない）。
+                    // 使うと Android 12 で毎回 NoSuchMethodError になり、取り込みが必ず失敗する
+                    val limit = GuideCodec.MAX_INFLATED_BYTES + 1
+                    val buffer = ByteArray(limit)
+                    var filled = 0
+                    while (filled < limit) {
+                        val read = stream.read(buffer, filled, limit - filled)
+                        if (read < 0) break
+                        filled += read
+                    }
+                    String(buffer, 0, filled, Charsets.UTF_8)
                 } ?: return@runCatching GuideImport.Rejected("ファイルを開けませんでした")
                 GuideCodec.fromJson(text)
             }.getOrElse { GuideImport.Rejected("ファイルを読めませんでした: ${it.message}") }
