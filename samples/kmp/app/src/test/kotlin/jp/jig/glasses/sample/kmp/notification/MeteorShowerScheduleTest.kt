@@ -74,4 +74,47 @@ class MeteorShowerScheduleTest {
     fun `知らせる群が無ければ予約しない`() {
         assertNull(MeteorShowerSchedule.next(catalog(), at(2026, 12, 13, 10)))
     }
+
+    private fun atMinute(year: Int, month: Int, day: Int, hour: Int, minute: Int) =
+        ZonedDateTime.of(year, month, day, hour, minute, 0, 0, tokyo)
+
+    /**
+     * **数分遅れて起きても、その回の予告を出す。**
+     *
+     * 使っているのは setAndAllowWhileIdle（不正確アラーム）で数分の粒度でしか鳴らない。
+     * さかのぼる幅が 1 分しか無かったころは、5 分遅れただけで翌日の予定に化けたうえ
+     * 「まだ先」と判定され、その回の通知が丸ごと消えていた。
+     */
+    @Test
+    fun `5分遅れて起きてもその回の予告を出す`() {
+        val planned = MeteorShowerSchedule.plannedFor(
+            catalog(geminids),
+            atMinute(2026, 12, 13, 18, 5),
+        )!!
+
+        assertEquals(at(2026, 12, 13, 18), planned.at)
+        assertEquals(false, planned.notice.onPeakDay)
+    }
+
+    @Test
+    fun `59分遅れて起きてもその回の予告を出す`() {
+        val planned = MeteorShowerSchedule.plannedFor(
+            catalog(geminids),
+            atMinute(2026, 12, 13, 18, 59),
+        )!!
+
+        assertEquals(at(2026, 12, 13, 18), planned.at)
+    }
+
+    /** 端末が長く眠っていた回は黙る（夕方はもう終わっている） */
+    @Test
+    fun `2時間遅れて起きたら黙る`() {
+        assertNull(MeteorShowerSchedule.plannedFor(catalog(geminids), at(2026, 12, 13, 20)))
+    }
+
+    /** まだ遠い予定を先取りして鳴らさない */
+    @Test
+    fun `予定の何時間も前に起きたら黙る`() {
+        assertNull(MeteorShowerSchedule.plannedFor(catalog(geminids), at(2026, 12, 13, 10)))
+    }
 }

@@ -55,12 +55,15 @@ class MeteorShowerReceiver : BroadcastReceiver() {
             return
         }
 
-        // 鳴った日から引き直す。**予約に中身を積まない**ので、寝ている間に日付をまたいでもずれない
-        val now = ZonedDateTime.now()
-        val planned = MeteorShowerSchedule.next(MeteorShowers.load(app), now.minusMinutes(1))
+        // 鳴った日から引き直す。**予約に中身を積まない**ので、寝ている間に日付をまたいでもずれない。
+        //
+        // **さかのぼる幅と、遅れを許す幅を同じにする。** 使っているのは
+        // setAndAllowWhileIdle（不正確アラーム）で数分の粒度でしか鳴らないのに、
+        // 1 分しかさかのぼっていなかった。next は「18 時を過ぎた日は飛ばす」ので、
+        // 1 分を超えて遅れると翌日の予定が返り、直後の isAfter に引っかかって黙っていた
+        // 判定は MeteorShowerSchedule.plannedFor に寄せてある（JVM テストで固定するため）
+        val planned = MeteorShowerSchedule.plannedFor(MeteorShowers.load(app), ZonedDateTime.now())
             ?: return
-        // 予定より大きく遅れて起きたときは黙る（端末が長く眠っていた場合）
-        if (planned.at.isAfter(now.plusHours(1))) return
 
         val text = MeteorShowerNotice.of(
             notice = planned.notice,
