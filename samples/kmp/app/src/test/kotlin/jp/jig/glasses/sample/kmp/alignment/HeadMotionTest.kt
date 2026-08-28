@@ -74,42 +74,42 @@ class HeadMotionTest {
     @Test
     fun `サンプルが足りないうちは減速と言わない`() {
         val motion = HeadMotion()
-        samples(motion, 0.0, 4.0)
-        // 2 点では前半・後半に割れない。**判定できないものを「止まりかけ」にしない**
+        samples(motion, 0.0, 4.0, 6.0)
+        // 3 点では減速と言わない。**割れないからではなく、そう決めているから**（下のテスト）
         assertFalse(motion.slowing)
     }
 
     /**
-     * **実機のサンプル間隔で減速と言えること。**
+     * **実機のサンプル間隔では減速と言わない。これは意図した状態**（#152）。
      *
      * 呼ぶ側（`StarMapScreen` の追従ループ）は `delay(POLL_MS = 100)` から足すので、
-     * `delay` が「100ms 以上」しか保証しないぶん**間隔は必ず 100ms を超える**。
-     * 窓は 300ms なので 4 点目は必ず出ていき、3 点しか残らない。
+     * `delay` が「100ms 以上」しか保証しないぶん**間隔は 100ms を超える**。
+     * 窓は 300ms なので 4 点目は出ていき、3 点しか残らない。
      *
-     * 4 点を要求していたころは、そのせいで**実機では一度も減速と言えず、
-     * 先出しが原理的に発火しなかった**。
+     * **つまり `samples.size < 4` が先出しを止めている栓。**
+     * 3 点へ緩めて実機で走らせたら（#149 / #150）、首を振っている最中に何度も点滅した。
+     * 緩めるなら「ほぼ止まっている」条件を足してから（docs/team-e/73_backlog.md）。
      */
     @Test
-    fun `間隔が100msを超えても減速と読む`() {
+    fun `間隔が100msを超えたら減速と読まない`() {
         for (intervalMs in listOf(101L, 105L, 110L, 130L, 150L)) {
             val motion = HeadMotion()
-            // 減速の形（前半が速く後半が緩む）を実機の間隔で入れる
+            // 減速の形（前半が速く後半が緩む）を入れても、窓に 3 点しか残らないので立たない
             listOf(0.0, 4.0, 6.0, 7.0).forEachIndexed { index, az ->
                 motion.add(index * intervalMs, Look(az, 0.0))
             }
-            assertTrue("間隔 ${intervalMs}ms で減速と言えない", motion.slowing)
+            assertFalse("間隔 ${intervalMs}ms で減速と読んだ（先出しが動いてしまう）", motion.slowing)
         }
     }
 
+    /** ちょうど 100ms なら 4 点残るので、これまでどおり減速と読む */
     @Test
-    fun `間隔が100msを超えても一定の速さなら減速と言わない`() {
-        for (intervalMs in listOf(101L, 105L, 110L, 130L, 150L)) {
-            val motion = HeadMotion()
-            listOf(0.0, 2.0, 4.0, 6.0).forEachIndexed { index, az ->
-                motion.add(index * intervalMs, Look(az, 0.0))
-            }
-            assertFalse("間隔 ${intervalMs}ms で一定の速さを減速と読んだ", motion.slowing)
+    fun `間隔がちょうど100msなら減速と読む`() {
+        val motion = HeadMotion()
+        listOf(0.0, 4.0, 6.0, 7.0).forEachIndexed { index, az ->
+            motion.add(index * 100L, Look(az, 0.0))
         }
+        assertTrue(motion.slowing)
     }
 
     @Test
