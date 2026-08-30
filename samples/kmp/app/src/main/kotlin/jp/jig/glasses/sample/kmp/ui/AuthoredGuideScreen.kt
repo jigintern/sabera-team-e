@@ -157,9 +157,9 @@ fun AuthoredGuideScreen(
     }
     // **1 文字打つたびに圧縮しない。** 段が変わったときだけ測り直す
     val packedSize = remember(draft.steps) { GuideCodec.pack(draft.toGuide()).size }
-    val shareable = draft.steps.any { it.enabled } &&
-        draft.tooLongSteps.isEmpty() &&
-        packedSize <= GuideCodec.QR_CAPACITY_BYTES
+    // **判定は台本の側に置く。** ここへ書き写すと配る画面と食い違う（#171）
+    val shareBlocker = remember(draft.steps) { draft.shareBlocker() }
+    val shareable = shareBlocker == null
 
     MaterialTheme(colorScheme = SaberaDarkColorScheme, typography = SaberaTypography) {
         Box(Modifier.fillMaxSize()) {
@@ -311,14 +311,10 @@ fun AuthoredGuideScreen(
                             Text("配る")
                         }
                     }
-                    if (!shareable && draft.steps.isNotEmpty()) {
+                    if (shareBlocker != null && draft.steps.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            when {
-                                draft.tooLongSteps.isNotEmpty() ->
-                                    "長すぎる解説があります（${draft.tooLongSteps.map { it + 1 }.joinToString("、")} 段目）"
-                                else -> "QR に入りません。段を外すか、解説を短くしてください"
-                            },
+                            shareBlocker,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )

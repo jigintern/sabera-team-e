@@ -78,8 +78,14 @@ fun GuideShareScreen(
     val shared = vm.shared
     // **押すたびに圧縮し直さない。** 段の ON/OFF と編集の可否が変わったときだけ
     val packed = remember(vm.enabled, vm.locked) { GuideCodec.pack(shared) }
-    val qr: Bitmap? = remember(packed) {
-        if (packed.size <= GuideCodec.QR_CAPACITY_BYTES) QrCode.encode(packed, QR_SIZE_PX) else null
+    // **受け取り側が弾くものは描かない。** バイト数だけ見ていたときは 31 段でも QR が出て、
+    // 刷って配ったあとに受け取った人が全員弾かれた（#171）
+    val blocker = remember(vm.enabled, vm.locked) {
+        GuideCodec.rejection(shared)
+            ?: "QR に入りません。段を外すか、解説を短くしてください".takeIf { packed.size > GuideCodec.QR_CAPACITY_BYTES }
+    }
+    val qr: Bitmap? = remember(packed, blocker) {
+        if (blocker == null) QrCode.encode(packed, QR_SIZE_PX) else null
     }
 
     val saveFile = rememberLauncherForActivityResult(
@@ -156,6 +162,7 @@ fun GuideShareScreen(
                                 )
                                 GuideHandoverContent(
                                     qr = qr,
+                                    blocker = blocker,
                                     qrImage = qrImage,
                                     notice = vm.notice,
                                     buttonModifier = Modifier.widthIn(max = ACTION_BUTTON_MAX_WIDTH)
@@ -180,6 +187,7 @@ fun GuideShareScreen(
                             Spacer(Modifier.height(16.dp))
                             GuideHandoverContent(
                                 qr = qr,
+                                blocker = blocker,
                                 qrImage = null,
                                 notice = vm.notice,
                                 buttonModifier = Modifier.fillMaxWidth(),
@@ -266,6 +274,7 @@ private fun ColumnScope.GuideEditionContent(
 @Composable
 private fun ColumnScope.GuideHandoverContent(
     qr: Bitmap?,
+    blocker: String?,
     qrImage: Dp?,
     notice: String?,
     buttonModifier: Modifier,
@@ -294,8 +303,9 @@ private fun ColumnScope.GuideHandoverContent(
             color = SaberaFinePrint,
         )
     } else {
+        // **理由をそのまま出す。** 段が多いのかバイトが足りないのかで、外す段の選び方が変わる
         Text(
-            "QR に入りません。段を外すか、解説を短くしてください",
+            blocker.orEmpty(),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )
@@ -305,7 +315,8 @@ private fun ColumnScope.GuideHandoverContent(
         Text(it, style = MaterialTheme.typography.bodyMedium, color = SaberaGreen)
     }
     Spacer(Modifier.height(16.dp))
-    OutlinedButton(onClick = onSave, modifier = buttonModifier) {
+    // **ファイルも同じ検査を通す。** QR だけ止めても、書き出したものは受け取り側が弾く
+    OutlinedButton(onClick = onSave, enabled = blocker == null, modifier = buttonModifier) {
         Text("ファイルに書き出す")
     }
     Spacer(Modifier.height(4.dp))

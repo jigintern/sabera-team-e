@@ -129,4 +129,28 @@ class AuthoredGuideTest {
     fun `名前を付けずに保存しても見出しが空にならない`() {
         assertEquals(AuthoredGuide.UNTITLED, draft("A座").toGuide().title)
     }
+
+    /** 配る側の判定は受け取り側と同じものを通す（#171） */
+    @Test
+    fun `受け取り側が弾く段数なら配れないと言う`() {
+        val many = (1..GuideCodec.MAX_STEPS + 1)
+            .fold(AuthoredGuide.empty("guide-1", 1_789_000_000_000L, window, site)) { acc, i ->
+                acc.plus(step("A$i 座", "短い本文。"))
+            }
+
+        assertFalse(many.shareable())
+        assertTrue("段数の理由が出ていない", many.shareBlocker().orEmpty().contains("段が多すぎます"))
+    }
+
+    /** 理由は 1 か所から出す。**画面へ書き写すと配る画面と食い違う** */
+    @Test
+    fun `配れないときは理由が付く`() {
+        assertNull(draft("A座").shareBlocker())
+        assertTrue(draft().shareBlocker().orEmpty().contains("配る段がありません"))
+        assertTrue(draft("A座").toggledAt(0).shareBlocker().orEmpty().contains("配る段がありません"))
+
+        val long = "あ".repeat(GuideCodec.MAX_BODY_CHARS + 1)
+        val tooLong = draft("A座", "B座").replacedAt(1, step("B座", long))
+        assertTrue(tooLong.shareBlocker().orEmpty().contains("長すぎる解説"))
+    }
 }
