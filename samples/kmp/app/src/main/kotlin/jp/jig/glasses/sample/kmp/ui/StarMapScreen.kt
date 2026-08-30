@@ -667,6 +667,15 @@ fun StarMapScreen(
      */
     var guideIndex by remember { mutableStateOf(0) }
 
+    /**
+     * 「もう一度」を押した回数。**番号では表せない「やり直す」を渡すために持つ。**
+     *
+     * [guideIndex] に同じ番号を入れ直しても進行役からは何も変わって見えないので、
+     * **解説を聞いている最中の「もう一度」がその段を読み直さずに次へ進んでいた**（#157）。
+     * 段の頭でこの値を控え、待ちを抜けたときに変わっていれば同じ番号のままやり直す。
+     */
+    var guideRepeatToken by remember { mutableStateOf(0) }
+
     // 6DoF のサンプルが着いた時刻。初回受信待ちとログに使う
     var lastImuAt by remember { mutableStateOf(0L) }
     /**
@@ -2025,10 +2034,12 @@ fun StarMapScreen(
         releaseGuideStep()
     }
 
-    /** いまの段をもう一度。番号は進めない */
+    /** いまの段をもう一度。**番号は進めず、やり直す意思だけを渡す**（#157） */
     fun guideRepeat() {
         val progress = guideProgress ?: return
+        // 送りと重なって番号が先へ動いていたら、いま出ている段へ戻す
         guideIndex = progress.stepIndex
+        guideRepeatToken++
         log("ガイド: もう一度（${progress.counter}）")
         releaseGuideStep()
     }
@@ -2062,11 +2073,13 @@ fun StarMapScreen(
      * 首の上下フリックで読み直せば向こうが数え直すので、**そのぶんツアーも待つ**。
      * 首で手送りした場合も最後の操作から5秒を数え直して畳むので、ツアーを永久には止めない。
      */
-    suspend fun awaitExplanationClosed(index: Int) {
-        if (guideIndex != index) return
+    suspend fun awaitExplanationClosed(index: Int, token: Int) {
+        if (guideIndex != index || guideRepeatToken != token) return
         withTimeoutOrNull(SUBTITLE_DRAIN_TIMEOUT_MS) {
-            snapshotFlow { glassPage to guideIndex }
-                .first { (page, current) -> page != GlassPage.EXPLANATION || current != index }
+            snapshotFlow { Triple(glassPage, guideIndex, guideRepeatToken) }
+                .first { (page, current, repeats) ->
+                    page != GlassPage.EXPLANATION || current != index || repeats != token
+                }
         }
     }
 
@@ -2094,6 +2107,9 @@ fun StarMapScreen(
 
             while (true) {
                 val index = guideIndex
+                // **待ちを抜けたときに「やり直せ」と言われていたかを見分ける印。**
+                // 番号だけでは、同じ段をやり直すのと何も起きていないのが区別できない
+                val token = guideRepeatToken
                 if (index !in steps.indices) break
                 val step = steps[index]
                 val target = step.target ?: break
@@ -2114,7 +2130,7 @@ fun StarMapScreen(
                 val lead = ImpromptuGuide.intro(target) + step.step.intro
                 narrator.retell(step.step.targetName, lead, "ガイドの案内")
                 awaitSpeech()
-                if (guideIndex != index) continue
+                if (guideIndex != index || guideRepeatToken != token) continue
 
                 guideProgress = guideProgress?.copy(phase = GuidePhase.GUIDING)
                 // **古い 1 件で次の段を飛ばさない。** 待ち始める前に汲み出す
@@ -2122,6 +2138,9 @@ fun StarMapScreen(
                 beginGuidance(target, announce = false)
                 val outcome = guidanceOutcomes.receive()
                 if (guideIndex != index) continue
+                // **「もう一度」が先。** [stopGuidance] が流す NONE を割り込みとして読むと、
+                // 誰も喋っていない 5 秒を待ってからやり直すことになる
+                if (guideRepeatToken != token) continue
                 if (outcome == GuidanceEvent.NONE) {
                     // 声で質問された（#38）。**答え終わったら同じ段から続ける。**
                     // 割り込みで段を飛ばすと、聞いたせいで見られなかったことになる
@@ -2158,8 +2177,10 @@ fun StarMapScreen(
                 // 解説した星座は今夜の記録に残す（タップしたときと同じ扱い）
                 NightRecord.add(step.step.targetName, System.currentTimeMillis(), step.step.body)
                 awaitSpeech()
-                awaitExplanationClosed(index)
-                if (guideIndex == index) guideIndex = index + 1
+                awaitExplanationClosed(index, token)
+                // **やり直せと言われていたら足さない。** ここで足すと、聞き直したかった段が
+                // 読み直されないまま次の段の案内が始まる（#157）
+                if (guideIndex == index && guideRepeatToken == token) guideIndex = index + 1
             }
             guideProgress = null
             log("ガイド終了: ${guide.title}")
