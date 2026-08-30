@@ -49,7 +49,6 @@ import jp.jig.glasses.sample.kmp.openai.GuideChatTurn
 import jp.jig.glasses.sample.kmp.openai.OpenAiGuideChat
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
-import jp.jig.glasses.sample.kmp.sky.Site
 import jp.jig.glasses.sample.kmp.sky.SkyDensity
 import jp.jig.glasses.sample.kmp.glass.BundledData
 import jp.jig.glasses.sample.kmp.support.Connectivity
@@ -105,9 +104,12 @@ fun AuthoredGuideScreen(
         AuthoredGuideViewModel(
             initialDraft = initialDraft,
             store = store,
-            targetsAtFactory = {
+            // **端末の測位地ではなく、打ち替えられた想定地の空を返す**（#166）
+            targetsAtFactory = { plannedSite ->
                 val renderer = BundledData.renderer(appContext)
-                val at = { millis: Long -> renderer.guidanceTargets(site, millis, SkyDensity.STANDARD) }
+                val at = { millis: Long ->
+                    renderer.guidanceTargets(plannedSite, millis, SkyDensity.STANDARD)
+                }
                 at
             },
             loreOf = { name -> BundledData.lore(appContext).of(name).orEmpty() },
@@ -206,22 +208,17 @@ fun AuthoredGuideScreen(
                     PlanningCard(
                         startMillis = draft.window.startMillis,
                         minutes = draft.window.minutes,
-                        latDeg = draft.site.latDeg,
-                        lonDeg = draft.site.lonDeg,
+                        lat = vm.latText,
+                        lon = vm.lonText,
+                        latInvalid = vm.latInvalid,
+                        lonInvalid = vm.lonInvalid,
                         siteNote = "ツアーをする場所の緯度経度。事務所で書くなら打ち替えてください",
                         onPickDateTime = { pickDateTime() },
                         onMinutes = {
                             vm.draft = draft.copy(window = draft.window.copy(minutes = it))
                             vm.reloadCandidates()
                         },
-                        onLatLon = { lat, lon ->
-                            vm.draft = draft.copy(
-                                site = Site(
-                                    latDeg = lat.toDoubleOrNull() ?: draft.site.latDeg,
-                                    lonDeg = lon.toDoubleOrNull() ?: draft.site.lonDeg,
-                                ),
-                            )
-                        },
+                        onLatLon = { lat, lon -> vm.onLatLonTyped(lat, lon) },
                     )
                     Spacer(Modifier.height(4.dp))
                     TextButton(onClick = { vm.reloadCandidates() }) {

@@ -13,6 +13,7 @@ import jp.jig.glasses.sample.kmp.guide.GuideStore
 import jp.jig.glasses.sample.kmp.guide.StarGuide
 import jp.jig.glasses.sample.kmp.openai.GuideChatTurn
 import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
+import jp.jig.glasses.sample.kmp.sky.Site
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +36,14 @@ internal class GuideChatReply(
 internal class AuthoredGuideViewModel(
     initialDraft: AuthoredGuide,
     private val store: GuideStore,
-    /** その日その時間の空を返す工場。**候補も判定もここから出す**（1 か所で計算する） */
-    private val targetsAtFactory: suspend () -> (Long) -> List<GuidanceTarget>,
+    /**
+     * **想定した場所**のその日その時間の空を返す工場。**候補も判定もここから出す**（1 か所で計算する）。
+     *
+     * 場所を引数で受けるのは、**事務所で現地のツアーを組む**ため（39_guide-authoring.md）。
+     * 端末の測位地を閉じ込めていたときは、東京で石垣島のツアーを書いても
+     * 候補が東京の空のままだった（#166）。
+     */
+    private val targetsAtFactory: suspend (Site) -> (Long) -> List<GuidanceTarget>,
     /** 同梱の解説。段を足すときの初期値（白紙から書かせない） */
     private val loreOf: suspend (String) -> String,
     /** AI に相談する。**候補外を弾いたあとにだけ呼ばれる** */
@@ -46,6 +53,36 @@ internal class AuthoredGuideViewModel(
 ) : ViewModel() {
 
     var draft by mutableStateOf(initialDraft)
+
+    /**
+     * 緯度経度の入力欄。**打っている途中は文字のまま持つ。**
+     *
+     * 欄の値を `Double` から組み直し `toDoubleOrNull() ?: 旧値` で書き戻していたときは、
+     * **「-」の 1 文字目も欄を空にすることも弾かれ、南半球の緯度が打てなかった**（#166）。
+     */
+    var latText by mutableStateOf(initialDraft.site.latDeg.toString())
+        private set
+
+    var lonText by mutableStateOf(initialDraft.site.lonDeg.toString())
+        private set
+
+    /** 欄の文字がまだ場所として読めない。**打ち替えが効いていないことを画面で伝える** */
+    val latInvalid: Boolean get() = latText.toDoubleOrNull()?.let { it !in -90.0..90.0 } ?: true
+
+    val lonInvalid: Boolean get() = lonText.toDoubleOrNull()?.let { it !in -180.0..180.0 } ?: true
+
+    /**
+     * 緯度経度を打ち替える。**読める場所になった時点だけ [draft] へ渡す。**
+     *
+     * 候補は [reloadCandidates] を押したときに引き直す（1 文字ごとに空を計算し直さない）。
+     */
+    fun onLatLonTyped(lat: String, lon: String) {
+        latText = lat
+        lonText = lon
+        val latDeg = lat.toDoubleOrNull()?.takeIf { it in -90.0..90.0 } ?: return
+        val lonDeg = lon.toDoubleOrNull()?.takeIf { it in -180.0..180.0 } ?: return
+        draft = draft.copy(site = Site(latDeg = latDeg, lonDeg = lonDeg))
+    }
 
     var candidates by mutableStateOf<List<GuidanceTarget>>(emptyList())
         private set
@@ -70,7 +107,7 @@ internal class AuthoredGuideViewModel(
         loadingCandidates = true
         viewModelScope.launch {
             candidates = runCatching {
-                val factory = targetsAtFactory()
+                val factory = targetsAtFactory(draft.site)
                 withContext(worker) {
                     GuideSchedule.candidates(draft.window, factory)
                         .sortedByDescending { it.aim.altDeg }
@@ -119,7 +156,7 @@ internal class AuthoredGuideViewModel(
         chatInput = ""
         viewModelScope.launch {
             try {
-                val factory = targetsAtFactory()
+                val factory = targetsAtFactory(draft.site)
                 val known = withContext(worker) { factory(draft.window.startMillis).map { it.nameJa } }
                 val allowed = candidates.map { it.nameJa }.toSet()
                 val asked = GuideAsk.namesIn(instruction, known)

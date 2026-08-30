@@ -62,8 +62,10 @@ fun formatTime(millis: Long): String =
 internal fun PlanningCard(
     startMillis: Long,
     minutes: Int,
-    latDeg: Double,
-    lonDeg: Double,
+    lat: String,
+    lon: String,
+    latInvalid: Boolean,
+    lonInvalid: Boolean,
     siteNote: String,
     onPickDateTime: () -> Unit,
     onMinutes: (Int) -> Unit,
@@ -90,18 +92,22 @@ internal fun PlanningCard(
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // **欄の値は打った文字そのまま。** `Double` から組み直すと
+                // 「-」の 1 文字目や空欄が数に直せず弾かれ、南半球の緯度が打てない（#166）
                 OutlinedTextField(
-                    value = latDeg.toString(),
-                    onValueChange = { onLatLon(it, lonDeg.toString()) },
+                    value = lat,
+                    onValueChange = { onLatLon(it, lon) },
                     label = { Text("緯度") },
+                    isError = latInvalid,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f),
                 )
                 OutlinedTextField(
-                    value = lonDeg.toString(),
-                    onValueChange = { onLatLon(latDeg.toString(), it) },
+                    value = lon,
+                    onValueChange = { onLatLon(lat, it) },
                     label = { Text("経度") },
+                    isError = lonInvalid,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.weight(1f),
