@@ -2548,12 +2548,18 @@ fun StarMapScreen(
                 if (recording.speechMs == 0L) log("声として数えた時間は 0ms（しきい値が高い可能性）")
                 narrator.progress(subject, "聞き取っています。")
                 val wav = GlassMic.toWav(recording.pcm)
-                val heard = runCatching { withContext(Dispatchers.IO) { ask.transcribe(wav) } }
-                    .getOrElse { e ->
-                        log("文字起こしに失敗: ${e.message}", failed = true)
-                        narrator.cannotAnswer(subject, "いまは通信ができないので、質問には答えられません。")
-                        return@launchNarration
-                    }
+                // **`runCatching` は取り消しも捕まえる。** タップで打ち切ったのに
+                // 「通信ができない」と喋り、圏外でもないのに通信のせいにしていた（#159）。
+                // [Voice.say] は suspend ではないので、取り消し済みでも必ず鳴る
+                val heard = try {
+                    withContext(Dispatchers.IO) { ask.transcribe(wav) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Throwable) {
+                    log("文字起こしに失敗: ${e.message}", failed = true)
+                    narrator.cannotAnswer(subject, "いまは通信ができないので、質問には答えられません。")
+                    return@launchNarration
+                }
                 // **聞き取った文は指示ではなくデータ。** 画面へ出す前にここで整える
                 val question = AskGuard.sanitizeQuestion(heard)
                 if (question.isBlank()) {
@@ -2681,16 +2687,22 @@ fun StarMapScreen(
                         )
                     },
                 )
-                val reply = runCatching { withContext(Dispatchers.IO) { ask.answer(question, facts) } }
-                    .getOrElse { e ->
-                        log("回答の生成に失敗: ${e.message}", failed = true)
-                        val refusal = "うまく答えられませんでした。"
-                        // **答えられなかったやり取りも残す**（#38）。履歴に無いと、
-                        // 質問が届かなかったのか答えが返らなかったのかが分からない
-                        AskHistory.add(System.currentTimeMillis(), question, refusal, answered = false)
-                        narrator.cannotAnswer(subject, refusal)
-                        return@launchNarration
-                    }
+                // **自分で打ち切ったものを失敗として数えない**（#159）。
+                // `runCatching` で括っていたときは、タップで止めた質問が
+                // 「うまく答えられませんでした。」として鳴り、履歴にも偽の失敗が積まれた
+                val reply = try {
+                    withContext(Dispatchers.IO) { ask.answer(question, facts) }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Throwable) {
+                    log("回答の生成に失敗: ${e.message}", failed = true)
+                    val refusal = "うまく答えられませんでした。"
+                    // **答えられなかったやり取りも残す**（#38）。履歴に無いと、
+                    // 質問が届かなかったのか答えが返らなかったのかが分からない
+                    AskHistory.add(System.currentTimeMillis(), question, refusal, answered = false)
+                    narrator.cannotAnswer(subject, refusal)
+                    return@launchNarration
+                }
                 // 断り（[AskGuard.OFF_TOPIC]）は鳴らし直しても何も進まないので、答えとしては数えない
                 AskHistory.add(System.currentTimeMillis(), question, reply, answered = reply != AskGuard.OFF_TOPIC)
                 narrator.answer(subject, reply)

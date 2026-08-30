@@ -103,6 +103,7 @@
 | やってしまうこと | 何が起きるか / どうする |
 |---|---|
 | `optString` を JSON の null に使う | Android の org.json は**文字列 "null" を返す**が、JVM テストで使う本物の org.json は空を返す。**テストで絶対に落ちず実機だけで壊れる**（OpenAI の `refusal: null` を拒否と読み、本文を毎回捨てていた）。`isNull()` で見る |
+| `runCatching` で suspend な処理を包む | **`Throwable` を拾うので `CancellationException` も捕まる。** 取り消しが「通信の失敗」になり、**自分でタップして打ち切った質問が「うまく答えられませんでした。」と鳴り、履歴に偽の失敗が積まれた**（#159。`Voice.say` は suspend ではないので取り消し済みでも必ず鳴る）。同型は #140 / #145 でも踏んでいる。**`try` / `catch (e: CancellationException) { throw e }` / `catch (e: Throwable)` の形に揃える**（`catch` 節を数えても `runCatching` は数から漏れる） |
 | `async` を画面のスコープの素の子にする | **失敗は `await` で受け取っても親を巻き込む。** TTS が 1 回失敗しただけで 6DoF の購読とログが道連れで死に、**星図が二度と更新されなくなった**（2026-08-21・圏外）。`SupervisorJob` を挟む |
 | `SupervisorJob` を `coroutineScope { }` の中で作る | 自分では完了しないので、構造化並行性が子の完了を待って**永久に止まる**。`SingleFlightTest` がこれで、**1 つのテストのせいで `:app:testDebugUnitTest` が返ってこなかった**（他のテストは 1 件も見えない） |
 | 同じ周期の 2 つのループで同じ `tryLock` を取る | 星図の描き直しは「塞がっていたら諦める」なので、矢印の送信と**周期が同じだと位相が噛み合ったまま何秒も星図が描き直されない**（矢印だけ動いて空が古いままになる）。周期をずらす（100ms と 130ms） |
