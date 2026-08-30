@@ -3645,7 +3645,7 @@ private fun micMeter(level: Float): String {
     return "●".repeat(filled) + "○".repeat(MIC_METER_CELLS - filled) + " $filled/$MIC_METER_CELLS"
 }
 
-/** 星の数。1 行（17 文字）に「●○×8 ＋ 5/8」が収まる長さ */
+/** 星の数。本文 1 行（15 文字）に「●○×8 ＋ 5/8」が収まる長さ */
 private const val MIC_METER_CELLS = 8
 
 /**
@@ -3745,7 +3745,7 @@ private const val TAG = "StarMap"
 /** 最後の字幕行と読み上げが終わってから、星図へ戻るまでを秒表示する。 */
 private const val RETURN_COUNTDOWN_SEC = 5
 
-/** 自動復帰までの残り。1行17文字以内に収め、毎秒同じ枠だけを書き換える。 */
+/** 自動復帰までの残り。本文 1 行（15 文字）以内に収め、毎秒同じ枠だけを書き換える。 */
 internal fun returnCountdown(secondsLeft: Int): String = "${secondsLeft}秒後に星図へ戻ります"
 
 /**
