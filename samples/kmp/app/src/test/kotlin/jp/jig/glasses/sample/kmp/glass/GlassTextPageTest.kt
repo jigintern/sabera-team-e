@@ -66,15 +66,81 @@ class GlassTextPageTest {
         assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
     }
 
-    /** いちばん長い星座名（みなみのかんむり座）＋方角でも見出しが切れない */
+    /**
+     * 1 行に収まる見出しは切らない。
+     *
+     * **「みなみのかんむり座」は案内対象になり得ない**（アンカーが HIP 94160・4.10 等で、
+     * `SkyDensity.STANDARD` の 2.8 等を通らない）ので、最悪ケースの例としては使わない（#178）。
+     */
     @Test
-    fun `長い星座名の見出しでも切れない`() {
-        val header = "みなみのかんむり座 南南西 30°"
+    fun `1行に収まる見出しは切れない`() {
+        // 1 行いっぱい（星印を足す余白が無い長さ）で見る
+        val header = "フォーマルハウト　南南西 45°"
 
         val page = GlassTextPage.explanation(header, "い".repeat(GlassTextPage.headerBodyChars))
 
         assertEquals("見出しが切れた", header, page.elements.first().text)
         assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
+    }
+
+    /**
+     * **進み具合は必ず残す**（#178）。
+     *
+     * 連結してから切っていたときは末尾から欠けるので、`10/12` が `10/1` になり、
+     * **欠けたと分からないまま別の総段数に読めた**。
+     * 37_guide.md は「高度を落としてでも進み具合を残す」と契約に書いている。
+     */
+    @Test
+    fun `見出しがあふれても進み具合は欠けない`() {
+        // 日本で成立する最長の組。フォーマルハウトは東京・鯖江で高度 20° を超え、
+        // その窓の方位は 155〜205°（約 56% が 3 文字の「南南東」「南南西」）
+        val heading = GlassTextPage.heading("フォーマルハウト", "南南西 10/12")
+
+        assertTrue("進み具合が欠けた: $heading", heading.endsWith("10/12"))
+        assertTrue("1 行に収まっていない: $heading", heading.length <= GlassTextPage.lineChars)
+        assertTrue("名前が丸ごと消えた: $heading", heading.startsWith("フォーマル"))
+    }
+
+    /** 南天ではもっと長い。**段数に関係なくあふれる**名前でも進み具合を残す */
+    @Test
+    fun `南天の長い名前でも進み具合は欠けない`() {
+        for (name in listOf("リギル・ケンタウルス", "みなみのさんかく座")) {
+            val heading = GlassTextPage.heading(name, "南南西 12/12")
+
+            assertTrue("$name で進み具合が欠けた: $heading", heading.endsWith("12/12"))
+            assertTrue("$name で 1 行に収まらない: $heading", heading.length <= GlassTextPage.lineChars)
+        }
+    }
+
+    /** 縮めたことは見せる。**黙って切ると「そういう名前」に見える** */
+    @Test
+    fun `縮めた名前には省略記号が付く`() {
+        val heading = GlassTextPage.heading("リギル・ケンタウルス", "南南西 3/5")
+
+        assertTrue("縮めたことが分からない: $heading", heading.contains("…"))
+    }
+
+    /** 片方しか無いときは、そのまま 1 行に収める */
+    @Test
+    fun `名前だけ・後ろだけの見出しも組める`() {
+        assertEquals("おとめ座", GlassTextPage.heading("おとめ座", ""))
+        assertEquals("南南西 3/5", GlassTextPage.heading("", "南南西 3/5"))
+        assertEquals("", GlassTextPage.heading("", ""))
+    }
+
+    /**
+     * 後ろだけで 1 行が埋まるなら、**名前を捨ててでも進み具合を残す。**
+     *
+     * ここまで長い進み具合は台本の上限（`GuideCodec.MAX_STEPS = 30`）では出ないが、
+     * **削る順番を固定しておく**（名前が先、進み具合は最後まで残す）。
+     */
+    @Test
+    fun `後ろだけで埋まるときは名前を捨てる`() {
+        val tail = "南南西 10000/10000"
+        val heading = GlassTextPage.heading("リギル・ケンタウルス", tail)
+
+        assertEquals(tail, heading)
+        assertTrue(heading.length <= GlassTextPage.lineChars)
     }
 
     /** 入り切らない本文は捨てずに流す */

@@ -1580,9 +1580,8 @@ fun StarMapScreen(
         narrator.state.distinctUntilChangedBy { it.text to it.constellation }.collectLatest { state ->
             // 話が切り替わってすぐ送らない。畳まれた古い本文を 1 枚出してしまう
             delay(EXPLANATION_SEND_DEBOUNCE_MS)
-            val header = listOf(state.constellation, explanationHeading)
-                .filter { it.isNotBlank() }
-                .joinToString("　")
+            // **連結してから切らない。** 末尾から欠けるので進み具合が別の分数に化ける（#178）
+            val header = GlassTextPage.heading(state.constellation, explanationHeading)
             // **字幕のように流す。** 1 枚に全部置くと最初の行が押し出されて消える
             val pages = GlassTextPage.pages(header, state.text)
             // 前の話の合図が残っていると、出した瞬間に 1 行飛ぶ
@@ -2146,10 +2145,10 @@ fun StarMapScreen(
                 // **星座名はここに入れない。** 見出しは `state.constellation` と連結されるので、
                 // 入れると「さそり座　さそり座 3/5」と二重に出る（ワンタップは方角を入れている）。
                 //
-                // **高度は落とす。** 見出しは 1 行 17 文字で切られる。ワンタップと同じ
-                // 「南南西 45°」にすると、いちばん長い「みなみのかんむり座」で 21 文字になり、
-                // **後ろにある進み具合から先に消える**。着いたあとに要るのは度数より、
-                // ツアーのどこにいるかのほう
+                // **高度は落とす。** 見出しは 1 行に収まるぶんしか置けないので、ワンタップと同じ
+                // 「南南西 45°」にすると名前を縮める側にしわ寄せが行く。着いたあとに要るのは
+                // 度数より、ツアーのどこにいるかのほう。
+                // **溢れたときに何を残すかは [GlassTextPage.heading] が決める**（進み具合が先）
                 explanationHeading = "${cardinalDirection16(target.aim.azDeg)} ${narrating?.counter.orEmpty()}"
                 explanationDropped = 0
                 explanationPaging = false
