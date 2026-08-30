@@ -1,12 +1,19 @@
 package jp.jig.glasses.sample.kmp.glass
 
 import app.jigglass.glass.CommandManager
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class GlassTextPageTest {
+
+    // テストの作業ディレクトリはモジュール直下なので、data/ が見つかるまで遡る
+    private val loreFile: File = generateSequence(File("").absoluteFile) { it.parentFile }
+        .map { File(it, "data/constellation-lore.json") }
+        .first { it.exists() }
 
     @Test
     fun `場所と日時の確認文が一枚に収まる`() {
@@ -278,5 +285,74 @@ class GlassTextPageTest {
         val cleared = batches.first()
         assertTrue("消す電文が先に来ていない", cleared.all { it.text.isEmpty() })
         assertTrue("短くなった行を消していない", cleared.any { it.id == 1 })
+    }
+
+    /**
+     * **同梱の解説文 88 星座を番人にする**（#154）。
+     *
+     * 「1 枚 = 1 電文」はこの画面の作りそのもので、破れると 190 バイトは画面に置ける
+     * 合計でもあるため**先に置いた行が押し出されて消える**（#40）。
+     * 合成した文だけで見ていたときは、**折り返し位置に句読点が一度も来ず禁則が発火しない**
+     * ので、23 星座・28 枚が上限を超えたまま素通りしていた。
+     */
+    @Test
+    fun `同梱の解説文はどの1枚も1電文に収まる`() {
+        val lore = JSONObject(loreFile.readText()).getJSONArray("lore")
+        val over = ArrayList<String>()
+        for (i in 0 until lore.length()) {
+            val entry = lore.getJSONObject(i)
+            val name = entry.getString("nameJa")
+            for ((at, page) in GlassTextPage.pages("$name 南南西 45°", entry.getString("text")).withIndex()) {
+                val bytes = page.elements.sumOf { it.byteSize() }
+                if (bytes > CANVAS_TEXT_BUDGET_BYTES) over += "$name の ${at + 1} 枚目 $bytes バイト"
+                if (page.elements.updatesFrom(emptyList()).size != 1) over += "$name の ${at + 1} 枚目が 2 電文"
+            }
+        }
+        // **何枚壊れているか**を出す。ループの中で assert すると最初の 1 枚で止まって広がりが見えない
+        assertTrue("1 電文に収まらない枚: ${over.size} 枚\n" + over.joinToString("\n"), over.isEmpty())
+    }
+
+    /**
+     * 禁則が**必ず**発火する並びで固定する。データが入れ替わっても守れる番人。
+     *
+     * 折り返し位置に句点が来ると、前の行へ吸わせるぶん 1 行が伸びる。
+     * 伸びしろを折り返し幅から引いていないと、3 行で 190 バイトを超える。
+     */
+    @Test
+    fun `折り返しの行末に句点が吸われても1電文に収まる`() {
+        val body = ("あ".repeat(GlassTextPage.lineChars) + "。").repeat(6)
+
+        val pages = GlassTextPage.pages("おとめ座 南南西 45°", body)
+
+        assertTrue("禁則が一度も効いていない", pages.any { page -> page.elements.any { it.text.endsWith("。") } })
+        for (page in pages) {
+            assertTrue(
+                "1 枚が ${page.elements.sumOf { it.byteSize() }} バイト",
+                page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES,
+            )
+            assertEquals("1 電文で送り切れていない", 1, page.elements.updatesFrom(emptyList()).size)
+        }
+    }
+
+    /** 禁則で伸びた行も、1 行に置ける上限（[GlassTextPage.rowChars]）は超えない */
+    @Test
+    fun `禁則で伸びても1行の上限は超えない`() {
+        val lines = GlassTextPage.wrap(("あ".repeat(GlassTextPage.lineChars) + "。。。").repeat(4))
+
+        assertTrue(
+            "行が長すぎる ${lines.map { it.length }}",
+            lines.all { it.length <= GlassTextPage.rowChars },
+        )
+    }
+
+    /** 見出しは [GlassTextPage.wrap] を通らず禁則で伸びないので、本文より長く置ける */
+    @Test
+    fun `見出しは1行の上限まで置ける`() {
+        val header = "あ".repeat(GlassTextPage.rowChars)
+
+        val page = GlassTextPage.explanation(header, "本文です。")
+
+        assertEquals("見出しが切られた", header, page.elements.first().text)
+        assertTrue(page.elements.sumOf { it.byteSize() } <= CANVAS_TEXT_BUDGET_BYTES)
     }
 }

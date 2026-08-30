@@ -58,7 +58,9 @@ class GuideCodecTest {
      */
     @Test
     fun `長い日本語でも文字が化けない`() {
-        val original = guide(8, bodyChars = 260)
+        // **上限いっぱいで見る。** 数字を直に書くとグラスに置ける行数が変わったとき
+        // 黙って上限超えになり、化けの検査ではなく長さの検査で落ちる
+        val original = guide(8, bodyChars = GuideCodec.MAX_BODY_CHARS)
         val decoded = (GuideCodec.unpack(GuideCodec.pack(original)) as GuideImport.Ok).guide
         assertEquals(original.steps.map { it.body }, decoded.steps.map { it.body })
     }

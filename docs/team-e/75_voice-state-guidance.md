@@ -23,7 +23,7 @@ git show archive/voice-state-guidance:samples/kmp/app/src/main/kotlin/jp/jig/gla
 - **SABERA をかけている人はスマホを見ない**
 - `HOLD` から星図へ戻るまでの**後半（AI が考えている間・戻し方・自動復帰の予告）が無表示**だった
 - 「止まった」「次に何をすればよいか分からない」に見えていた
-- **グラスの 3 行 × 17 文字だけで途切れず案内する**のが目的
+- **グラスの 3 行 × 15 文字だけで途切れず案内する**のが目的
 - 出そうとした状態は下のとおり
 
 | 状態 | 出すもの | 取り下げ時点 |
@@ -51,7 +51,7 @@ git show archive/voice-state-guidance:samples/kmp/app/src/main/kotlin/jp/jig/gla
 
 ### 行は増やせない。3 行目を差し替えて使い回す
 
-- 4 行目を作ると 1 行が 17 文字→11 文字になり**日本語が読めない**（`GlassTextPage.ROWS`）
+- 4 行目を作ると 1 行の上限が 17 文字→11 文字になり**日本語が読めない**（`GlassTextPage.ROWS`）
 - 190 バイトは 3 行で使い切っているので、**案内の置き場所は「1 行を明け渡す」しかない**
 - `GlassTextPage.Page.withNotice(notice)` を作り、次の 3 つを同じ経路に通した
 

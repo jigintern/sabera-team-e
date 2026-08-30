@@ -105,6 +105,9 @@ object GlassTextPage {
     /** 日本語 1 文字の UTF-8 バイト数。解説文はほぼ全部これ */
     private const val JA_CHAR_BYTES = 3
 
+    /** 禁則で伸ばせる上限。「。。。。」のような並びで 1 行が延々と伸びるのを止める */
+    private const val KINSOKU_SLACK = 2
+
     /**
      * **1 電文（190 バイト）に見出し 1 行＋本文 2 行が収まる**文字数。
      *
@@ -118,8 +121,25 @@ object GlassTextPage {
     private val charsByBudget =
         (CANVAS_TEXT_BUDGET_BYTES / ROWS - elementBytes) / JA_CHAR_BYTES
 
-    /** 1 行に置く文字数 */
-    val lineChars: Int = minOf(charsByWidth, charsByBudget)
+    /**
+     * 1 行に**置ける**上限。**どの行もここを超えなければ 1 枚は必ず 1 電文に収まる**
+     * （3 × (12 + 17 × 3) = 189 バイト）。
+     *
+     * 折り返す位置（[lineChars]）とは別に持つ。[wrap] は禁則で行を伸ばすので、
+     * **折る位置＝置ける上限にすると伸びたぶんが予算からはみ出す**（下）。
+     * 見出しは [wrap] を通らず伸びないので、こちらを上限に使ってよい。
+     */
+    val rowChars: Int = minOf(charsByWidth, charsByBudget)
+
+    /**
+     * 1 行を折り返す位置。**禁則で伸びるぶん（[KINSOKU_SLACK]）を先に引く。**
+     *
+     * 引かずに [rowChars] で折っていたときは、行末へ「。」を吸わせた 1 行が
+     * 18 文字 66 バイトになり、**1 枚が 192 バイト＝2 電文に割れていた**
+     * （同梱の 88 星座のうち 23 星座・28 枚。#154）。
+     * 割れると 190 バイトは画面の合計でもあるので、**先に置いた行が押し出されて消える**。
+     */
+    val lineChars: Int = rowChars - KINSOKU_SLACK
 
     /** 見出しを畳んだ 1 枚に出せる本文の文字数 */
     val bodyChars: Int = BODY_ROWS * lineChars
@@ -151,9 +171,6 @@ object GlassTextPage {
      * あとから文字が届いても前の行の矩形が縮まない（縮むと消し残る）。
      */
     private const val NO_LINE_START = "。、，．,.」』）)]｝}！？!?・…ー〜:;：；"
-
-    /** 禁則で伸ばせる上限。「。。。。」のような並びで 1 行が延々と伸びるのを止める */
-    private const val KINSOKU_SLACK = 2
 
     /**
      * 1 枚ぶんの解説画面。
@@ -250,10 +267,15 @@ object GlassTextPage {
         )
     }
 
-    /** 長い星座名は切らず、余白がある見出しだけを星付きにする。 */
+    /**
+     * 長い星座名は切らず、余白がある見出しだけを星付きにする。
+     *
+     * **本文より長く置ける**（[rowChars]）。見出しは [wrap] を通らないので禁則で伸びず、
+     * 1 行の上限をそのまま使い切れる。
+     */
     private fun styledHeader(header: String): String {
-        val trimmed = header.trim().take(lineChars)
-        return if (trimmed.isNotEmpty() && trimmed.length + HEADER_MARK.length <= lineChars) {
+        val trimmed = header.trim().take(rowChars)
+        return if (trimmed.isNotEmpty() && trimmed.length + HEADER_MARK.length <= rowChars) {
             HEADER_MARK + trimmed
         } else {
             trimmed

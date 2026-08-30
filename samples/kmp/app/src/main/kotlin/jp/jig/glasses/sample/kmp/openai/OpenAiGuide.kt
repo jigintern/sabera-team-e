@@ -127,7 +127,7 @@ class OpenAiGuide(
             // **記号と箇条書きを落とす。** 読み上げると「※」も「1.」もそのまま読まれる
             val intro = AskGuard.sanitizeAnswer(step.text("intro").orEmpty()) ?: return null
             // [AskGuard.MAX_ANSWER_CHARS] は 200 文字で、グラスの解説画面に入る
-            // [GlassTextPage.pagedChars]（272 文字）より短い。**長すぎる本文はここで
+            // [GlassTextPage.pagedChars]（240 文字）より短い。**長すぎる本文はここで
             // 文の切れ目まで切られる**ので、めくり切れずに尻切れになることはない
             val body = AskGuard.sanitizeAnswer(step.text("body").orEmpty()) ?: return null
             result[name] = intro to body

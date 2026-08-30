@@ -37,7 +37,7 @@ object GuideCodec {
     /** 受け取れる段数の上限。**中身は見ないが、形は弾く** */
     const val MAX_STEPS = 30
 
-    /** 1 段の本文。これを超えるぶんはグラスに出ない（[GlassTextPage.pagedChars] = 272 字） */
+    /** 1 段の本文。これを超えるぶんはグラスに出ない（[GlassTextPage.pagedChars] = 240 字） */
     val MAX_BODY_CHARS: Int get() = GlassTextPage.pagedChars
 
     /** 見出しと一行の上限。一覧の 1 行に収める */
