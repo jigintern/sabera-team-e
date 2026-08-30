@@ -77,6 +77,15 @@ class Bgm(context: Context, private val scope: CoroutineScope) {
     /** つまみと絞りの追従 */
     private var fade: Job? = null
 
+    /**
+     * 止めたあとの後始末。**[fade] と分けて持つ。**
+     *
+     * 同じジョブに載せていたときは、落としている 3 秒の間に来た [duck] や音量つまみが
+     * [ramp] でジョブごと差し替えるので、**`close` に永久に届かなかった**（#163）。
+     * `MediaPlayer` は解放されず、曲を指名していれば音量 0 のまま永久にループする。
+     */
+    private var closing: Job? = null
+
     /** 次の曲への渡し。曲の残り時間から予約する */
     private var advance: Job? = null
 
@@ -161,6 +170,7 @@ class Bgm(context: Context, private val scope: CoroutineScope) {
 
     fun release() {
         fade?.cancel()
+        closing?.cancel()
         advance?.cancel()
         boost.release()
         // 入れ替えの途中で呼ばれても壊れないように、写しを回す
@@ -195,10 +205,15 @@ class Bgm(context: Context, private val scope: CoroutineScope) {
 
     private fun stop() {
         advance?.cancel()
-        fade?.cancel()
-        fade = scope.launch {
-            // **落としきってから閉じる。** 先に閉じると音がぶつ切りになる
-            rampNow(0f, FADE_MS)
+        // **落とすところは [fade] に載せる。** 割り込まれてよいのは音量の追従だけで、
+        // 切っている間は [target] が 0 を返すので、割り込んだ [ramp] も同じ 0 へ向かう
+        ramp(0f, FADE_MS)
+        closing?.cancel()
+        closing = scope.launch {
+            // **落としきってから閉じる。** 先に閉じると音がぶつ切りになる。
+            // [fade] を join せず時間で待つのは、途中で差し替えられても
+            // 3 秒ぶんのフェードを縮めないため
+            delay(FADE_MS)
             gate.withLock {
                 // 落としている 3 秒の間に入れ直されていたら、その曲を閉じない
                 if (enabledValue) return@withLock
@@ -218,6 +233,9 @@ class Bgm(context: Context, private val scope: CoroutineScope) {
         scope.launch {
             gate.withLock {
                 advance?.cancel()
+                // **待っている間に切られていたら開かない。** 開くと、閉じたあとに
+                // 音量 0 のまま鳴る曲が残る（#163 と同じ「切ったのに鳴っている」）
+                if (!enabledValue) return@withLock
                 // 待っている間に別の入れ替えが同じ曲を鳴らし始めていたら、二重に開かない
                 if (decks.firstOrNull()?.track == next) return@withLock
                 val deck = open(next) ?: return@withLock
