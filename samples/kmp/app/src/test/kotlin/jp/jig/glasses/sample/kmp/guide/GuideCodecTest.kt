@@ -4,6 +4,7 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -221,5 +222,38 @@ class GuideCodecTest {
             "文学者の象徴とされてきたと言われます。ギリシャ神話いちばんの英雄ヘルクレスです。数々の難題を" +
             "やりとげた姿が、こん棒を持って空に描かれています。星が球のように集まった、大集団がある星座で" +
             "す。振り子時計を表した星座です。天文の観測に欠かせない道具として、ラカーユが空に"
+    }
+
+    /**
+     * **配る側と受け取る側で同じ検査を通す**（#171）。
+     *
+     * 配る側は圧縮後のバイト数しか見ていなかったので、31 段でも QR が描かれ「配る」が押せた。
+     * 刷って配ったあと、受け取った人は全員が「段が多すぎます（31 段）。」で弾かれる。
+     */
+    @Test
+    fun `受け取り側が弾く段数の台本は配れない`() {
+        val many = guide(GuideCodec.MAX_STEPS + 1, bodyChars = 20)
+
+        // 圧縮しても QR には入る。バイト数だけ見ていると素通りする
+        assertTrue("QR に入らないので、この検査では確かめられない", GuideCodec.fitsInQr(many))
+        assertNotNull("配る側が段数を見ていない", GuideCodec.rejection(many))
+        assertTrue(GuideCodec.unpack(GuideCodec.pack(many)) is GuideImport.Rejected)
+    }
+
+    @Test
+    fun `上限ちょうどの段数は配れる`() {
+        val full = guide(GuideCodec.MAX_STEPS, bodyChars = 20)
+
+        assertNull(GuideCodec.rejection(full))
+        assertTrue(GuideCodec.unpack(GuideCodec.pack(full)) is GuideImport.Ok)
+    }
+
+    /** 外した段は QR に入らないので、**段数にも数えない**（数えると配れる台本が配れなくなる） */
+    @Test
+    fun `外した段は段数に数えない`() {
+        val many = guide(GuideCodec.MAX_STEPS + 2, bodyChars = 20, enabled = { it < GuideCodec.MAX_STEPS })
+
+        assertNull(GuideCodec.rejection(many))
+        assertTrue(GuideCodec.unpack(GuideCodec.pack(many)) is GuideImport.Ok)
     }
 }

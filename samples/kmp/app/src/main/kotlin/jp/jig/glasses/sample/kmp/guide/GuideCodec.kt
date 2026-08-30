@@ -68,6 +68,18 @@ object GuideCodec {
 
     fun fitsInQr(guide: StarGuide): Boolean = qrRemainingBytes(guide) >= 0
 
+    /**
+     * 配れない理由。null なら配れる。**受け取り側と同じ検査**（[unpack] もこれを通す）。
+     *
+     * 配る側は圧縮後のバイト数しか見ていなかったので、**31 段以上でも QR が描かれ、
+     * 刷って配ったあとに受け取った人が全員「段が多すぎます（31 段）。」で弾かれた**（#171）。
+     * **判定を 2 か所に書き分けない。**
+     *
+     * 数えるのは**配るぶん（有効な段）だけ**。外した段は [json] が落とすので、
+     * 受け取り側が数える段と揃う。
+     */
+    fun rejection(guide: StarGuide): String? = validate(guide.copy(steps = guide.enabledSteps))
+
     /** 0.0〜1.0。残量バーに出す */
     fun qrUsedRatio(guide: StarGuide): Float =
         (pack(guide).size.toFloat() / QR_CAPACITY_BYTES).coerceIn(0f, 1f)

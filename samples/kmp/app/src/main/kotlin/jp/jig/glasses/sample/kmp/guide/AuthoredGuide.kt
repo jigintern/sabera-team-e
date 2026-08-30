@@ -69,9 +69,22 @@ data class AuthoredGuide(
     val tooLongSteps: List<Int>
         get() = steps.indices.filter { steps[it].body.length > GuideCodec.MAX_BODY_CHARS }
 
-    /** 配れる状態か。段が 1 つも無い／長すぎる段がある／QR に入らない、のいずれでもない */
-    fun shareable(): Boolean =
-        steps.any { it.enabled } && tooLongSteps.isEmpty() && GuideCodec.fitsInQr(toGuide())
+    /**
+     * 配れない理由。null なら配れる。**画面はこれを出す**（文言を 2 か所に書かない）。
+     *
+     * 段数は [GuideCodec.rejection] に任せる。**配る側だけ独自に数えると、
+     * 受け取り側が必ず弾くものを配れてしまう**（#171）。
+     */
+    fun shareBlocker(): String? = when {
+        !steps.any { it.enabled } -> "配る段がありません。段を足すか、外した段を戻してください"
+        tooLongSteps.isNotEmpty() ->
+            "長すぎる解説があります（${tooLongSteps.map { it + 1 }.joinToString("、")} 段目）"
+        else -> GuideCodec.rejection(toGuide())
+            ?: "QR に入りません。段を外すか、解説を短くしてください".takeIf { !GuideCodec.fitsInQr(toGuide()) }
+    }
+
+    /** 配れる状態か。段が 1 つも無い／長すぎる段がある／受け取り側が弾く／QR に入らない、のいずれでもない */
+    fun shareable(): Boolean = shareBlocker() == null
 
     companion object {
         const val UNTITLED = "名前のない台本"
