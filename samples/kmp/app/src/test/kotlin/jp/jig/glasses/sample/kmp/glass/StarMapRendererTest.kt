@@ -347,6 +347,66 @@ class StarMapRendererTest {
         assertEquals("●ISS", label(null))
     }
 
+    /**
+     * **焼くときと送り直すときで、名前の枚数が揃う**（#155）。
+     *
+     * 上限が `render` の側だけに掛かっていたときは、印だけ送り直す `moveMarkers` に
+     * 掛からず、**3 機目の名前が 1.5 秒後に湧いて出ては、次の描き直しで消えた**。
+     * `batched` が余った id を空文字で消すので、消え残りではなく点滅になる。
+     *
+     * 輪郭は既定で OFF（`showFigures` の初期値 false）なので、そちらで見る。
+     * 吹き出しで絞られないぶん、視野内の名前つき全機が候補になる。
+     */
+    @Test
+    fun `名前つきが3機でも印の枚数は焼いた絵と揃う`() {
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        // 視野（35°）の中に散らして置く。重ならせるとラベルの落ち方で数が変わる
+        val tracks = listOf(
+            SkyTrack("ISS", nowAzDeg = 174.0, nowAltDeg = 45.0, sunlit = true, labelled = true),
+            SkyTrack("みちびき2", nowAzDeg = 180.0, nowAltDeg = 50.0, sunlit = true, labelled = true),
+            SkyTrack("ひまわり8", nowAzDeg = 186.0, nowAltDeg = 41.0, sunlit = false, labelled = true),
+        )
+
+        val labels = renderer.trackLabels(
+            look, 35.0, PANEL_WIDTH, PANEL_HEIGHT, tracks, drawFigures = false,
+        )
+        assertEquals("印だけ送り直す経路に上限が掛かっていない: ${labels.map { it.text }}", 2, labels.size)
+
+        // 星図を焼いたときに出る名前と、1 つずつ突き合わせる
+        val map = renderer.render(
+            site = site, epochMillis = epoch, look = look, fovDeg = 35.0, limitMagnitude = 5.0,
+            tracks = tracks, drawFigures = false,
+        )
+        val baked = map.labels.filter { it.kind == LabelKind.SATELLITE }
+        assertEquals("焼いた絵と印で枚数が違う", baked.size, labels.size)
+        for ((a, b) in baked.zip(labels)) {
+            assertEquals("名前が違う", a.text, b.text)
+            assertEquals("x がずれる", a.x.toLong(), b.x.toLong())
+            assertEquals("y がずれる", a.y.toLong(), b.y.toLong())
+        }
+    }
+
+    /** 名前を出せない機体を数に入れない。**数えるのは実際に置いた印だけ** */
+    @Test
+    fun `枠の外の機体は上限に数えない`() {
+        val renderer = StarMapRenderer(catalog())
+        val look = Look(180.0, 45.0)
+        val tracks = listOf(
+            // 真後ろ。投影が null か枠の外になるので名前は出ない
+            SkyTrack("ひまわり8", nowAzDeg = 0.0, nowAltDeg = -45.0, sunlit = true, labelled = true),
+            SkyTrack("ISS", nowAzDeg = 176.0, nowAltDeg = 45.0, sunlit = true, labelled = true),
+            SkyTrack("みちびき2", nowAzDeg = 184.0, nowAltDeg = 46.0, sunlit = true, labelled = true),
+        )
+
+        val labels = renderer.trackLabels(
+            look, 35.0, PANEL_WIDTH, PANEL_HEIGHT, tracks, drawFigures = false,
+        )
+
+        assertEquals("出せない機体を数に入れている: ${labels.map { it.text }}", 2, labels.size)
+        assertTrue("視野内の機体の名前が落ちた: ${labels.map { it.text }}", labels.any { it.text == "●ISS" })
+    }
+
     @Test
     fun `衛星の名前から輪郭の形が決まる`() {
         assertEquals(SatelliteFigure.STATION, SatelliteFigure.of("ISS"))

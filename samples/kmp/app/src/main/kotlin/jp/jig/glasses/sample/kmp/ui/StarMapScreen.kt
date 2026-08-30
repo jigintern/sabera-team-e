@@ -1426,7 +1426,9 @@ fun StarMapScreen(
                 // 輪郭は焼いた時点のまま。動かすのは「いまどこにいるか」だけ。
                 // 画角も焼いたときの値を使う（いまの画角で投影すると印だけずれる）。
                 // **選定は焼いたときと同じ道**（overlayTracks）。ここだけ絞り込みが抜けると、
-                // 描かれていない衛星の名前が 1.5 秒後に湧いて出る
+                // 描かれていない衛星の名前が 1.5 秒後に湧いて出る。
+                // **枚数も同じ**（上限は trackLabels が持つ）。選定だけ揃えて枚数が
+                // 揃っていなかったので、3 機目の名前が出ては消えて点滅していた（#155）
                 val fresh = overlayTracks(scene, observer, observation.epochMillis, baseLook, drawnFov)
                 r.trackLabels(
                     baseLook, drawnFov, map.width, map.height, fresh, showFigures, drawnRoll,
