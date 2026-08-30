@@ -2720,6 +2720,9 @@ fun StarMapScreen(
         if (guidanceSession != null) stopGuidance("記録を読み直すため案内を終了")
         narrationJob?.cancel()
         narrationJob = null
+        // **他の入口と同じ止め方に揃える**（#160）。声を止めずに読み直すと、
+        // 前の解説の残りが新しい解説のうしろから鳴る
+        narrator.stop()
         narrator.reset()
         // 見出しの方角は出さない。**いま向いている方向とは関係ない**（記録は過去の視線）
         explanationHeading = ""
@@ -2753,6 +2756,7 @@ fun StarMapScreen(
         if (guidanceSession != null) stopGuidance("やり取りを読み直すため案内を終了")
         narrationJob?.cancel()
         narrationJob = null
+        narrator.stop()
         narrator.reset()
         explanationHeading = ""
         explanationDropped = 0

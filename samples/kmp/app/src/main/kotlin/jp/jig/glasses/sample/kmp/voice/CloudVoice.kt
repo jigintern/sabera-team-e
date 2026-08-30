@@ -204,13 +204,14 @@ class CloudVoice(
         if (text.isBlank()) return
         // 言い直しは新しい解説の始まり。ここで声の選び直しをする
         fellBack = false
+        // **捨てるのは AI 音声を使うかどうかと関係ない**（[Voice.say] の契約）。
+        // 冷却中に落とし先へ丸投げしていたときは、積んであった前の解説を worker が
+        // そのまま鳴らし、**新しい解説を読み終えた直後に前の星座の文が蘇った**（#160）
+        discardQueued()
         if (!usable()) {
             fallback.say(text)
             return
         }
-        generation++
-        current?.cancel()
-        cancelPreparations()
         fallback.stop()
         enqueue(text, flush = true)
     }
@@ -229,9 +230,7 @@ class CloudVoice(
         // 止めた時点でその解説は終わり。次に喋るぶんは声を選び直す
         // （声の質問は [say] を通らず [add] だけで積むので、ここで戻さないと前回の落ちを引き継ぐ）
         fellBack = false
-        generation++
-        current?.cancel()
-        cancelPreparations()
+        discardQueued()
         fallback.stop()
         _speaking.value = false
         // cancel は非同期なので play() の finally を待たずにここで落とす
@@ -291,6 +290,18 @@ class CloudVoice(
             prepared.cancel()
             fallback.say(utterance.text)
         }
+    }
+
+    /**
+     * 積んであるものを捨てる。**[say] と [stop] は経路によらずここを通す。**
+     *
+     * 世代を進めると worker は取り出した発話を読み飛ばし、`current` を切ると
+     * 端末読み上げの終わりを待っている合成も止まる。
+     */
+    private fun discardQueued() {
+        generation++
+        current?.cancel()
+        cancelPreparations()
     }
 
     private fun cancelPreparations() {
