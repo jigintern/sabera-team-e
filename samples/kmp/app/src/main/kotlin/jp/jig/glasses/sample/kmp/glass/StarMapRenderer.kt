@@ -421,8 +421,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
             emptyList()
         }
         // **星座名が主役で、衛星は枠を 2 つまで借りるだけ**（#36）。
-        // 月・惑星は数が少なく、点だけでは恒星と区別が付かないので先に置く
-        val tracksShown = trackLabels.take(MAX_TRACK_LABELS)
+        // 月・惑星は数が少なく、点だけでは恒星と区別が付かないので先に置く。
+        // **ここで take しない。** 数を 2 か所で決めると、印だけ送り直す経路と枚数が食い違う（#155）
+        val tracksShown = trackLabels
         // 結びは 1 つだけ。**「夏の大三角」は星座名より先に知りたい名前**
         val asterismsShown = asterismLabels.take(MAX_ASTERISM_LABELS)
         // 一等星の名前は明るい順に 2 つまで。**視野に 1 つあるかないか**なので枠は食い合わない
@@ -1004,6 +1005,16 @@ class StarMapRenderer(private val catalog: StarCatalog) {
         drawFigures: Boolean = true,
         /** 焼いた絵と同じ傾きで置かないと、印だけが回って見える */
         rollDeg: Double = 0.0,
+        /**
+         * 名前に貸す枠の数。**上限はここが持つ**（#155）。
+         *
+         * [render] の側だけで `take` していたときは、印だけ送り直す経路
+         * （`moveMarkers`）に上限が掛からず、**焼いた絵に無い 3 機目の名前が
+         * 1.5 秒後に湧いて出ては、次に焼き直すたびに消えて点滅した**。
+         * 呼び出し側からは `private companion` の値に手が届かないので、
+         * 数を決める場所をこの関数へ寄せる。
+         */
+        maxTracks: Int = MAX_TRACK_LABELS,
     ): List<Label> {
         val basis = Basis(look.azDeg, look.altDeg, rollDeg)
         val k = projectionScale(width, fovDeg)
@@ -1031,6 +1042,9 @@ class StarMapRenderer(private val catalog: StarCatalog) {
                 ?.let { " ${max(1, ceil(it).toInt())}分" }
                 .orEmpty()
             labels += Label(mark + track.name + soon, at[0].roundToInt(), at[1].roundToInt(), LabelKind.SATELLITE)
+            // **絞るのは積んだあと。** 名前を出せない機体（吹き出しが無い・枠の外）を
+            // 数に入れると、通る機体が 2 つあっても 1 つしか出ない
+            if (labels.size >= maxTracks) break
         }
         return labels
     }
