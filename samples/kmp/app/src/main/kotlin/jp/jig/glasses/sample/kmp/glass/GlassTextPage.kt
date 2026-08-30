@@ -63,6 +63,12 @@ object GlassTextPage {
     /** 見出しの行。**本文は見出しが空でも繰り上げない**（名前が付いた瞬間に全部書き直しになる） */
     private const val HEADER_ROW = 0
 
+    /** 見出しの名前と、後ろに付ける方角・進み具合の区切り */
+    private const val HEADING_GAP = "　"
+
+    /** 名前を縮めたことを見せる。**黙って切ると「そういう名前」に見える** */
+    private const val ELLIPSIS = "…"
+
     /** 短い見出しには星の点を添え、本文と同じ文字だけの画面でも役割を見分けやすくする。 */
     private const val HEADER_MARK = "● "
 
@@ -248,6 +254,33 @@ object GlassTextPage {
             dropped = lines.drop(HEADER_BODY_ROWS).sumOf { it.length },
             revealed = lines.take(HEADER_BODY_ROWS).sumOf { it.length },
         )
+    }
+
+    /**
+     * 見出しを 1 行に組む。**後ろ（[trailing]）は必ず残す。**
+     *
+     * 連結してから [lineChars] で切っていたときは**末尾から欠ける**ので、
+     * ガイドの進み具合が `10/12` → `10/1` になり、
+     * **欠けたと分からないまま別の総段数に読めた**（#178）。
+     * 37_guide.md は「高度を落としてでも進み具合を残す」と契約に書いており、
+     * その契約が黙って破れていた。
+     *
+     * 入り切らないときに縮めるのは [name] のほう。**名前は読み上げの頭と本文の 1 枚目でも
+     * 伝わるが、進み具合はここにしか出ない。**
+     */
+    fun heading(name: String, trailing: String): String {
+        val head = name.trim()
+        val tail = trailing.trim()
+        if (tail.isEmpty()) return head.take(lineChars)
+        if (head.isEmpty()) return tail.take(lineChars)
+        val room = lineChars - tail.length - HEADING_GAP.length
+        if (room >= head.length) return head + HEADING_GAP + tail
+        // 省略記号のぶんを残せるなら、縮めたことを見せて名前を頭から取る
+        if (room > ELLIPSIS.length) {
+            return head.take(room - ELLIPSIS.length) + ELLIPSIS + HEADING_GAP + tail
+        }
+        // 後ろだけで 1 行が埋まる。**名前を捨てても進み具合を残す**
+        return tail.take(lineChars)
     }
 
     /** 長い星座名は切らず、余白がある見出しだけを星付きにする。 */
