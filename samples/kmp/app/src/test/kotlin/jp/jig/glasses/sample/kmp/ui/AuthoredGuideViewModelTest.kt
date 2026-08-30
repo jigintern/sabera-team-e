@@ -8,6 +8,7 @@ import jp.jig.glasses.sample.kmp.sky.GuidanceTarget
 import jp.jig.glasses.sample.kmp.sky.GuidanceTargetKind
 import jp.jig.glasses.sample.kmp.sky.Look
 import jp.jig.glasses.sample.kmp.sky.ObservationDefaults
+import jp.jig.glasses.sample.kmp.sky.Site
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,19 +55,24 @@ class AuthoredGuideViewModelTest {
         sky: List<GuidanceTarget> = listOf(target("オリオン座"), target("ふたご座"), target("はくちょう座", altDeg = 5.0)),
         askAi: suspend (String, List<GuidanceTarget>, List<jp.jig.glasses.sample.kmp.guide.GuideStep>, List<jp.jig.glasses.sample.kmp.openai.GuideChatTurn>) -> GuideChatReply? =
             { _, _, _, _ -> GuideChatReply("わかりました", null, 0) },
+        // 空を場所で変える。**どの場所で組んだかを候補の中身で見分ける**ため（#166）
+        skyAt: (Site) -> List<GuidanceTarget> = { sky },
     ): AuthoredGuideViewModel {
         val dir = File.createTempFile("guides", "").apply { delete(); mkdirs() }
         val window = GuideWindow(start, GuideSchedule.DEFAULT_MINUTES)
         return AuthoredGuideViewModel(
             initialDraft = AuthoredGuide.empty("guide-1", start, window, ObservationDefaults.site),
             store = GuideStore(dir),
-            targetsAtFactory = { { _ -> sky } },
+            targetsAtFactory = { site -> { _ -> skyAt(site) } },
             loreOf = { "同梱の解説" },
             askAi = askAi,
             io = dispatcher,
             worker = dispatcher,
         )
     }
+
+    /** 石垣島。東京とは違う星座が上がる南の空を表す */
+    private val ishigaki = Site(latDeg = 24.34, lonDeg = 124.16)
 
     @Test
     fun `候補外の名前は通信せずに断る`() = runTest(dispatcher) {
@@ -160,5 +166,83 @@ class AuthoredGuideViewModelTest {
             vm.chat.none { !it.fromUser && it.text.startsWith("通信できませんでした") },
         )
         assertFalse("chatBusy が下りていない", vm.chatBusy)
+    }
+
+    @Test
+    fun `打ち替えた想定地の空から候補を出す`() = runTest(dispatcher) {
+        // 事務所（東京）で現地（石垣島）のツアーを組む。**候補が現地の空に変わらないと、
+        // 当日は段が全部飛んで「何も起きないガイド」になる**（#166）
+        val vm = vm(
+            skyAt = { site ->
+                if (site == ishigaki) listOf(target("みなみじゅうじ座")) else listOf(target("オリオン座"))
+            },
+        )
+        vm.reloadCandidates()
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("オリオン座"), vm.candidates.map { it.nameJa })
+
+        vm.onLatLonTyped("24.34", "124.16")
+        vm.reloadCandidates()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(ishigaki, vm.draft.site)
+        assertEquals(listOf("みなみじゅうじ座"), vm.candidates.map { it.nameJa })
+    }
+
+    @Test
+    fun `AI へ渡す前の関所も想定地の空で判定する`() = runTest(dispatcher) {
+        // 関所（候補外を通信させずに断る）が端末の測位地で判定すると、
+        // **現地では見えるものを「空に無い」と断ってしまう**
+        var asked = false
+        val vm = vm(
+            askAi = { _, _, _, _ -> asked = true; GuideChatReply("入れました", null, 0) },
+            // 東京では低すぎて候補に入らないが、**名前は空にある**ので関所が名前として拾う。
+            // 判定を測位地でやると、現地で高く上がるものを「候補外」と断ってしまう
+            skyAt = { site ->
+                if (site == ishigaki) {
+                    listOf(target("みなみじゅうじ座"))
+                } else {
+                    listOf(target("オリオン座"), target("みなみじゅうじ座", altDeg = 5.0))
+                }
+            },
+        )
+        vm.onLatLonTyped("24.34", "124.16")
+        vm.reloadCandidates()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        vm.chatInput = "みなみじゅうじ座を入れてください"
+        vm.send { "21:00" }
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue("現地の空にあるのに断られた", asked)
+        assertEquals("入れました", vm.chat.last().text)
+    }
+
+    @Test
+    fun `南半球の緯度は1文字ずつ打てる`() = runTest(dispatcher) {
+        // 欄を Double から組み直していたときは「-」も空欄も数に直せず弾かれ、
+        // **負の緯度が最後まで打てなかった**（#166）
+        val vm = vm()
+        vm.onLatLonTyped("", "151.2")
+        assertEquals("", vm.latText)
+        assertTrue("空欄が読める場所として通っている", vm.latInvalid)
+
+        vm.onLatLonTyped("-", "151.2")
+        assertEquals("-", vm.latText)
+        assertTrue(vm.latInvalid)
+
+        vm.onLatLonTyped("-33.87", "151.2")
+        assertEquals(Site(latDeg = -33.87, lonDeg = 151.2), vm.draft.site)
+        assertFalse(vm.latInvalid)
+    }
+
+    @Test
+    fun `範囲の外の緯度経度は場所にしない`() = runTest(dispatcher) {
+        val vm = vm()
+        val before = vm.draft.site
+        vm.onLatLonTyped("100", "200")
+        assertEquals("読めない値が場所として通った", before, vm.draft.site)
+        assertTrue(vm.latInvalid)
+        assertTrue(vm.lonInvalid)
     }
 }
