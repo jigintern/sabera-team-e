@@ -16,7 +16,7 @@
 | **観測地** | 空の計算に使う緯度経度。測位できなければ既定値（鯖江） | `ObservationDefaults.site` / `Locator` |
 | **再現** | 場所や日時を指定して、その空を出すこと。「シミュレーション」と同義で、人に見せる言葉はこちら | `ObservationMode.Simulation` |
 | **時刻スクラブ** | つまみで時間を前後に送ること。**離すまで空へは反映しない** | `scrubOffsetHours` |
-| **タイムラプス** | 時代を大きく飛ばすとき、途中の年号をコマ送りで見せる演出 | `Timelapse` / `TimelapseSender` |
+| **タイムラプス** | 時代を大きく飛ばすとき、途中の年号をコマ送りで見せる演出。**撤去した**（[sky-simulation](docs/team-e/38_sky-simulation.md)） | — |
 | **空の濃さ** | 星図に何をどれだけ描くか（星の数・線・絵）の段階 | `SkyDensity` |
 | **空の暗さ** | 太陽高度から決まる昼／薄暮／夜。**BGM の曲がこれで決まる** | `SkyDarkness` |
 | **画角** | 星図 1 枚が覆う空の横幅[度]。**仮の 35° 固定で未実測** | `ObservationDefaults.STAR_MAP_FOV_DEG` |
@@ -80,4 +80,4 @@
 | **群れ** | スターリンク。数が多いので小さい点だけを打ち、名前は出さない | `SatelliteScene` |
 | **TLE** | 軌道要素。同梱していて、古くなると位置がずれる | `Tle` |
 | **元期** | 軌道要素そのものの基準時刻。**位置のずれを決めるのは取得日ではなくこちら** | `SatelliteScene.elementAgeDays` |
-| **パス** | 1 機が空へ上がってから沈むまでの 1 回ぶん | `SatelliteScene.Pass` |
+| **パス** | 1 機が空へ上がってから沈むまでの 1 回ぶん。**計算ごと撤去した**（[satellites](docs/team-e/40_satellites.md)） | — |

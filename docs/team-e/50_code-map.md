@@ -68,8 +68,6 @@
 | `sky/CelestialGuidance.kt` | 案内対象と、案内要求を取り出す固定ルール（#46） |
 | `sky/GuidanceTracker.kt` | 左右→上下の段階、5°/8°のヒステリシス、到着と60秒の状態遷移（#46・#61） |
 | `sky/ObservationMode.kt` | 現在の空と、固定した場所・時刻。**時刻のつまみの位置もここで出す**（#45） |
-| `sky/Timelapse.kt` | 時代を送る途中の空。**年だけを補間**し、月日と時刻は目的地に固定する（#45） |
-| `glass/TimelapseSender.kt` | 240×160 の窓を**画像 id 2 枚で交互に**送る。**置いてから消す**ので途中が空にならない（#45） |
 | `sky/CityCatalog.kt` / `SkyCommand.kt` | 同梱 18 都市と IANA タイムゾーン、音声から**許可済み 4 操作だけ**を取り出す（#45） |
 | `sky/Ephemeris.kt` | 月と 8 惑星の位置計算。**天体の位置はここだけ** |
 | `alignment/YawDriftCorrector.kt` | Android 非依存のヨードリフト補正。変更時は JVM テストも更新する |
@@ -77,7 +75,6 @@
 | `alignment/CompassGate.kt` | 磁気精度で止めるかどうか。**8 の字で止めるが、止めっぱなしにはしない**（#65） |
 | `alignment/HeadFlick.kt` | 首の上下フリック。**解説画面の字幕送り専用**（星図では首は見る向きのまま） |
 | `alignment/TiltGauge.kt` | 仰角差の姿勢計の幾何と許容（3°）。**度をここで正規化し、Canvas は -1..1 だけ描く** |
-| `narration/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
 | `narration/SkyTips.kt` | 読み込み画面の一言。**通信も生成も要らない**（時刻と場所から端末が組む） |
 | `notification/MeteorShowerSchedule.kt` | 次にいつ何を知らせるか。**予約は常に次の 1 件だけ**（再起動で消えるため）（#70） |
 | `notification/MeteorShowerAlarm.kt` | `setAndAllowWhileIdle` で予約。**正確アラームの権限は要らない。** `observing` は**グラス接続中に鳴らさない**ための印で、`SharedPreferences` に持たせない（#70） |
@@ -89,7 +86,8 @@
 | `guide/GuideSchedule.kt` | 段ごとの推定時刻と、その時刻で見えるかの判定。**一点ではなく幅で見る** |
 | `guide/GuideCodec.kt` | QR とファイルの出入口。圧縮と**形の上限**。**中身は見ない** |
 | `guide/AuthoredGuide.kt` | 編集中の台本（toB）。並べ替え・段の増減・上限の判定 |
-| `guide/GuideAsk.kt` | toB の対話で**通信の前に端末が断る**ところ。`narration/AskGuard` と同じ位置づけ |
+| `guide/GuideAsk.kt` | toB の対話で**通信の前に端末が断る**ところ。`openai/AskGuard` と同じ位置づけ |
+| `openai/AskGuard.kt` | 声の質問の検査。**聞き取った文は指示ではなくデータ**（#38） |
 | `openai/OpenAiGuide.kt` | 即興ガイドの文を書かせる（一往復）。**「解説文を AI に生成させない」の例外**（[authoring](39_guide-authoring.md) の 4 条件） |
 | `openai/OpenAiGuideChat.kt` | 詳細ガイドを対話で作らせる（履歴を積む）。**候補の中からしか選ばせない** |
 | `support/QrCode.kt` | QR の生成と解読。**文字ではなく生バイトを運ぶ**（ISO-8859-1 経由でバイトモードにする） |
@@ -123,7 +121,7 @@ python3 tools/pick-bgm-window.py <元曲.mp3>    # 切り出し位置を選び�
   いちばん小さく、区間の揺れが少ないところを採る（`pick-bgm-window.py`）
 - 曲を足したら **`BgmTrack` と `NOTICE` の両方**に足す。設定パネルの帰属は `BgmTrack` から組み立てる
 
-- **アプリの生きている間 1 回だけ読む**（`support/BundledData.kt`）
+- **アプリの生きている間 1 回だけ読む**（`glass/BundledData.kt`）
 - CI（`.github/workflows/checks.yml`）は**手元で完結する生成物**（星座解説・星座絵・大三角）を
   作り直して `data/` に差分が出ないか検査する。**星表と TLE は外部取得が要るので回さない**
 - 星座絵の元データ（NOIRLab の線画・CC BY 4.0）は**`tools/lineart/` に置いてある**。
@@ -141,7 +139,7 @@ tools/build-demo-images.sh        # 全部（docs/images/ へ）
 
 | どこ | 何をする |
 |---|---|
-| `PhoneScreenshotTest` | **アプリの Compose をそのまま描いて撮る**（Robolectric・偽の 6DoF で星図まで走らせる） |
+| `PhoneScreenshotTest` | **アプリの Compose をそのまま描いて撮る**（Robolectric・偽の 6DoF で星図まで走らせる）。**絵を撮るためだけの道具ではない** — `StarMapScreen` を JVM から動かす唯一の道で、`FakeGlass` に記録を足せば**グラスへ送った電文の並びも検査できる** |
 | `DocumentImagesTest` | グラスへ送るのと同じ画像とテキスト枠を `build/doc-images/panels.txt` へ書き出す |
 | `tools/compose-glass-images.java` | それを空と街に重ねて絵にする（**文字を焼くには AWT が要り、Android のユニットテストからは触れない**） |
 

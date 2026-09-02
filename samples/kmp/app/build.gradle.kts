@@ -138,3 +138,17 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
 }
+
+// **CodeMapTest が読む文書を Gradle の入力に足す。**
+//
+// `data/` は 82 行目で assets の srcDir にしているので入力に入るが、`docs/` と `CONTEXT.md` は
+// どこからも入力になっていない。宣言しないと**文書だけ壊してもテストが UP-TO-DATE のまま
+// 緑で通る**（72_pitfalls.md「リポジトリのファイルを読むテストを入力宣言せずに置く」）。
+tasks.withType<Test>().configureEach {
+    inputs.files(
+        rootProject.file("../../docs/team-e/50_code-map.md"),
+        rootProject.file("../../CONTEXT.md"),
+    )
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+        .withPropertyName("docsReadByTests")
+}
