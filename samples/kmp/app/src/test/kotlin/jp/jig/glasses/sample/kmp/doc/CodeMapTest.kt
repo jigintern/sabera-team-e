@@ -7,7 +7,7 @@ import java.io.File
 /**
  * **ドキュメントが指しているコードが実在するか。**
  *
- * `50_code-map.md` は「どこに何のコードがあるか」の正本で、[CONTEXT.md](../../../../../../../../CONTEXT.md) は
+ * `50_code-map.md` は「どこに何のコードがあるか」の正本で、`CONTEXT.md` は
  * 言葉とコードの対応表。**どちらも人が読む地図なので、指し先が消えても壊れたことに気づけない。**
  *
  * 実際に 4 件残っていた（2026-09-02 に発見）。
@@ -26,8 +26,10 @@ import java.io.File
  * Gradle の入力に入っていないので、宣言しないと**docs だけ戻したときに UP-TO-DATE で
  * 緑のまま素通りする**（`72_pitfalls.md`「リポジトリのファイルを読むテストを入力宣言せずに置く」）。
  *
- * **見るのはこの 2 つの文書だけ。** ほかの文書は「撤去した」経緯そのものを説明するために
- * 消えたファイル名を挙げていることがある（`74_alignment-accuracy.md` など）ので、広げない。
+ * **パスの検査はドキュメント全体に掛ける**（現ツリーでは 1 件も壊れていないことを確かめた）。
+ * 拾うのは `` `pkg/Name.kt` `` の形だけなので、撤去した経緯を説明するために消えたファイル名を
+ * 挙げたいときは**パッケージを付けずに書く**（`74_alignment-accuracy.md` が実際にそうしている）。
+ * 名前（識別子）の検査は用語集の桁の形に依るので `CONTEXT.md` だけに掛ける。
  */
 class CodeMapTest {
 
@@ -57,22 +59,35 @@ class CodeMapTest {
     private fun exists(token: String): Boolean =
         File(repoRoot, token).isFile || sourcePaths.any { it.endsWith("/$token") }
 
+    /** 検査する文書。**足すときはここへ** */
+    private fun documents(): List<File> = buildList {
+        File(repoRoot, "docs/team-e").listFiles()
+            ?.filter { it.extension == "md" }
+            ?.sortedBy { it.name }
+            ?.let { addAll(it) }
+        add(File(repoRoot, "CONTEXT.md"))
+        add(File(repoRoot, "AGENTS.md"))
+        add(File(repoRoot, "CONTRIBUTING.md"))
+    }.filter { it.isFile }
+
     /**
-     * `50_code-map.md` が挙げる `.kt` は全部実在する。
+     * ドキュメントが挙げる `pkg/Name.kt` は全部実在する。
      *
      * **壊れている行は全部集めてから 1 回で落とす。** ループの中で assert すると
      * 最初の 1 個で止まって広がりが見えない（`72_pitfalls.md`）。
      */
     @Test
-    fun `コードマップが指すファイルは実在する`() {
-        val doc = File(repoRoot, "docs/team-e/50_code-map.md")
-        assertTrue("50_code-map.md が見つからない: $doc", doc.isFile)
+    fun `ドキュメントが指すファイルは実在する`() {
+        val docs = documents()
+        assertTrue("検査する文書が見つからない（repoRoot=$repoRoot）", docs.size > 10)
 
         val broken = mutableListOf<String>()
-        for ((index, line) in doc.readLines().withIndex()) {
-            for (match in ktPath.findAll(line)) {
-                val token = match.groupValues[1]
-                if (!exists(token)) broken += "50_code-map.md:${index + 1} `$token`"
+        for (doc in docs) {
+            for ((index, line) in doc.readLines().withIndex()) {
+                for (match in ktPath.findAll(line)) {
+                    val token = match.groupValues[1]
+                    if (!exists(token)) broken += "${doc.name}:${index + 1} `$token`"
+                }
             }
         }
 
