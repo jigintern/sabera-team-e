@@ -84,11 +84,6 @@ const val PREDICT_COOLDOWN_MS = 1_200L
 const val ROLL_SMOOTHING = 0.2
 
 /**
- * 追従ループ 1 周ぶんの判断。**時刻は引数で受ける**ので JVM テストで固定できる。
- *
- * 判定だけを持ち、送る・焼くはしない（送る側の都合は StarMapScreen / FrameSender が知っている）。
- */
-/**
  * 2 つの視線の、**空の上での隔たり**[度]。
  *
  * **方位の差をそのまま使わない。** 天頂に近いほど方位は同じ首の動きで大きく動くので、
@@ -101,6 +96,11 @@ const val ROLL_SMOOTHING = 0.2
 fun lookSeparationDeg(fromAzDeg: Double, fromAltDeg: Double, toAzDeg: Double, toAltDeg: Double): Double =
     angleBetweenDeg(enu(fromAzDeg, fromAltDeg), enu(toAzDeg, toAltDeg))
 
+/**
+ * 追従ループ 1 周ぶんの判断。**時刻は引数で受ける**ので JVM テストで固定できる。
+ *
+ * 判定だけを持ち、送る・焼くはしない（送る側の都合は StarMapScreen / FrameSender が知っている）。
+ */
 class RedrawDecider {
 
     private var previousAz = Double.NaN
