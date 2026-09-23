@@ -35,6 +35,9 @@ class SatelliteSceneTest {
         .map { File(it, "data") }
         .first { File(it, "satellites.tle").exists() }
 
+    // 壁時計ではなく同梱データを取った時刻で伝播する（BundledTleTime.kt）
+    private val fetchedMillis: Long = bundledTleFetchedMillis(dataDir)
+
     private val sabae = ObservationDefaults.site
     private val observer = Observer(sabae.latDeg, sabae.lonDeg)
 
@@ -111,7 +114,7 @@ class SatelliteSceneTest {
     @Test
     fun `いちばん高い衛星を向くとその機体が視野に入る`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val target = scene.namedUp(now).firstOrNull()
         checkNotNull(target) { "名前つきの衛星が 1 機も空に出ていない" }
 
@@ -137,7 +140,7 @@ class SatelliteSceneTest {
     fun `衛星を焼いてもグラスのバッファに収まる`() {
         val scene = scene()
         val renderer = StarMapRenderer(catalog())
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val look = checkNotNull(scene.namedUp(now).firstOrNull()).aim
         val tracks = scene.tracksInView(observer, now, look, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
@@ -175,7 +178,7 @@ class SatelliteSceneTest {
     @Test
     fun `スターリンクは点だけで名前を出さない`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         // 天頂を向く。スターリンクは全天にいるので、たいてい何本か入る
         val tracks = scene.tracksInView(observer, now, Look(180.0, 70.0), fovDeg = 50.0, panelAspect = panelAspect)
         val starlink = tracks.filterNot { it.labelled }
@@ -189,7 +192,7 @@ class SatelliteSceneTest {
     @Test
     fun `視野の外にいる衛星は拾わない`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val target = checkNotNull(scene.namedUp(now).firstOrNull())
 
         // 狙った衛星のちょうど反対側を向く。視野 35° なら絶対に入らないはず
@@ -213,7 +216,7 @@ class SatelliteSceneTest {
     fun `静止軌道には最接近を出さない`() {
         // 距離がほとんど変わらないので、数値のゆらぎで「あと 7 分」と出すと嘘になる
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val motion = checkNotNull(scene.motionOf("ひまわり8", now)) { "動きが出ていない" }
         assertTrue("静止と判定できていない", motion.stationary)
         assertTrue("静止なのに最接近を出している: ${motion.closestInMinutes}", motion.closestInMinutes == null)
@@ -225,7 +228,7 @@ class SatelliteSceneTest {
         // ISS が空に出ている時刻を探してから見る（いつでも出ているわけではない）
         val issTle = Tle.parseAll(File(dataDir, "satellites.tle").readText()).first { it.name == "ISS" }
         val iss = Sgp4(issTle)
-        val start = System.currentTimeMillis()
+        val start = fetchedMillis
         var found = -1L
         var step = 0L
         while (step < 24 * 60) {
@@ -260,7 +263,7 @@ class SatelliteSceneTest {
     @Test
     fun `TLE の古さを日数で出せる`() {
         val scene = scene()
-        // 同梱データには取得日を残してある
+        // 同梱データには取得日を残してある。ここだけは「いまから見た古さ」を見るので壁時計を使う
         val age = scene.ageDays(System.currentTimeMillis())
         checkNotNull(age) { "取得日が読めない" }
         assertTrue("取得日が未来になっている: $age", age >= -0.1)
@@ -277,7 +280,7 @@ class SatelliteSceneTest {
     fun `印は画像を焼いた視線に対して置く`() {
         val scene = scene()
         val renderer = StarMapRenderer(catalog())
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val drawnLook = checkNotNull(scene.namedUp(now).firstOrNull()).aim
         val tracks = scene.tracksInView(observer, now, drawnLook, fovDeg = ObservationDefaults.STAR_MAP_FOV_DEG, panelAspect = panelAspect)
 
@@ -328,7 +331,7 @@ class SatelliteSceneTest {
     @Test
     fun `印だけ動かすときはスターリンクを回さない`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val look = checkNotNull(scene.namedUp(now).firstOrNull()).aim
 
         val started = System.nanoTime()
@@ -361,7 +364,7 @@ class SatelliteSceneTest {
     @Test
     fun `案内中の衛星は同じIDのまま現在位置を更新する`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val target = scene.guidanceTargets(observer, now) { it == "ISS" }.single()
         val refreshed = checkNotNull(scene.refreshGuidanceTarget(target, observer, now + 10_000L))
 

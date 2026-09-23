@@ -20,6 +20,9 @@ class TleCatalogTest {
 
     private fun load(name: String) = Tle.parseAll(File(dataDir, name).readText())
 
+    // 壁時計ではなく同梱データを取った時刻で伝播する（BundledTleTime.kt）
+    private val fetchedMillis: Long = bundledTleFetchedMillis(dataDir)
+
     @Test
     fun `名前つきの衛星を全部読める`() {
         val tles = load("satellites.tle")
@@ -52,7 +55,7 @@ class TleCatalogTest {
 
     @Test
     fun `同梱した 24 機すべてを伝播できる`() {
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val sabae = Observer(35.9432, 136.1846)
         val results = load("satellites.tle")
             .mapNotNull { tle -> Sgp4(tle).at(now)?.let { tle to it } }
@@ -71,7 +74,8 @@ class TleCatalogTest {
         val himawari = load("satellites.tle").first { it.name == "ひまわり8" }
         val sgp4 = Sgp4(himawari)
 
-        val now = System.currentTimeMillis()
+        // 静止軌道でも元期から離れると経度が流れる。この機体自身の元期で見る
+        val now = himawari.epochUnixMillis
         val look = sgp4.at(now)?.let { sabae.look(it, now) }
         checkNotNull(look) { "ひまわりを伝播できない" }
 
@@ -98,7 +102,7 @@ class TleCatalogTest {
         val sabae = Observer(35.9432, 136.1846)
         val michibiki = load("satellites.tle").filter { it.name.contains("みちびき") }
             .map { it to Sgp4(it) }
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
 
         // 準天頂軌道の 3 機は日本の上空を分け合うので、いつでもどれかが高い位置にいる
         val highest = michibiki.mapNotNull { (tle, s) -> s.at(now)?.let { tle.name to sabae.look(it, now) } }
@@ -109,7 +113,7 @@ class TleCatalogTest {
     }
 
     @Test
-    fun `スターリンクを全部読んで、いま頭上に何機いるか数える`() {
+    fun `スターリンクを全部読んで、頭上に何機いるか数える`() {
         val text = File(dataDir, "starlink.tle")
         if (!text.exists()) return
         val started = System.currentTimeMillis()
@@ -117,7 +121,7 @@ class TleCatalogTest {
         val parsed = System.currentTimeMillis() - started
         assertTrue("スターリンクが少なすぎる: ${tles.size}", tles.size > 5000)
 
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         val sabae = Observer(35.9432, 136.1846)
         val propagateStarted = System.currentTimeMillis()
         val sgp4 = tles.map { Sgp4(it) }
