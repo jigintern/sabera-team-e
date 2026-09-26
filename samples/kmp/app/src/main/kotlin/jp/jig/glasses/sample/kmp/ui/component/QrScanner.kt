@@ -58,8 +58,15 @@ internal fun QrScanner(
 
     DisposableEffect(lifecycleOwner) {
         val future = ProcessCameraProvider.getInstance(context)
+        // **初期化を待っている間に閉じられる。** リスナーは `onDispose` のあとでも
+        // メイン executor 上で動くので、束縛してよいかどうかをここで見る（#164）
+        val disposed = AtomicBoolean(false)
         val listener = Runnable {
             val provider = runCatching { future.get() }.getOrNull() ?: return@Runnable
+            // **もう閉じている。束縛しない。**
+            // ここで `unbindAll()` もしない — 画面へ入り直していれば、
+            // **次の QrScanner が束縛したカメラを解いてしまう**
+            if (disposed.get()) return@Runnable
             val preview = Preview.Builder().build()
                 .also { it.setSurfaceProvider(previewView.surfaceProvider) }
             val analysis = ImageAnalysis.Builder()
@@ -74,7 +81,14 @@ internal fun QrScanner(
         }
         future.addListener(listener, context.mainExecutor)
         onDispose {
-            runCatching { future.get().unbindAll() }
+            disposed.set(true)
+            // **リスナーと `onDispose` はどちらもメインスレッドで動く**ので、
+            // 順番はこの 2 通りしかない。
+            //   束縛済み → `isDone` が true。ここで解く
+            //   まだ    → 束縛は起きていない。リスナーが上の札を見て降りる
+            // `isDone` を見ずに `future.get()` を呼ぶと、**初期化が終わるまで
+            // メインスレッドを止める**（100〜500ms のフリーズ）。
+            if (future.isDone) runCatching { future.get().unbindAll() }
             executor.shutdown()
         }
     }
