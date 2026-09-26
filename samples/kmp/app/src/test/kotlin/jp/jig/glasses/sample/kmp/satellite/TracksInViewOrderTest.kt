@@ -25,6 +25,9 @@ class TracksInViewOrderTest {
         starlink = emptyList(),
     )
 
+    // 壁時計ではなく同梱データを取った時刻で伝播する（BundledTleTime.kt）
+    private val fetchedMillis: Long = bundledTleFetchedMillis(dataDir)
+
     private val sabae = ObservationDefaults.site
     private val observer = Observer(sabae.latDeg, sabae.lonDeg)
     private val panelAspect = PANEL_HEIGHT.toDouble() / PANEL_WIDTH
@@ -32,7 +35,7 @@ class TracksInViewOrderTest {
     @Test
     fun `絞る順を変えても同じ機体が同じ順で返る`() {
         val scene = scene()
-        val now = System.currentTimeMillis()
+        val now = fetchedMillis
         // 空の広い範囲を当たって、名前つきが入る視線を総当たりで確かめる
         var checked = 0
         for (az in 0 until 360 step 30) {
