@@ -37,11 +37,12 @@ class DemoSensors(context: Context) {
 
     /**
      * 背面が[azimuthDeg]の方角・[elevationDeg]の高さを向いている姿勢を 1 回配る。
+     * [rollDeg] は背面の向きを保ったまま画面法線まわりに回す角度（0 = 縦持ち、±90 = 横持ち）。
      *
      * **同じ値を配り続けると「止めている」ことになる**ので、静止の判定も満たせる。
      */
-    fun aim(azimuthDeg: Double, elevationDeg: Double) {
-        val r = deviceToWorld(azimuthDeg, elevationDeg)
+    fun aim(azimuthDeg: Double, elevationDeg: Double, rollDeg: Double = 0.0) {
+        val r = deviceToWorld(azimuthDeg, elevationDeg, rollDeg)
         send(Sensor.TYPE_ROTATION_VECTOR, quaternionOf(r))
         // 静止しているので、加速度計が読むのは重力だけ
         send(Sensor.TYPE_ACCELEROMETER, intoDevice(r, 0.0, 0.0, GRAVITY))
@@ -71,9 +72,10 @@ class DemoSensors(context: Context) {
     /**
      * 端末の軸を世界の軸（東・北・上）へ移す 3×3。行優先で 9 個。
      *
-     * 端末の −Z（背面）が狙った向き、＋Y（画面の上端）はできるだけ天頂側を向くように取る。
+     * 端末の −Z（背面）が狙った向き、＋Y（画面の上端）はできるだけ天頂側を向くように取り、
+     * そこから Z まわりに [rollDeg] だけ回す。
      */
-    private fun deviceToWorld(azimuthDeg: Double, elevationDeg: Double): DoubleArray {
+    private fun deviceToWorld(azimuthDeg: Double, elevationDeg: Double, rollDeg: Double): DoubleArray {
         val az = Math.toRadians(azimuthDeg)
         val el = Math.toRadians(elevationDeg)
         val gaze = doubleArrayOf(sin(az) * cos(el), cos(az) * cos(el), sin(el))
@@ -81,12 +83,16 @@ class DemoSensors(context: Context) {
         // 天頂から z 成分を抜いたものが画面の上端
         val dot = z[2]
         val y = normalized(doubleArrayOf(-dot * z[0], -dot * z[1], 1.0 - dot * z[2]))
-        val x = doubleArrayOf(
+        val upright = doubleArrayOf(
             y[1] * z[2] - y[2] * z[1],
             y[2] * z[0] - y[0] * z[2],
             y[0] * z[1] - y[1] * z[0],
         )
-        return doubleArrayOf(x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2])
+        val c = cos(Math.toRadians(rollDeg))
+        val s = sin(Math.toRadians(rollDeg))
+        val x = DoubleArray(3) { c * upright[it] + s * y[it] }
+        val rolledY = DoubleArray(3) { -s * upright[it] + c * y[it] }
+        return doubleArrayOf(x[0], rolledY[0], z[0], x[1], rolledY[1], z[1], x[2], rolledY[2], z[2])
     }
 
     /** 世界の向きのベクトルを端末の軸で読み直す（回転行列の転置をかける） */
